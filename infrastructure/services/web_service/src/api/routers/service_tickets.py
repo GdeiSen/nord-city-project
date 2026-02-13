@@ -38,16 +38,18 @@ async def get_service_tickets_stats():
 @router.get("/", response_model=PaginatedResponse[ServiceTicketResponse])
 async def get_service_tickets(
     page: int = Query(1, ge=1),
-    page_size: int = Query(10, ge=1, le=100),
+    page_size: int = Query(10, ge=1, le=500),
     search: Optional[str] = None,
     sort: Optional[str] = None,
+    search_columns: Optional[str] = None,
 ):
+    cols = [c.strip() for c in (search_columns or "").split(",") if c.strip()]
     response = await db_client.service_ticket.get_paginated(
         page=page,
         page_size=page_size,
         sort=parse_sort_param(sort),
         search=search or "",
-        search_columns=["msid", "description"],
+        search_columns=cols if cols else None,
     )
     if not response.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -64,8 +66,38 @@ async def get_service_tickets(
                 user_map[uid] = ur["data"]
         except Exception:
             pass
+    # Enrich with object (business center) from user's object_id - batch fetch for reliable names
+    object_ids = set(u.get("object_id") for u in user_map.values() if u.get("object_id"))
+    object_map = {}
+    if object_ids:
+        try:
+            page, page_size = 1, 100
+            while object_ids - object_map.keys():
+                obj_resp = await db_client.object.get_paginated(
+                    page=page, page_size=page_size
+                )
+                if not obj_resp.get("success"):
+                    break
+                data = obj_resp.get("data", {})
+                objs = data.get("items", [])
+                if not objs:
+                    break
+                for obj in objs:
+                    oid = obj.get("id")
+                    if oid in object_ids and oid not in object_map:
+                        name = obj.get("name") or (f"БЦ-{oid}" if oid else "")
+                        object_map[oid] = {"id": oid, "name": name}
+                total = data.get("total", 0)
+                if page * page_size >= total:
+                    break
+                page += 1
+        except Exception as e:
+            logger.warning("Failed to batch-fetch objects for enrichment: %s", e)
     for t in items:
-        t["user"] = user_map.get(t.get("user_id"), {"first_name": "Unknown", "last_name": "", "username": ""})
+        u = user_map.get(t.get("user_id"), {"first_name": "Unknown", "last_name": "", "username": ""})
+        t["user"] = u
+        oid = u.get("object_id")
+        t["object"] = object_map.get(oid) if oid else None
     return PaginatedResponse(items=items, total=data.get("total", 0))
 
 

@@ -212,6 +212,8 @@ export interface ServiceTicket extends BaseEntity {
   category?: string;
   /** Associated user */
   user?: User;
+  /** Associated rental object (from user's object_id) */
+  object?: { id: number; name: string };
   /** Status history logs */
   status_logs?: ServiceTicketLog[];
 }

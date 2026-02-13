@@ -184,6 +184,45 @@ export interface ServerPaginationParams {
   pageSize: number
   search: string
   sort: string
+  searchColumns?: string[]
+}
+
+/** Column meta for server-side search. Add to ColumnDef when column maps to DB columns. */
+export interface DataTableColumnMeta {
+  searchDbColumns?: string[]
+}
+
+/** Unified select column for row selection. Use in all tables for consistent checkbox layout. */
+export function createSelectColumn<TData>(): ColumnDef<TData> {
+  return {
+    id: "select",
+    size: 40,
+    minSize: 40,
+    maxSize: 40,
+    header: ({ table }) => (
+      <div className="flex h-full w-10 shrink-0 items-center justify-center px-2">
+        <Checkbox
+          checked={
+            table.getIsAllPageRowsSelected() ||
+            (table.getIsSomePageRowsSelected() && "indeterminate")
+          }
+          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+          aria-label="Select all"
+        />
+      </div>
+    ),
+    cell: ({ row }) => (
+      <div className="flex h-full w-10 shrink-0 items-center justify-center px-2">
+        <Checkbox
+          checked={row.getIsSelected()}
+          onCheckedChange={(value) => row.toggleSelected(!!value)}
+          aria-label="Select row"
+        />
+      </div>
+    ),
+    enableSorting: false,
+    enableHiding: false,
+  }
 }
 
 export function DataTable<TData>({
@@ -222,6 +261,7 @@ export function DataTable<TData>({
   const [rowSelection, setRowSelection] = React.useState({})
   const [columnVisibility, setColumnVisibility] =
     React.useState<VisibilityState>({})
+  const [columnOrder, setColumnOrder] = React.useState<string[]>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [pagination, setPagination] = React.useState({
@@ -231,7 +271,14 @@ export function DataTable<TData>({
   const [isSortFilterOpen, setIsSortFilterOpen] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState<'sort' | 'filter'>('sort')
   const [globalQuery, setGlobalQuery] = React.useState(serverParams?.search ?? "")
+  const [debouncedSearch, setDebouncedSearch] = React.useState(serverParams?.search ?? "")
   const isMobile = useIsMobile()
+
+  // Debounce search input (300ms) for server-side requests
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(globalQuery), 300)
+    return () => clearTimeout(t)
+  }, [globalQuery])
 
   // Sync from serverParams when in server mode
   React.useEffect(() => {
@@ -240,7 +287,9 @@ export function DataTable<TData>({
         pageIndex: serverParams.pageIndex ?? 0,
         pageSize: serverParams.pageSize ?? 10,
       })
-      setGlobalQuery(serverParams.search ?? "")
+      const s = serverParams.search ?? ""
+      setGlobalQuery(s)
+      setDebouncedSearch(s)
       if (serverParams.sort) {
         const parts = serverParams.sort.split(",").filter(Boolean)
         const sorts = parts.map((p) => {
@@ -369,20 +418,7 @@ export function DataTable<TData>({
   }, [])
 
   const isFirstServerParamsSync = React.useRef(true)
-  React.useEffect(() => {
-    if (!serverPagination || !onServerParamsChange) return
-    if (isFirstServerParamsSync.current) {
-      isFirstServerParamsSync.current = false
-      return
-    }
-    const sortStr = advancedSorts.map((s) => `${s.columnId}:${s.direction}`).join(",")
-    onServerParamsChange({
-      pageIndex: pagination.pageIndex,
-      pageSize: pagination.pageSize,
-      search: globalQuery,
-      sort: sortStr,
-    })
-  }, [serverPagination, onServerParamsChange, pagination.pageIndex, pagination.pageSize, globalQuery, advancedSorts])
+  const prevSearchRef = React.useRef(debouncedSearch)
 
   // Apply advanced filters and sorts to table
   React.useEffect(() => {
@@ -632,12 +668,14 @@ export function DataTable<TData>({
   )
 
   // Wrap columns to add custom filter function
-  const wrappedColumns = React.useMemo(() => {
-    return columns.map(col => ({
-      ...col,
-      filterFn: customFilterFn as any,
-    }))
-  }, [columns, customFilterFn])
+  const wrappedColumns = React.useMemo(
+    () =>
+      columns.map((col) => ({
+        ...col,
+        filterFn: customFilterFn as any,
+      })) as ColumnDef<TData>[],
+    [columns, customFilterFn]
+  )
 
   // Global search across all visible columns with left-to-right priority
   const globalSearchFn = React.useCallback((row: any, _columnId: string, filterValue: string) => {
@@ -657,15 +695,17 @@ export function DataTable<TData>({
 
   const table = useReactTable({
     data,
-    columns: wrappedColumns,
+    columns: wrappedColumns as ColumnDef<unknown, unknown>[],
     state: {
       sorting,
       columnVisibility,
+      columnOrder: columnOrder.length > 0 ? columnOrder : undefined,
       rowSelection,
       columnFilters,
       pagination,
       globalFilter: globalQuery,
     },
+    onColumnOrderChange: setColumnOrder,
     getRowId: (row) => (row as any).id.toString(),
     enableRowSelection: true,
     onRowSelectionChange: setRowSelection,
@@ -719,6 +759,53 @@ export function DataTable<TData>({
     return availableColumns.filter(col => !usedIds.has(col.id) && col.canSort)
   }, [availableColumns, advancedSorts])
 
+  // Build searchColumns for server: visible columns in order, with meta.searchDbColumns expansion
+  const searchColumns = React.useMemo(() => {
+    if (!serverPagination) return undefined
+    try {
+      const visible = table.getVisibleLeafColumns()
+      const result: string[] = []
+      const seen = new Set<string>()
+      for (const col of visible) {
+        if (col.id === "select" || col.id === "actions") continue
+        const meta = (col.columnDef as { meta?: DataTableColumnMeta })?.meta
+        const dbCols = meta?.searchDbColumns
+        const toAdd = Array.isArray(dbCols)
+          ? dbCols
+          : [col.id]
+        for (const c of toAdd) {
+          if (c && !seen.has(c)) {
+            seen.add(c)
+            result.push(c)
+          }
+        }
+      }
+      return result
+    } catch {
+      return undefined
+    }
+  }, [serverPagination, table, columnVisibility, columnOrder])
+
+  // Notify parent when server params change (after searchColumns is available)
+  React.useEffect(() => {
+    if (!serverPagination || !onServerParamsChange) return
+    if (isFirstServerParamsSync.current) {
+      isFirstServerParamsSync.current = false
+      prevSearchRef.current = debouncedSearch
+      return
+    }
+    const searchChanged = prevSearchRef.current !== debouncedSearch
+    prevSearchRef.current = debouncedSearch
+    if (searchChanged) setPagination((p) => ({ ...p, pageIndex: 0 }))
+    const sortStr = advancedSorts.map((s) => `${s.columnId}:${s.direction}`).join(",")
+    onServerParamsChange({
+      pageIndex: searchChanged ? 0 : pagination.pageIndex,
+      pageSize: pagination.pageSize,
+      search: debouncedSearch,
+      sort: sortStr,
+      searchColumns: searchColumns ?? undefined,
+    })
+  }, [serverPagination, onServerParamsChange, pagination.pageIndex, pagination.pageSize, debouncedSearch, advancedSorts, searchColumns])
 
   return (
     <div className="w-full flex flex-col gap-4">
@@ -805,7 +892,7 @@ export function DataTable<TData>({
           ) : table.getRowModel().rows?.length ? (
             table.getRowModel().rows.map((row) => (
               <React.Fragment key={row.id}>
-                {renderCard ? renderCard(row) : null}
+                {renderCard ? renderCard(row as Row<TData>) : null}
               </React.Fragment>
             ))
           ) : (
@@ -832,22 +919,88 @@ export function DataTable<TData>({
             <TableHeader className="bg-muted sticky top-0 z-10 rounded-md">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => {
+                  {headerGroup.headers.map((header, idx) => {
+                    const canReorder =
+                      header.id !== "select" && header.id !== "actions"
+                    const visibleCols = table.getVisibleLeafColumns()
+                    const colIdx = visibleCols.findIndex((c) => c.id === header.id)
+                    const canMoveLeft = canReorder && colIdx > 0
+                    const canMoveRight =
+                      canReorder && colIdx >= 0 && colIdx < visibleCols.length - 1
+
+                    const moveColumn = (dir: "left" | "right") => {
+                      const currentOrder =
+                        table.getState().columnOrder?.length > 0
+                          ? [...table.getState().columnOrder]
+                          : table.getAllLeafColumns().map((c) => c.id)
+                      const i = currentOrder.indexOf(header.id)
+                      if (i < 0) return
+                      const j = dir === "left" ? i - 1 : i + 1
+                      if (j < 0 || j >= currentOrder.length) return
+                      const next = [...currentOrder]
+                      ;[next[i], next[j]] = [next[j], next[i]]
+                      setColumnOrder(next)
+                    }
+
                     return (
-                      <TableHead key={header.id} colSpan={header.colSpan}>
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(
-                            header.column.columnDef.header,
-                            header.getContext()
-                          )}
+                      <TableHead
+                        key={header.id}
+                        colSpan={header.colSpan}
+                        className={canReorder ? "group relative" : ""}
+                      >
+                        {header.isPlaceholder ? null : (
+                          <>
+                            {flexRender(
+                              header.column.columnDef.header,
+                              header.getContext()
+                            )}
+                            {canReorder && (
+                              <>
+                                <div
+                                  className="absolute inset-y-0 right-0 w-32 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-r from-transparent via-muted/70 to-muted"
+                                  aria-hidden
+                                />
+                                <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity absolute right-1 top-1/2 -translate-y-1/2 pointer-events-auto z-10">
+                                  <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-6 w-6 rounded-sm bg-muted/45 border border-border/35 text-muted-foreground hover:bg-muted/60 dark:bg-muted/55 dark:border-border/45 dark:hover:bg-muted/75 shadow-none"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    moveColumn("left")
+                                  }}
+                                  disabled={!canMoveLeft}
+                                  aria-label="Переместить столбец влево"
+                                >
+                                  <IconChevronLeft className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-6 w-6 rounded-sm bg-muted/45 border border-border/35 text-muted-foreground hover:bg-muted/60 dark:bg-muted/55 dark:border-border/45 dark:hover:bg-muted/75 shadow-none"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    moveColumn("right")
+                                  }}
+                                  disabled={!canMoveRight}
+                                  aria-label="Переместить столбец вправо"
+                                >
+                                  <IconChevronRight className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                              </>
+                            )}
+                          </>
+                        )}
                       </TableHead>
                     )
                   })}
                 </TableRow>
               ))}
             </TableHeader>
-            <TableBody className="**:data-[slot=table-cell]:first:w-10">
+            <TableBody>
               {loading ? (
                 <TableRow>
                   <TableCell
@@ -876,7 +1029,7 @@ export function DataTable<TData>({
                     onClick={onRowClick ? (e) => {
                       const target = e.target as HTMLElement
                       if (target.closest("button") || target.closest("[role=checkbox]") || target.closest("a")) return
-                      onRowClick(row)
+                      onRowClick(row as Row<TData>)
                     } : undefined}
                   >
                     {row.getVisibleCells().map((cell) => (

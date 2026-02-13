@@ -1,24 +1,19 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
-import { Button } from "@/components/ui/button"
-import { IconEdit } from "@tabler/icons-react"
 import { Feedback } from "@/types"
 import { feedbackApi } from "@/lib/api"
 import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
-import { ColumnDef, Row } from "@tanstack/react-table"
-import { DataTable, ServerPaginationParams } from "@/components/data-table"
-import { Checkbox } from "@/components/ui/checkbox"
+import { ColumnDef } from "@tanstack/react-table"
+import { DataTable, ServerPaginationParams, createSelectColumn } from "@/components/data-table"
 import { PageHeader } from "@/components/page-header"
 import { useLoading } from "@/hooks/use-loading"
-import { useCanEdit } from "@/hooks/use-can-edit"
-import Link from "next/link"
-
 export default function FeedbacksPage() {
   const router = useRouter()
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([])
@@ -30,7 +25,6 @@ export default function FeedbacksPage() {
     sort: "",
   })
   const { loading, withLoading } = useLoading(true)
-  const canEdit = useCanEdit()
 
   const fetchData = useCallback(async () => {
     await withLoading(async () => {
@@ -39,6 +33,7 @@ export default function FeedbacksPage() {
         pageSize: serverParams.pageSize,
         search: serverParams.search || undefined,
         sort: serverParams.sort || undefined,
+        searchColumns: serverParams.searchColumns?.length ? serverParams.searchColumns : undefined,
       })
       setFeedbacks(res.items)
       setTotal(res.total)
@@ -46,7 +41,7 @@ export default function FeedbacksPage() {
       toast.error("Не удалось загрузить данные")
       console.error(error)
     })
-  }, [serverParams.pageIndex, serverParams.pageSize, serverParams.search, serverParams.sort, withLoading])
+  }, [serverParams.pageIndex, serverParams.pageSize, serverParams.search, serverParams.sort, serverParams.searchColumns, withLoading])
 
   useEffect(() => {
     fetchData()
@@ -62,40 +57,50 @@ export default function FeedbacksPage() {
     })
 
   const columns: ColumnDef<Feedback>[] = [
-    {
-      id: "select",
-      header: ({ table }) => (
-        <Checkbox
-          checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
-          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-        />
-      ),
-      cell: ({ row }) => (
-        <Checkbox checked={row.getIsSelected()} onCheckedChange={(value) => row.toggleSelected(!!value)} />
-      ),
-      enableSorting: false,
-      enableHiding: false,
-    },
+    createSelectColumn<Feedback>(),
     {
       accessorKey: "id",
       header: "ID",
+      meta: { searchDbColumns: ["id"] },
       cell: ({ row }) => <div className="font-medium">#{row.original.id}</div>,
     },
     {
       accessorKey: "user",
       header: "Пользователь",
-      cell: ({ row }) => (
-        <div className="space-y-1">
-          <div className="font-medium">
-            {row.original.user?.last_name ?? ""} {row.original.user?.first_name ?? ""}
+      meta: { searchDbColumns: [] },
+      cell: ({ row }) => {
+        const u = row.original.user
+        const userId = row.original.user_id
+        const name = [u?.last_name, u?.first_name, u?.middle_name].filter(Boolean).join(" ").trim()
+        const username = u?.username?.trim()
+        if (!name && !username) {
+          return userId ? (
+            <Link href={`/users/${userId}`} className="text-primary hover:underline" onClick={(e) => e.stopPropagation()}>
+              ID {userId}
+            </Link>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )
+        }
+        const content = (
+          <div className="space-y-1">
+            {name && <div className="font-medium">{name}</div>}
+            {username && <div className="text-sm text-muted-foreground">@{username}</div>}
           </div>
-          <div className="text-sm text-muted-foreground">@{row.original.user?.username}</div>
-        </div>
-      ),
+        )
+        return userId ? (
+          <Link href={`/users/${userId}`} className="block text-inherit hover:text-primary hover:underline" onClick={(e) => e.stopPropagation()}>
+            {content}
+          </Link>
+        ) : (
+          content
+        )
+      },
     },
     {
       accessorKey: "feedback",
       header: "Отзыв",
+      meta: { searchDbColumns: ["answer", "ddid"] },
       cell: ({ row }) => (
         <div className="space-y-1 max-w-md">
           <div className="text-sm font-medium line-clamp-2">{row.original.answer}</div>
@@ -106,24 +111,9 @@ export default function FeedbacksPage() {
     {
       accessorKey: "date",
       header: "Дата",
+      meta: { searchDbColumns: ["created_at"] },
       cell: ({ row }) => <div className="text-sm">{formatDate(row.original.created_at)}</div>,
     },
-    ...(canEdit
-      ? [
-          {
-            id: "actions",
-            cell: ({ row }: { row: Row<Feedback> }) => (
-              <div className="flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={`/feedbacks/edit/${row.original.id}`}>
-                    <IconEdit className="h-4 w-4" />
-                  </Link>
-                </Button>
-              </div>
-            ),
-          },
-        ]
-      : []),
   ]
 
   return (

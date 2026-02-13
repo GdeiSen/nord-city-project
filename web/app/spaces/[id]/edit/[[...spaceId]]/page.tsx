@@ -6,7 +6,6 @@ import Link from "next/link"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -20,7 +19,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { IconChevronLeft } from "@tabler/icons-react"
 import { RentalSpace } from "@/types"
 import { rentalSpaceApi, rentalObjectApi } from "@/lib/api"
 import { PhotoLinksEditor } from "@/components/photo-links-editor"
@@ -165,23 +163,14 @@ export default function SpaceEditPage() {
             </BreadcrumbList>
           </Breadcrumb>
 
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <Button variant="ghost" size="sm" asChild>
-              <Link href={isEdit ? `/spaces/${objectId}/${spaceId}` : `/spaces/${objectId}`} className="gap-2">
-                <IconChevronLeft className="h-4 w-4" />
-                Назад
-              </Link>
-            </Button>
-          </div>
-
-          <Card className="max-w-2xl">
-            <CardHeader>
-              <CardTitle>{isEdit ? "Редактирование помещения" : "Новое помещение"}</CardTitle>
-              <CardDescription>
+          <div className="max-w-2xl space-y-6">
+            <div>
+              <h1 className="text-2xl font-semibold">{isEdit ? "Редактирование помещения" : "Новое помещение"}</h1>
+              <p className="text-sm text-muted-foreground mt-1">
                 {isEdit ? "Изменение данных помещения." : "Добавьте новое помещение в бизнес-центр."}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
+              </p>
+            </div>
+            <div>
               {loading ? (
                 <div className="flex items-center justify-center py-12">
                   <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
@@ -259,8 +248,8 @@ export default function SpaceEditPage() {
                   </div>
                 </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
       </SidebarInset>
       <Toaster />

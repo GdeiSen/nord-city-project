@@ -23,16 +23,18 @@ async def create_feedback(body: CreateFeedbackRequest):
 @router.get("/", response_model=PaginatedResponse[FeedbackResponse])
 async def get_feedbacks(
     page: int = Query(1, ge=1),
-    page_size: int = Query(10, ge=1, le=100),
+    page_size: int = Query(10, ge=1, le=500),
     search: Optional[str] = None,
     sort: Optional[str] = None,
+    search_columns: Optional[str] = None,
 ):
+    cols = [c.strip() for c in (search_columns or "").split(",") if c.strip()]
     response = await db_client.feedback.get_paginated(
         page=page,
         page_size=page_size,
         sort=parse_sort_param(sort),
         search=search or "",
-        search_columns=["answer", "ddid"],
+        search_columns=cols if cols else None,
     )
     if not response.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

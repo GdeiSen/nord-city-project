@@ -3,6 +3,12 @@ from typing import Optional
 from datetime import datetime
 
 
+class ObjectSummary(BaseModel):
+    """Minimal object info for embedding in list responses."""
+    id: int
+    name: str
+
+
 class UserResponse(BaseModel):
     """Response schema for User entity. Matches web/types/index.ts User interface."""
     id: int
@@ -14,6 +20,7 @@ class UserResponse(BaseModel):
     language_code: str = "ru"
     data_processing_consent: bool = False
     object_id: Optional[int] = None
+    object: Optional[ObjectSummary] = None  # Enriched from object_id
     legal_entity: Optional[str] = None
     phone_number: Optional[str] = None
     email: Optional[str] = None

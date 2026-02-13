@@ -70,7 +70,7 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
     <th
       data-slot="table-head"
       className={cn(
-        "text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px] first:rounded-tl-md last:rounded-tr-md",
+        "text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap [&:has([role=checkbox])]:w-10 [&:has([role=checkbox])]:min-w-10 [&:has([role=checkbox])]:max-w-10 [&:has([role=checkbox])]:p-0 [&:has([role=checkbox])]:text-center [&>[role=checkbox]]:translate-y-0 first:rounded-tl-md last:rounded-tr-md",
         className
       )}
       {...props}
@@ -83,7 +83,7 @@ function TableCell({ className, ...props }: React.ComponentProps<"td">) {
     <td
       data-slot="table-cell"
       className={cn(
-        "p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+        "p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:w-10 [&:has([role=checkbox])]:min-w-10 [&:has([role=checkbox])]:max-w-10 [&:has([role=checkbox])]:p-0 [&:has([role=checkbox])]:text-center [&>[role=checkbox]]:translate-y-0",
         className
       )}
       {...props}

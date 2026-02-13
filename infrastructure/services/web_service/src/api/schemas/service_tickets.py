@@ -2,11 +2,15 @@ from pydantic import BaseModel, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 
+from api.schemas.users import UserResponse, ObjectSummary
+
 
 class ServiceTicketResponse(BaseModel):
     """Response schema for ServiceTicket entity."""
     id: Optional[int] = None
     user_id: int
+    user: Optional[UserResponse] = None  # Enriched from user_id
+    object: Optional[ObjectSummary] = None  # Enriched from user's object_id
     description: Optional[str] = None
     location: Optional[str] = None
     image: Optional[str] = None

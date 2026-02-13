@@ -1,19 +1,17 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
-import { IconEdit, IconLink, IconPlus } from "@tabler/icons-react"
-import { ColumnDef, Row } from "@tanstack/react-table"
+import { useParams, useRouter } from "next/navigation"
+import { IconLink, IconPlus } from "@tabler/icons-react"
+import { ColumnDef } from "@tanstack/react-table"
 import { toast } from "sonner"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { PageHeader } from "@/components/page-header"
-import { DataTable } from "@/components/data-table"
+import { DataTable, createSelectColumn } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { Toaster } from "@/components/ui/sonner"
@@ -105,32 +103,7 @@ export default function RentalObjectSpacesPage() {
 
   const columns = useMemo<ColumnDef<RentalSpace>[]>(
     () => [
-      {
-        id: "select",
-        header: ({ table }) => (
-          <div className="flex items-center justify-center">
-            <Checkbox
-              checked={
-                table.getIsAllPageRowsSelected() ||
-                (table.getIsSomePageRowsSelected() && "indeterminate")
-              }
-              onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-              aria-label="Выбрать все"
-            />
-          </div>
-        ),
-        cell: ({ row }) => (
-          <div className="flex items-center justify-center">
-            <Checkbox
-              checked={row.getIsSelected()}
-              onCheckedChange={(value) => row.toggleSelected(!!value)}
-              aria-label="Выбрать строку"
-            />
-          </div>
-        ),
-        enableSorting: false,
-        enableHiding: false,
-      },
+      createSelectColumn<RentalSpace>(),
       {
         accessorKey: "id",
         header: "ID",
@@ -212,26 +185,8 @@ export default function RentalObjectSpacesPage() {
           </span>
         ),
       },
-      ...(canEdit
-        ? [
-            {
-              id: "actions",
-              header: "",
-              enableHiding: false,
-              cell: ({ row }: { row: Row<RentalSpace> }) => (
-                <div className="flex items-start" onClick={(e) => e.stopPropagation()}>
-                  <Button variant="outline" size="icon" asChild aria-label="Редактировать помещение">
-                    <Link href={`/spaces/${objectId}/edit/${row.original.id}`}>
-                      <IconEdit className="h-4 w-4" />
-                    </Link>
-                  </Button>
-                </div>
-              ),
-            },
-          ]
-        : []),
     ],
-    [getSpaceStatusBadge, canEdit, objectId]
+    [getSpaceStatusBadge, objectId]
   )
 
   if (Number.isNaN(objectId)) {
@@ -240,18 +195,14 @@ export default function RentalObjectSpacesPage() {
         <AppSidebar />
         <SidebarInset>
           <SiteHeader />
-          <div className="flex flex-1 items-center justify-center p-8">
-            <Card className="max-w-md">
-              <CardHeader>
-                <CardTitle>Объект не найден</CardTitle>
-                <CardDescription>
-                  Проверьте корректность ссылки или вернитесь на страницу со списком бизнес-центров.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button variant="outline" onClick={() => router.push("/spaces")}>Вернуться к списку</Button>
-              </CardContent>
-            </Card>
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
+            <p className="text-lg font-medium">Объект не найден</p>
+            <p className="text-sm text-muted-foreground">
+              Проверьте корректность ссылки или вернитесь на страницу со списком бизнес-центров.
+            </p>
+            <Link href="/spaces" className="text-sm text-primary hover:underline">
+              К списку бизнес-центров
+            </Link>
           </div>
           <Toaster />
         </SidebarInset>
@@ -278,42 +229,40 @@ export default function RentalObjectSpacesPage() {
             onButtonClick={canEdit ? () => router.push(`/spaces/${objectId}/edit`) : undefined}
           />
 
-          <Card className="overflow-hidden">
+          <div className="space-y-4">
             {rentalObject?.photos && rentalObject.photos.length > 0 ? (
               <div
-                className="h-48 w-full bg-cover bg-center"
+                className="h-48 w-full rounded-lg bg-cover bg-center"
                 style={{ backgroundImage: `url(${rentalObject.photos[0]})` }}
               />
             ) : (
-              <div className="flex h-48 w-full items-center justify-center bg-muted">
+              <div className="flex h-48 w-full items-center justify-center rounded-lg border border-dashed">
                 <span className="text-sm text-muted-foreground">Фотография обложки не добавлена</span>
               </div>
             )}
-            <CardHeader>
-              <CardTitle>{rentalObject?.name ?? "—"}</CardTitle>
-              <CardDescription>{rentalObject?.description || "Описание отсутствует"}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-4 md:grid-cols-4">
-                <div className="space-y-1">
-                  <div className="text-xs text-muted-foreground">Адрес</div>
-                  <div className="text-sm font-medium">{rentalObject?.address ?? "—"}</div>
-                </div>
-                <div className="space-y-1">
-                  <div className="text-xs text-muted-foreground">Всего помещений</div>
-                  <div className="text-xl font-semibold">{spaceStats.total}</div>
-                </div>
-                <div className="space-y-1">
-                  <div className="text-xs text-muted-foreground">Свободно</div>
-                  <div className="text-xl font-semibold text-emerald-600">{spaceStats.free}</div>
-                </div>
-                <div className="space-y-1">
-                  <div className="text-xs text-muted-foreground">Общая площадь</div>
-                  <div className="text-xl font-semibold">{spaceStats.totalArea.toLocaleString("ru-RU")} м²</div>
-                </div>
+            <div>
+              <h1 className="text-2xl font-semibold">{rentalObject?.name ?? "—"}</h1>
+              <p className="text-sm text-muted-foreground mt-1">{rentalObject?.description || "Описание отсутствует"}</p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-4">
+              <div className="space-y-1">
+                <div className="text-xs text-muted-foreground">Адрес</div>
+                <div className="text-sm font-medium">{rentalObject?.address ?? "—"}</div>
               </div>
-            </CardContent>
-          </Card>
+              <div className="space-y-1">
+                <div className="text-xs text-muted-foreground">Всего помещений</div>
+                <div className="text-xl font-semibold">{spaceStats.total}</div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-xs text-muted-foreground">Свободно</div>
+                <div className="text-xl font-semibold text-emerald-600">{spaceStats.free}</div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-xs text-muted-foreground">Общая площадь</div>
+                <div className="text-xl font-semibold">{spaceStats.totalArea.toLocaleString("ru-RU")} м²</div>
+              </div>
+            </div>
+          </div>
 
           <DataTable
             data={spaces}

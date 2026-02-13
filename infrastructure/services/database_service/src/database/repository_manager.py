@@ -122,19 +122,20 @@ class GenericRepository:
         return query
 
     def _apply_search(self, query, search: str, search_columns: List[str]):
-        """Apply global search as OR ILIKE across searchable string columns."""
+        """Apply global search as OR ILIKE across searchable columns. All columns cast to text for ILIKE (integer/datetime etc)."""
         if not search or not search.strip():
             return query
+        from sqlalchemy import String, cast
         q = f"%{search.strip()}%"
         clauses = []
         for col_name in search_columns or []:
-            if hasattr(self.model, col_name):
-                col = getattr(self.model, col_name)
-                try:
-                    if hasattr(col, "ilike"):
-                        clauses.append(col.ilike(q))
-                except Exception:
-                    pass
+            if not hasattr(self.model, col_name):
+                continue
+            col = getattr(self.model, col_name)
+            try:
+                clauses.append(cast(col, String).ilike(q))
+            except Exception:
+                pass
         if clauses:
             query = query.where(or_(*clauses))
         return query

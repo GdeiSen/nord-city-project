@@ -6,10 +6,9 @@ import Link from "next/link"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { IconChevronLeft, IconEdit, IconLink } from "@tabler/icons-react"
+import { IconEdit, IconLink } from "@tabler/icons-react"
 import { RentalSpace } from "@/types"
 import { rentalSpaceApi, rentalObjectApi } from "@/lib/api"
 import { useLoading } from "@/hooks/use-loading"
@@ -75,18 +74,19 @@ export default function SpaceDetailPage() {
 
   if (Number.isNaN(spaceId) || Number.isNaN(objectId)) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Card>
-          <CardHeader>
-            <CardTitle>Помещение не найдено</CardTitle>
-            <CardDescription>Некорректный идентификатор.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button variant="outline" onClick={() => router.push("/spaces")}>
+      <div className="flex min-h-screen flex-col">
+        <AppSidebar />
+        <SidebarInset>
+          <SiteHeader />
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
+            <p className="text-lg font-medium">Помещение не найдено</p>
+            <p className="text-sm text-muted-foreground">Некорректный идентификатор.</p>
+            <Link href="/spaces" className="text-sm text-primary hover:underline">
               К списку
-            </Button>
-          </CardContent>
-        </Card>
+            </Link>
+          </div>
+        </SidebarInset>
+        <Toaster />
       </div>
     )
   }
@@ -97,35 +97,28 @@ export default function SpaceDetailPage() {
       <SidebarInset>
         <SiteHeader />
         <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink asChild>
-                  <Link href="/spaces">Бизнес-центры</Link>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink asChild>
-                  <Link href={`/spaces/${objectId}`}>{objectName || `#${objectId}`}</Link>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>Помещение #{spaceId}</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <Button variant="ghost" size="sm" asChild>
-              <Link href={`/spaces/${objectId}`} className="gap-2">
-                <IconChevronLeft className="h-4 w-4" />
-                Назад к помещениям
-              </Link>
-            </Button>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Breadcrumb>
+              <BreadcrumbList>
+                <BreadcrumbItem>
+                  <BreadcrumbLink asChild>
+                    <Link href="/spaces">Бизнес-центры</Link>
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator />
+                <BreadcrumbItem>
+                  <BreadcrumbLink asChild>
+                    <Link href={`/spaces/${objectId}`}>{objectName || `#${objectId}`}</Link>
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator />
+                <BreadcrumbItem>
+                  <BreadcrumbPage>Помещение #{spaceId}</BreadcrumbPage>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
             {canEdit && (
-              <Button asChild>
+              <Button asChild size="sm">
                 <Link href={`/spaces/${objectId}/edit/${spaceId}`} className="gap-2">
                   <IconEdit className="h-4 w-4" />
                   Редактировать
@@ -135,25 +128,23 @@ export default function SpaceDetailPage() {
           </div>
 
           {loading ? (
-            <Card>
-              <CardContent className="flex items-center justify-center py-12">
-                <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-              </CardContent>
-            </Card>
+            <div className="flex items-center justify-center py-12">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+            </div>
           ) : space ? (
-            <Card>
-              <CardHeader>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <CardTitle>Помещение #{space.id}</CardTitle>
-                  <Badge variant={SPACE_STATUS_VARIANTS[space.status] ?? "secondary"}>
+            <div className="space-y-6">
+              <div>
+                <h1 className="text-2xl font-semibold">Помещение #{space.id}</h1>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Этаж {space.floor} · {space.size?.toLocaleString("ru-RU")} м² · Обновлено {formatDate(space.updated_at)}
+                </p>
+                <div className="mt-3">
+                  <Badge variant={SPACE_STATUS_VARIANTS[space.status] ?? "secondary"} className="text-sm px-3 py-1">
                     {SPACE_STATUS_LABELS[space.status] ?? space.status}
                   </Badge>
                 </div>
-                <CardDescription>
-                  Этаж {space.floor} · {space.size?.toLocaleString("ru-RU")} м² · Обновлено {formatDate(space.updated_at)}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
+              </div>
+              <div className="space-y-6">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <div className="text-sm font-medium text-muted-foreground">Этаж</div>
@@ -189,8 +180,8 @@ export default function SpaceDetailPage() {
                     </div>
                   </div>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           ) : null}
         </div>
       </SidebarInset>

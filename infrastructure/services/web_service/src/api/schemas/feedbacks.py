@@ -2,11 +2,14 @@ from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from datetime import datetime
 
+from api.schemas.users import UserResponse
+
 
 class FeedbackResponse(BaseModel):
     """Response schema for Feedback entity."""
     id: Optional[int] = None
     user_id: int
+    user: Optional[UserResponse] = None  # Enriched from user_id
     ddid: str
     answer: str
     text: Optional[str] = None

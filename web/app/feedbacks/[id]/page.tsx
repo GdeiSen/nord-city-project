@@ -6,9 +6,8 @@ import Link from "next/link"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { IconChevronLeft, IconEdit, IconMessageCircle } from "@tabler/icons-react"
+import { IconEdit } from "@tabler/icons-react"
 import { Feedback } from "@/types"
 import { feedbackApi, userApi } from "@/lib/api"
 import { useLoading } from "@/hooks/use-loading"
@@ -62,18 +61,19 @@ export default function FeedbackDetailPage() {
 
   if (Number.isNaN(feedbackId)) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Card>
-          <CardHeader>
-            <CardTitle>Отзыв не найден</CardTitle>
-            <CardDescription>Некорректный идентификатор.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button variant="outline" onClick={() => router.push("/feedbacks")}>
+      <div className="flex min-h-screen flex-col">
+        <AppSidebar />
+        <SidebarInset>
+          <SiteHeader />
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
+            <p className="text-lg font-medium">Отзыв не найден</p>
+            <p className="text-sm text-muted-foreground">Некорректный идентификатор.</p>
+            <Link href="/feedbacks" className="text-sm text-primary hover:underline">
               К списку отзывов
-            </Button>
-          </CardContent>
-        </Card>
+            </Link>
+          </div>
+        </SidebarInset>
+        <Toaster />
       </div>
     )
   }
@@ -84,29 +84,22 @@ export default function FeedbackDetailPage() {
       <SidebarInset>
         <SiteHeader />
         <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink asChild>
-                  <Link href="/feedbacks">Отзывы</Link>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>#{feedbackId}</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <Button variant="ghost" size="sm" asChild>
-              <Link href="/feedbacks" className="gap-2">
-                <IconChevronLeft className="h-4 w-4" />
-                Назад к списку
-              </Link>
-            </Button>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Breadcrumb>
+              <BreadcrumbList>
+                <BreadcrumbItem>
+                  <BreadcrumbLink asChild>
+                    <Link href="/feedbacks">Отзывы</Link>
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator />
+                <BreadcrumbItem>
+                  <BreadcrumbPage>#{feedbackId}</BreadcrumbPage>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
             {canEdit && (
-              <Button asChild>
+              <Button asChild size="sm">
                 <Link href={`/feedbacks/edit/${feedbackId}`} className="gap-2">
                   <IconEdit className="h-4 w-4" />
                   Редактировать
@@ -116,26 +109,21 @@ export default function FeedbackDetailPage() {
           </div>
 
           {loading ? (
-            <Card>
-              <CardContent className="flex items-center justify-center py-12">
-                <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-              </CardContent>
-            </Card>
+            <div className="flex items-center justify-center py-12">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+            </div>
           ) : feedback ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <IconMessageCircle className="h-6 w-6" />
-                  Отзыв #{feedback.id}
-                </CardTitle>
-                <CardDescription>
+            <div className="space-y-6">
+              <div>
+                <h1 className="text-2xl font-semibold">Отзыв #{feedback.id}</h1>
+                <p className="text-sm text-muted-foreground mt-1">
                   {formatDate(feedback.created_at)}
                   {feedback.updated_at !== feedback.created_at && (
                     <> · Обновлён {formatDate(feedback.updated_at)}</>
                   )}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
+                </p>
+              </div>
+              <div className="space-y-6">
                 <div className="space-y-2">
                   <div className="text-sm font-medium text-muted-foreground">Пользователь</div>
                   <p className="text-sm font-medium">
@@ -153,8 +141,8 @@ export default function FeedbackDetailPage() {
                     <p className="text-sm whitespace-pre-wrap">{feedback.text}</p>
                   </div>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           ) : null}
         </div>
       </SidebarInset>

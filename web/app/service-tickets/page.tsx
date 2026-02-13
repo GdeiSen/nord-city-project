@@ -1,21 +1,20 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { IconPlus, IconEdit, IconClock, IconCheck, IconX, IconAlertTriangle } from "@tabler/icons-react"
+import { IconPlus, IconClock, IconCheck, IconX, IconAlertTriangle } from "@tabler/icons-react"
 import { ServiceTicket, TICKET_STATUS, TICKET_STATUS_LABELS_RU, TICKET_PRIORITY, TICKET_PRIORITY_LABELS_RU } from "@/types"
 import { serviceTicketApi } from "@/lib/api"
 import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
-import { ColumnDef, Row } from "@tanstack/react-table"
-import { DataTable, ServerPaginationParams } from "@/components/data-table"
-import { Checkbox } from "@/components/ui/checkbox"
+import { ColumnDef } from "@tanstack/react-table"
+import { DataTable, ServerPaginationParams, createSelectColumn } from "@/components/data-table"
 import { PageHeader } from "@/components/page-header"
 import { useLoading } from "@/hooks/use-loading"
 import { useCanEdit } from "@/hooks/use-can-edit"
@@ -40,6 +39,7 @@ export default function ServiceTicketsPage() {
         pageSize: serverParams.pageSize,
         search: serverParams.search || undefined,
         sort: serverParams.sort || undefined,
+        searchColumns: serverParams.searchColumns?.length ? serverParams.searchColumns : undefined,
       })
       setTickets(res.items)
       setTotal(res.total)
@@ -47,7 +47,7 @@ export default function ServiceTicketsPage() {
       toast.error("Не удалось загрузить данные", { description: error.message || "Unknown error" })
       console.error(error)
     })
-  }, [serverParams.pageIndex, serverParams.pageSize, serverParams.search, serverParams.sort, withLoading])
+  }, [serverParams.pageIndex, serverParams.pageSize, serverParams.search, serverParams.sort, serverParams.searchColumns, withLoading])
 
   useEffect(() => {
     fetchData()
@@ -56,11 +56,11 @@ export default function ServiceTicketsPage() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case TICKET_STATUS.NEW:
-        return <Badge variant="destructive"><IconX className="h-3 w-3 mr-1" />{TICKET_STATUS_LABELS_RU[TICKET_STATUS.NEW]}</Badge>
+        return <Badge variant="outline"><IconX className="h-3 w-3 mr-1" />{TICKET_STATUS_LABELS_RU[TICKET_STATUS.NEW]}</Badge>
       case TICKET_STATUS.ACCEPTED:
-        return <Badge variant="secondary"><IconClock className="h-3 w-3 mr-1" />{TICKET_STATUS_LABELS_RU[TICKET_STATUS.ACCEPTED]}</Badge>
+        return <Badge variant="outline"><IconClock className="h-3 w-3 mr-1" />{TICKET_STATUS_LABELS_RU[TICKET_STATUS.ACCEPTED]}</Badge>
       case TICKET_STATUS.ASSIGNED:
-        return <Badge variant="default"><IconAlertTriangle className="h-3 w-3 mr-1" />{TICKET_STATUS_LABELS_RU[TICKET_STATUS.ASSIGNED]}</Badge>
+        return <Badge variant="outline"><IconAlertTriangle className="h-3 w-3 mr-1" />{TICKET_STATUS_LABELS_RU[TICKET_STATUS.ASSIGNED]}</Badge>
       case TICKET_STATUS.COMPLETED:
         return <Badge variant="outline"><IconCheck className="h-3 w-3 mr-1" />{TICKET_STATUS_LABELS_RU[TICKET_STATUS.COMPLETED]}</Badge>
       default:
@@ -94,40 +94,17 @@ export default function ServiceTicketsPage() {
   }
 
   const columns: ColumnDef<ServiceTicket>[] = [
-    {
-      id: "select",
-      header: ({ table }) => (
-        <div className="flex items-center justify-center">
-          <Checkbox
-            checked={
-              table.getIsAllPageRowsSelected() ||
-              (table.getIsSomePageRowsSelected() && "indeterminate")
-            }
-            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-            aria-label="Select all"
-          />
-        </div>
-      ),
-      cell: ({ row }) => (
-        <div className="flex items-center justify-center">
-          <Checkbox
-            checked={row.getIsSelected()}
-            onCheckedChange={(value) => row.toggleSelected(!!value)}
-            aria-label="Select row"
-          />
-        </div>
-      ),
-      enableSorting: false,
-      enableHiding: false,
-    },
+    createSelectColumn<ServiceTicket>(),
     {
       accessorKey: "id",
       header: "ID",
+      meta: { searchDbColumns: ["id"] },
       cell: ({ row }) => <div className="font-medium">#{row.original.id}</div>,
     },
     {
       accessorKey: "ticket",
       header: "Заявка",
+      meta: { searchDbColumns: ["description", "location", "msid"] },
       cell: ({ row }) => (
         <div className="space-y-1">
           <div className="font-medium">{row.original.description || "No description"}</div>
@@ -138,51 +115,78 @@ export default function ServiceTicketsPage() {
     {
       accessorKey: "user",
       header: "Пользователь",
-      cell: ({ row }) => (
-        <div className="space-y-1">
-          <div className="font-medium">
-            {row.original.user?.last_name} {row.original.user?.first_name}
+      meta: { searchDbColumns: [] },
+      cell: ({ row }) => {
+        const u = row.original.user
+        const userId = row.original.user_id
+        const name = [u?.last_name, u?.first_name, u?.middle_name].filter(Boolean).join(" ").trim()
+        const username = u?.username?.trim()
+        if (!name && !username) {
+          return userId ? (
+            <Link href={`/users/${userId}`} className="text-primary hover:underline" onClick={(e) => e.stopPropagation()}>
+              ID {userId}
+            </Link>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )
+        }
+        const content = (
+          <div className="space-y-1">
+            {name && <div className="font-medium">{name}</div>}
+            {username && <div className="text-sm text-muted-foreground">@{username}</div>}
           </div>
-          <div className="text-sm text-muted-foreground">@{row.original.user?.username}</div>
-        </div>
-      ),
+        )
+        return userId ? (
+          <Link href={`/users/${userId}`} className="block text-inherit hover:text-primary hover:underline" onClick={(e) => e.stopPropagation()}>
+            {content}
+          </Link>
+        ) : (
+          content
+        )
+      },
+    },
+    {
+      accessorKey: "object",
+      accessorFn: (row) => row.object?.name ?? (row.user?.object_id ? `БЦ-${row.user.object_id}` : ""),
+      header: "Объект",
+      meta: { searchDbColumns: [] },
+      cell: ({ row }) => {
+        const obj = row.original.object
+        const objectId = obj?.id ?? row.original.user?.object_id
+        const display = obj?.name ?? (objectId ? `БЦ-${objectId}` : null)
+        if (!display) return <span className="text-muted-foreground">Не назначен</span>
+        if (!objectId) return <span className="text-sm">{display}</span>
+        return (
+          <Link href={`/spaces/${objectId}`} className="text-sm text-primary hover:underline" onClick={(e) => e.stopPropagation()}>
+            {display}
+          </Link>
+        )
+      },
     },
     {
       accessorKey: "status",
       header: "Статус",
+      meta: { searchDbColumns: ["status"] },
       cell: ({ row }) => getStatusBadge(row.original.status),
     },
     {
       accessorKey: "priority",
       header: "Приоритет",
+      meta: { searchDbColumns: ["priority"] },
       cell: ({ row }) => getPriorityBadge(row.original.priority),
     },
     {
       accessorKey: "category",
       header: "Категория",
+      meta: { searchDbColumns: ["category"] },
       cell: ({ row }) => <Badge variant="outline">{row.original.category || "No category"}</Badge>,
     },
     {
       accessorKey: "created",
       header: "Создана",
+      meta: { searchDbColumns: ["created_at"] },
       cell: ({ row }) => <div className="text-sm">{formatDate(row.original.created_at)}</div>,
     },
-    ...(canEdit
-      ? [
-          {
-            id: "actions",
-            cell: ({ row }: { row: Row<ServiceTicket> }) => (
-              <div className="flex items-center justify-end pr-2" onClick={(e) => e.stopPropagation()}>
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={`/service-tickets/edit/${row.original.id}`}>
-                    <IconEdit className="h-4 w-4" />
-                  </Link>
-                </Button>
-              </div>
-            ),
-          },
-        ]
-      : []),
   ]
 
   return (

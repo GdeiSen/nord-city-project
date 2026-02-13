@@ -1,24 +1,22 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
-import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { IconUserPlus, IconEdit } from "@tabler/icons-react"
+import { IconUserPlus } from "@tabler/icons-react"
 import { User, USER_ROLES, ROLE_LABELS, ROLE_BADGE_VARIANTS } from "@/types"
 import { userApi } from "@/lib/api"
 import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
-import { ColumnDef, Row } from "@tanstack/react-table"
-import { DataTable, ServerPaginationParams } from "@/components/data-table"
-import { Checkbox } from "@/components/ui/checkbox"
+import { ColumnDef } from "@tanstack/react-table"
+import { DataTable, ServerPaginationParams, createSelectColumn } from "@/components/data-table"
 import { PageHeader } from "@/components/page-header"
 import { useLoading } from "@/hooks/use-loading"
 import { useCanEdit } from "@/hooks/use-can-edit"
-import Link from "next/link"
 
 export default function UsersPage() {
   const router = useRouter()
@@ -40,6 +38,7 @@ export default function UsersPage() {
         pageSize: serverParams.pageSize,
         search: serverParams.search || undefined,
         sort: serverParams.sort || undefined,
+        searchColumns: serverParams.searchColumns?.length ? serverParams.searchColumns : undefined,
       })
       setUsers(res.items)
       setTotal(res.total)
@@ -47,7 +46,7 @@ export default function UsersPage() {
       toast.error("Не удалось загрузить пользователей", { description: error.message || "Unknown error" })
       console.error(error)
     })
-  }, [serverParams.pageIndex, serverParams.pageSize, serverParams.search, serverParams.sort, withLoading])
+  }, [serverParams.pageIndex, serverParams.pageSize, serverParams.search, serverParams.sort, serverParams.searchColumns, withLoading])
 
   useEffect(() => {
     fetchUsers()
@@ -71,41 +70,18 @@ export default function UsersPage() {
   }
 
   const columns: ColumnDef<User>[] = [
-    {
-      id: "select",
-      header: ({ table }) => (
-        <div className="flex items-center justify-center">
-          <Checkbox
-            checked={
-              table.getIsAllPageRowsSelected() ||
-              (table.getIsSomePageRowsSelected() && "indeterminate")
-            }
-            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-            aria-label="Select all"
-          />
-        </div>
-      ),
-      cell: ({ row }) => (
-        <div className="flex items-center justify-center">
-          <Checkbox
-            checked={row.getIsSelected()}
-            onCheckedChange={(value) => row.toggleSelected(!!value)}
-            aria-label="Select row"
-          />
-        </div>
-      ),
-      enableSorting: false,
-      enableHiding: false,
-    },
+    createSelectColumn<User>(),
     {
       accessorKey: "id",
       header: "ID",
+      meta: { searchDbColumns: ["id"] },
       cell: ({ row }) => <div className="font-medium">#{row.original.id}</div>,
     },
     {
       accessorKey: "user",
       accessorFn: (row) => `${row.last_name ?? ""} ${row.first_name ?? ""} ${row.middle_name ?? ""} @${row.username ?? ""}`.trim(),
       header: "Пользователь",
+      meta: { searchDbColumns: ["first_name", "last_name", "middle_name", "username"] },
       cell: ({ row }) => (
         <div className="space-y-1">
           <div className="font-medium">
@@ -119,6 +95,7 @@ export default function UsersPage() {
       accessorKey: "contacts",
       accessorFn: (row) => `${row.email ?? ""} ${row.phone_number ?? ""}`.trim(),
       header: "Контакты",
+      meta: { searchDbColumns: ["email", "phone_number"] },
       cell: ({ row }) => (
         <div className="space-y-1">
           <div className="text-sm">{row.original.email}</div>
@@ -129,22 +106,31 @@ export default function UsersPage() {
     {
       accessorKey: "role",
       header: "Роль",
+      meta: { searchDbColumns: ["role"] },
       cell: ({ row }) => getRoleBadge(row.original.role),
     },
     {
       accessorKey: "object",
-      accessorFn: (row) => (row.object_id ? `БЦ-${row.object_id}` : ""),
+      accessorFn: (row) => row.original.object?.name ?? (row.original.object_id ? `БЦ-${row.original.object_id}` : ""),
       header: "Объект",
-      cell: ({ row }) =>
-        row.original.object_id ? (
-          <Badge variant="outline">БЦ-{row.original.object_id}</Badge>
-        ) : (
-          <span className="text-muted-foreground">Не назначен</span>
-        ),
+      meta: { searchDbColumns: ["object_id"] },
+      cell: ({ row }) => {
+        const obj = row.original.object
+        const objectId = row.original.object_id ?? obj?.id
+        const display = obj?.name ?? (objectId ? `БЦ-${objectId}` : null)
+        if (!display) return <span className="text-muted-foreground">Не назначен</span>
+        if (!objectId) return <span className="text-sm">{display}</span>
+        return (
+          <Link href={`/spaces/${objectId}`} className="text-sm text-primary hover:underline" onClick={(e) => e.stopPropagation()}>
+            {display}
+          </Link>
+        )
+      },
     },
     {
       accessorKey: "legal_entity",
       header: "Юр. лицо",
+      meta: { searchDbColumns: ["legal_entity"] },
       cell: ({ row }) => (
         <div className="text-sm">{row.original.legal_entity || <span className="text-muted-foreground">Не указано</span>}</div>
       ),
@@ -153,24 +139,9 @@ export default function UsersPage() {
       accessorKey: "created",
       accessorFn: (row) => new Date(row.created_at).toISOString(),
       header: "Создан",
+      meta: { searchDbColumns: ["created_at"] },
       cell: ({ row }) => <div className="text-sm">{formatDate(row.original.created_at)}</div>,
     },
-    ...(canEdit
-      ? [
-          {
-            id: "actions",
-            cell: ({ row }: { row: Row<User> }) => (
-              <div className="flex items-center justify-end pr-2" onClick={(e) => e.stopPropagation()}>
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={`/users/edit/${row.original.id}`}>
-                    <IconEdit className="h-4 w-4" />
-                  </Link>
-                </Button>
-              </div>
-            ),
-          },
-        ]
-      : []),
   ]
 
   return (

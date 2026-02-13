@@ -54,12 +54,10 @@ export default function SpacesPage() {
   const fetchData = useCallback(async () => {
     try {
       setLoading(true)
-      const [objectsRes, spacesRes] = await Promise.all([
+      const [objects, spaces] = await Promise.all([
         rentalObjectApi.getAll(),
         rentalSpaceApi.getAll(),
       ])
-      const objects = objectsRes.items
-      const spaces = spacesRes.items
 
       const centersWithStats = objects.map((object) => {
         const spacesForObject = spaces.filter((space) => space.object_id === object.id)
