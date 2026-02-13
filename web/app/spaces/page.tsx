@@ -1,7 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 import {
   IconBuildingSkyscraper,
   IconChevronRight,
@@ -15,23 +16,15 @@ import { toast } from "sonner"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { PageHeader } from "@/components/page-header"
-import { PhotoLinksEditor } from "@/components/photo-links-editor"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Drawer, DrawerContent, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { SidebarInset } from "@/components/ui/sidebar"
-import { Textarea } from "@/components/ui/textarea"
 import { Toaster } from "@/components/ui/sonner"
-import { useIsMobile } from "@/hooks/use-mobile"
 import { rentalObjectApi, rentalSpaceApi } from "@/lib/api"
 import { RentalObject, RentalSpace } from "@/types"
 import { DataTable } from "@/components/data-table"
 import { ColumnDef } from "@tanstack/react-table"
+import { useCanEdit } from "@/hooks/use-can-edit"
 
 const PAGE_SIZE = 10
 
@@ -47,23 +40,10 @@ type StatusVariant = "default" | "secondary" | "outline" | "destructive"
 
 export default function SpacesPage() {
   const router = useRouter()
-  const isMobile = useIsMobile()
+  const canEdit = useCanEdit()
 
   const [businessCenters, setBusinessCenters] = useState<BusinessCenterWithStats[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedCenter, setSelectedCenter] = useState<BusinessCenterWithStats | null>(null)
-  const [isEditorOpen, setIsEditorOpen] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [formData, setFormData] = useState<Partial<RentalObject>>({
-    status: "ACTIVE",
-    photos: [],
-  })
-
-  const resetForm = useCallback(() => {
-    setSelectedCenter(null)
-    setFormData({ status: "ACTIVE", photos: [] })
-    setSaving(false)
-  }, [])
 
   const parseFloorNumber = useCallback((value: RentalSpace["floor"]) => {
     if (value === null || value === undefined) return 0
@@ -74,10 +54,12 @@ export default function SpacesPage() {
   const fetchData = useCallback(async () => {
     try {
       setLoading(true)
-      const [objects, spaces] = await Promise.all([
+      const [objectsRes, spacesRes] = await Promise.all([
         rentalObjectApi.getAll(),
         rentalSpaceApi.getAll(),
       ])
+      const objects = objectsRes.items
+      const spaces = spacesRes.items
 
       const centersWithStats = objects.map((object) => {
         const spacesForObject = spaces.filter((space) => space.object_id === object.id)
@@ -144,252 +126,6 @@ export default function SpacesPage() {
     })
   }
 
-  const handleEditorOpenChange = (open: boolean) => {
-    setIsEditorOpen(open)
-  }
-
-  const handleOpen = (center?: BusinessCenterWithStats) => {
-    if (center) {
-      const {
-        totalSpaces,
-        availableSpaces,
-        occupiedSpaces,
-        floors,
-        totalArea,
-        spaces,
-        users,
-        photos,
-        ...rest
-      } = center
-
-      setSelectedCenter(center)
-      setFormData({
-        ...rest,
-        status: rest.status ?? "ACTIVE",
-        photos: [...(photos ?? [])],
-      })
-    } else {
-      resetForm()
-    }
-    setIsEditorOpen(true)
-  }
-
-  const handleClose = () => {
-    setIsEditorOpen(false)
-    resetForm()
-  }
-
-  const handleInputChange = (
-    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) => {
-    const { name, value } = event.target
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }))
-  }
-
-  const handleStatusChange = (value: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      status: value,
-    }))
-  }
-
-  const handlePhotosChange = (links: string[]) => {
-    setFormData((prev) => ({
-      ...prev,
-      photos: links,
-    }))
-  }
-
-  const sanitizePayload = (data: Partial<RentalObject>): Partial<RentalObject> => {
-    const {
-      created_at,
-      updated_at,
-      spaces,
-      users,
-      id: _id,
-      photos,
-      ...rest
-    } = data
-
-    return {
-      ...rest,
-      status: rest.status ?? "ACTIVE",
-      photos: (photos ?? []).map((url) => url.trim()).filter(Boolean),
-    }
-  }
-
-  const handleSave = async () => {
-    const payload = sanitizePayload(formData)
-
-    if (!payload.name || !payload.name.trim()) {
-      toast.error("Укажите название бизнес-центра")
-      return
-    }
-
-    if (!payload.address || !payload.address.trim()) {
-      toast.error("Укажите адрес бизнес-центра")
-      return
-    }
-
-    try {
-      setSaving(true)
-      if (selectedCenter) {
-        await rentalObjectApi.update(selectedCenter.id, payload)
-        toast.success("Бизнес-центр обновлён")
-      } else {
-        await rentalObjectApi.create(
-          payload as Omit<RentalObject, "id" | "created_at" | "updated_at">
-        )
-        toast.success("Бизнес-центр создан")
-      }
-
-      await fetchData()
-      handleClose()
-    } catch (error: any) {
-      toast.error("Не удалось сохранить бизнес-центр", {
-        description: error?.message ?? "Попробуйте повторить позже",
-      })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleDelete = async (center: BusinessCenterWithStats, event?: React.MouseEvent) => {
-    event?.stopPropagation()
-    if (!confirm(`Удалить бизнес-центр "${center.name}"?`)) return
-
-    try {
-      await rentalObjectApi.delete(center.id)
-      setBusinessCenters((prev) => prev.filter((item) => item.id !== center.id))
-      toast.success("Бизнес-центр удалён")
-    } catch (error: any) {
-      toast.error("Не удалось удалить бизнес-центр", {
-        description: error?.message ?? "Попробуйте повторить позже",
-      })
-    }
-  }
-
-  const EditorFields = () => (
-    <>
-      <div className="grid gap-4 p-4">
-        <div className="space-y-2">
-          <Label htmlFor="name">Название</Label>
-          <Input
-            id="name"
-            name="name"
-            placeholder="Например, БЦ Nord"
-            value={formData.name ?? ""}
-            onChange={handleInputChange}
-            onKeyDown={(e) => e.stopPropagation()}
-            onFocus={(e) => e.stopPropagation()}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="address">Адрес</Label>
-          <Input
-            id="address"
-            name="address"
-            placeholder="Город, улица, дом"
-            value={formData.address ?? ""}
-            onChange={handleInputChange}
-            onKeyDown={(e) => e.stopPropagation()}
-            onFocus={(e) => e.stopPropagation()}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="description">Описание</Label>
-          <Textarea
-            id="description"
-            name="description"
-            placeholder="Краткое описание инфраструктуры и преимуществ"
-            value={formData.description ?? ""}
-            onChange={handleInputChange}
-            onKeyDown={(e) => e.stopPropagation()}
-            onFocus={(e) => e.stopPropagation()}
-            rows={4}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="status">Статус</Label>
-          <Select value={formData.status ?? "ACTIVE"} onValueChange={handleStatusChange}>
-            <SelectTrigger id="status">
-              <SelectValue placeholder="Выберите статус" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ACTIVE">Активен</SelectItem>
-              <SelectItem value="INACTIVE">Неактивен</SelectItem>
-              <SelectItem value="ARCHIVED">Архив</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <PhotoLinksEditor
-          label="Фотографии"
-          description="Добавьте ссылки на изображения для обложки и галереи бизнес-центра. Первое фото будет использовано в качестве обложки."
-          value={formData.photos ?? []}
-          onChange={handlePhotosChange}
-          addButtonLabel="Добавить фото"
-        />
-      </div>
-    </>
-  )
-
-  const FooterButtons = () => (
-    <>
-      <Button onClick={handleSave} disabled={saving}>
-        {saving ? "Сохранение..." : "Сохранить"}
-      </Button>
-      {selectedCenter && (
-        <Button
-          variant="outline"
-          onClick={() => handleDelete(selectedCenter)}
-          className="border-red-500 text-red-500 hover:bg-red-50 hover:text-red-600"
-        >
-          Удалить
-        </Button>
-      )}
-    </>
-  )
-
-  const renderEditor = () => {
-    if (isMobile) {
-      return (
-        <Drawer open={isEditorOpen} onOpenChange={handleEditorOpenChange}>
-          <DrawerContent className="p-0">
-            <DrawerHeader>
-              <DrawerTitle>{selectedCenter ? 'Edit Center' : 'Create Center'}</DrawerTitle>
-            </DrawerHeader>
-            <div className="overflow-y-auto max-h-[calc(100dvh-4.5rem)] pb-[50dvh]">
-              {EditorFields()}
-            </div>
-            <DrawerFooter>
-              <FooterButtons />
-            </DrawerFooter>
-          </DrawerContent>
-        </Drawer>
-      )
-    }
-
-    return (
-      <Sheet open={isEditorOpen} onOpenChange={handleEditorOpenChange}>
-        <SheetContent side="right">
-          <SheetHeader>
-            <SheetTitle>{selectedCenter ? 'Edit Center' : 'Create Center'}</SheetTitle>
-            <SheetDescription>
-              Заполните информацию о бизнес-центре и добавьте ссылки на фотографии.
-            </SheetDescription>
-          </SheetHeader>
-          {EditorFields()}
-          <SheetFooter>
-            <FooterButtons />
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
-    )
-  }
-
   return (
     <>
       <AppSidebar />
@@ -399,9 +135,9 @@ export default function SpacesPage() {
           <PageHeader
             title="Бизнес-центры"
             description="Управляйте объектами и просматривайте доступные помещения"
-            buttonText="Добавить центр"
-            buttonIcon={<IconPlus className="h-4 w-4" />}
-            onButtonClick={() => handleOpen()}
+            buttonText={canEdit ? "Добавить центр" : undefined}
+            buttonIcon={canEdit ? <IconPlus className="h-4 w-4" /> : undefined}
+            onButtonClick={canEdit ? () => router.push("/spaces/edit") : undefined}
           />
           {/* DataTable with card view */}
           <DataTable<BusinessCenterWithStats>
@@ -456,20 +192,15 @@ export default function SpacesPage() {
                           {center.address}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
-
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            handleOpen(center)
-                          }}
-                          aria-label="Редактировать бизнес-центр"
-                        >
-                          <IconEdit className="h-4 w-4" />
-                        </Button>
-                      </div>
+                      {canEdit && (
+                        <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+                          <Button variant="outline" size="icon" asChild aria-label="Редактировать бизнес-центр">
+                            <Link href={`/spaces/edit/${center.id}`}>
+                              <IconEdit className="h-4 w-4" />
+                            </Link>
+                          </Button>
+                        </div>
+                      )}
                     </div>
                     {center.description && (
                       <CardDescription className="line-clamp-2">
@@ -522,8 +253,6 @@ export default function SpacesPage() {
           />
         </div>
       </SidebarInset>
-
-      {renderEditor()}
       <Toaster />
     </>
   )

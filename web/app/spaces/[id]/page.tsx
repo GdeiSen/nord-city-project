@@ -2,35 +2,23 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
-import {
-  IconChevronLeft,
-  IconEdit,
-  IconLink,
-  IconPlus,
-  IconTrash,
-} from "@tabler/icons-react"
-import { ColumnDef } from "@tanstack/react-table"
+import Link from "next/link"
+import { IconEdit, IconLink, IconPlus } from "@tabler/icons-react"
+import { ColumnDef, Row } from "@tanstack/react-table"
 import { toast } from "sonner"
 
 import { AppSidebar } from "@/components/app-sidebar"
-import { PhotoLinksEditor } from "@/components/photo-links-editor"
 import { PageHeader } from "@/components/page-header"
 import { DataTable } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Drawer, DrawerContent, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { SiteHeader } from "@/components/site-header"
-import { Textarea } from "@/components/ui/textarea"
 import { Toaster } from "@/components/ui/sonner"
-import { useIsMobile } from "@/hooks/use-mobile"
 import { useLoading } from "@/hooks/use-loading"
+import { useCanEdit } from "@/hooks/use-can-edit"
 import { rentalObjectApi, rentalSpaceApi } from "@/lib/api"
 import { RentalObject, RentalSpace } from "@/types"
 
@@ -55,34 +43,13 @@ const DEFAULT_SPACE_STATUS = "FREE"
 export default function RentalObjectSpacesPage() {
   const params = useParams<{ id: string }>()
   const router = useRouter()
-  const isMobile = useIsMobile()
+  const canEdit = useCanEdit()
   const { loading, withLoading } = useLoading(true)
 
   const objectId = Number(params?.id)
 
   const [rentalObject, setRentalObject] = useState<RentalObject | null>(null)
   const [spaces, setSpaces] = useState<RentalSpace[]>([])
-  const [isEditorOpen, setIsEditorOpen] = useState(false)
-  const [selectedSpace, setSelectedSpace] = useState<RentalSpace | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [spaceFormData, setSpaceFormData] = useState<Partial<RentalSpace>>({
-    object_id: objectId,
-    status: DEFAULT_SPACE_STATUS,
-    photos: [],
-  })
-
-  const resetSpaceForm = useCallback(() => {
-    setSelectedSpace(null)
-    setSpaceFormData({
-      object_id: objectId,
-      status: DEFAULT_SPACE_STATUS,
-      photos: [],
-      floor: "",
-      size: undefined,
-      description: "",
-    })
-    setSaving(false)
-  }, [objectId])
 
   const fetchSpaces = useCallback(async () => {
     if (!objectId || Number.isNaN(objectId)) {
@@ -134,122 +101,6 @@ export default function RentalObjectSpacesPage() {
     const variant = SPACE_STATUS_VARIANTS[status] ?? "secondary"
     const label = SPACE_STATUS_LABELS[status] ?? status
     return <Badge variant={variant}>{label}</Badge>
-  }, [])
-
-  const openSpaceEditor = useCallback(
-    (space?: RentalSpace) => {
-      if (space) {
-        setSelectedSpace(space)
-        setSpaceFormData({
-          ...space,
-          photos: [...(space.photos ?? [])],
-        })
-      } else {
-        resetSpaceForm()
-      }
-      setIsEditorOpen(true)
-    },
-    [resetSpaceForm]
-  )
-
-  const handleEditorOpenChange = useCallback(
-    (open: boolean) => {
-      setIsEditorOpen(open)
-      if (!open) {
-        resetSpaceForm()
-      }
-    },
-    [resetSpaceForm]
-  )
-
-  const handleSpaceInputChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      const { name, value } = event.target
-      setSpaceFormData((prev) => ({
-        ...prev,
-        [name]: name === "size" ? (value ? Number(value) : undefined) : value,
-      }))
-    },
-    []
-  )
-
-  const handleSpaceStatusChange = useCallback((value: string) => {
-    setSpaceFormData((prev) => ({
-      ...prev,
-      status: value,
-    }))
-  }, [])
-
-  const handleSpacePhotosChange = useCallback((links: string[]) => {
-    setSpaceFormData((prev) => ({
-      ...prev,
-      photos: links,
-    }))
-  }, [])
-
-  const sanitizeSpacePayload = useCallback(
-    (data: Partial<RentalSpace>): Partial<RentalSpace> => {
-      const { id: _id, object, views, created_at, updated_at, photos, ...rest } = data
-
-      return {
-        ...rest,
-        object_id: objectId,
-        size: rest.size ? Number(rest.size) : undefined,
-        status: rest.status ?? DEFAULT_SPACE_STATUS,
-        photos: (photos ?? []).map((url) => url.trim()).filter(Boolean),
-      }
-    },
-    [objectId]
-  )
-
-  const handleSaveSpace = async () => {
-    if (!spaceFormData.floor || !spaceFormData.floor.trim()) {
-      toast.error("Укажите этаж помещения")
-      return
-    }
-
-    if (!spaceFormData.size || Number(spaceFormData.size) <= 0) {
-      toast.error("Площадь должна быть больше нуля")
-      return
-    }
-
-    try {
-      setSaving(true)
-      const payload = sanitizeSpacePayload(spaceFormData)
-
-      if (selectedSpace) {
-        await rentalSpaceApi.update(selectedSpace.id, payload)
-        toast.success("Помещение обновлено")
-      } else {
-        await rentalSpaceApi.create(
-          payload as Omit<RentalSpace, "id" | "created_at" | "updated_at">
-        )
-        toast.success("Помещение создано")
-      }
-
-      await fetchSpaces()
-      handleEditorOpenChange(false)
-    } catch (error: any) {
-      toast.error("Не удалось сохранить помещение", {
-        description: error?.message ?? "Попробуйте повторить позже",
-      })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleDeleteSpace = useCallback(async (spaceId: number) => {
-    if (!confirm("Удалить это помещение?")) return
-
-    try {
-      await rentalSpaceApi.delete(spaceId)
-      setSpaces((prev) => prev.filter((space) => space.id !== spaceId))
-      toast.success("Помещение удалено")
-    } catch (error: any) {
-      toast.error("Не удалось удалить помещение", {
-        description: error?.message ?? "Попробуйте повторить позже",
-      })
-    }
   }, [])
 
   const columns = useMemo<ColumnDef<RentalSpace>[]>(
@@ -361,148 +212,27 @@ export default function RentalObjectSpacesPage() {
           </span>
         ),
       },
-      {
-        id: "actions",
-        header: "",
-        enableHiding: false,
-        cell: ({ row }) => (
-          <div className="flex items-start">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => openSpaceEditor(row.original)}
-              aria-label="Редактировать помещение"
-            >
-              <IconEdit className="h-4 w-4" />
-            </Button>
-          </div>
-        ),
-      },
+      ...(canEdit
+        ? [
+            {
+              id: "actions",
+              header: "",
+              enableHiding: false,
+              cell: ({ row }: { row: Row<RentalSpace> }) => (
+                <div className="flex items-start" onClick={(e) => e.stopPropagation()}>
+                  <Button variant="outline" size="icon" asChild aria-label="Редактировать помещение">
+                    <Link href={`/spaces/${objectId}/edit/${row.original.id}`}>
+                      <IconEdit className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                </div>
+              ),
+            },
+          ]
+        : []),
     ],
-    [getSpaceStatusBadge, handleDeleteSpace, openSpaceEditor]
+    [getSpaceStatusBadge, canEdit, objectId]
   )
-
-  const EditorFields = () => (
-    <>
-      <div className="grid gap-4 p-4">
-        <div className="space-y-2">
-          <Label htmlFor="floor">Этаж</Label>
-          <Input
-            id="floor"
-            name="floor"
-            placeholder="Например, 5 или 5-6"
-            value={spaceFormData.floor ?? ""}
-            onChange={handleSpaceInputChange}
-            onKeyDown={(e) => e.stopPropagation()}
-            onFocus={(e) => e.stopPropagation()}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="size">Площадь, м²</Label>
-          <Input
-            id="size"
-            name="size"
-            type="number"
-            min={1}
-            step="0.1"
-            value={spaceFormData.size ?? ""}
-            onChange={handleSpaceInputChange}
-            onKeyDown={(e) => e.stopPropagation()}
-            onFocus={(e) => e.stopPropagation()}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="status">Статус</Label>
-          <Select value={spaceFormData.status ?? DEFAULT_SPACE_STATUS} onValueChange={handleSpaceStatusChange}>
-            <SelectTrigger id="status">
-              <SelectValue placeholder="Выберите статус" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="FREE">Свободно</SelectItem>
-              <SelectItem value="RESERVED">Забронировано</SelectItem>
-              <SelectItem value="OCCUPIED">Сдано</SelectItem>
-              <SelectItem value="MAINTENANCE">На обслуживании</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="description">Описание</Label>
-          <Textarea
-            id="description"
-            name="description"
-            placeholder="Кратко опишите особенности помещения"
-            value={spaceFormData.description ?? ""}
-            onChange={handleSpaceInputChange}
-            onKeyDown={(e) => e.stopPropagation()}
-            onFocus={(e) => e.stopPropagation()}
-            rows={4}
-          />
-        </div>
-        <PhotoLinksEditor
-          label="Фотографии"
-          description="Добавьте ссылки на фотографии помещения. Первое фото используется как обложка."
-          value={spaceFormData.photos ?? []}
-          onChange={handleSpacePhotosChange}
-          addButtonLabel="Добавить фото"
-        />
-      </div>
-    </>
-  )
-
-  const FooterButtons = () => (
-    <>
-      <Button onClick={handleSaveSpace} disabled={saving}>
-        {saving ? "Сохранение..." : "Сохранить"}
-      </Button>
-      {selectedSpace && (
-        <Button
-          variant="outline"
-          onClick={() => handleDeleteSpace(selectedSpace.id)}
-          className="border-red-500 text-red-500 hover:bg-red-50 hover:text-red-600"
-        >
-          Удалить
-        </Button>
-      )}
-    </>
-  )
-
-  const renderEditor = () => {
-
-    if (isMobile) {
-      return (
-        <Drawer open={isEditorOpen} onOpenChange={handleEditorOpenChange}>
-          <DrawerContent className="p-0">
-            <DrawerHeader>
-              <DrawerTitle>{selectedSpace ? 'Edit Space' : 'Create Space'}</DrawerTitle>
-            </DrawerHeader>
-            <div className="overflow-y-auto max-h-[calc(100dvh-4.5rem)] pb-[50dvh]">
-              {EditorFields()}
-            </div>
-            <DrawerFooter>
-              <FooterButtons />
-            </DrawerFooter>
-          </DrawerContent>
-        </Drawer>
-      )
-    }
-
-    return (
-      <Sheet open={isEditorOpen} onOpenChange={handleEditorOpenChange}>
-        <SheetContent side="right">
-          <SheetHeader>
-            <SheetTitle>{selectedSpace ? 'Edit Space' : 'Create Space'}</SheetTitle>
-            <SheetDescription>
-              Заполните данные о помещении и добавьте ссылки на фотографии.
-            </SheetDescription>
-          </SheetHeader>
-          {EditorFields()}
-          <SheetFooter>
-            <FooterButtons />
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
-    )
-  }
 
   if (Number.isNaN(objectId)) {
     return (
@@ -543,9 +273,9 @@ export default function RentalObjectSpacesPage() {
                 ? `Управление помещениями объектa: ${rentalObject.address}`
                 : "Управление помещениями объекта"
             }
-            buttonText="Добавить помещение"
-            buttonIcon={<IconPlus className="h-4 w-4" />}
-            onButtonClick={() => openSpaceEditor()}
+            buttonText={canEdit ? "Добавить помещение" : undefined}
+            buttonIcon={canEdit ? <IconPlus className="h-4 w-4" /> : undefined}
+            onButtonClick={canEdit ? () => router.push(`/spaces/${objectId}/edit`) : undefined}
           />
 
           <Card className="overflow-hidden">
@@ -586,15 +316,14 @@ export default function RentalObjectSpacesPage() {
           </Card>
 
           <DataTable
-                data={spaces}
-                columns={columns}
-                loading={loading}
-                loadingMessage="Загрузка помещений..."
-              />
+            data={spaces}
+            columns={columns}
+            loading={loading}
+            loadingMessage="Загрузка помещений..."
+            onRowClick={(row) => router.push(`/spaces/${objectId}/${row.original.id}`)}
+          />
         </div>
       </SidebarInset>
-
-      {renderEditor()}
       <Toaster />
     </>
   )

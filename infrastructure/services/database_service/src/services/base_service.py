@@ -88,6 +88,29 @@ class BaseService:
         return await self.repository.get_all(session=session)
 
     @db_session_manager
+    async def get_paginated(
+        self,
+        *,
+        session,
+        page: int = 1,
+        page_size: int = 10,
+        sort: Optional[List[Dict[str, Any]]] = None,
+        filters: Optional[List[Dict[str, Any]]] = None,
+        search: Optional[str] = None,
+        search_columns: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Returns paginated {items: [...], total: int}."""
+        return await self.repository.get_paginated(
+            session=session,
+            page=page,
+            page_size=page_size,
+            sort=sort,
+            filters=filters,
+            search=search,
+            search_columns=search_columns,
+        )
+
+    @db_session_manager
     async def update(self, *, session, entity_id: Any, update_data: Dict[str, Any]) -> Optional[ModelType]:
         """
         Updates an existing entity from a dictionary of changes.

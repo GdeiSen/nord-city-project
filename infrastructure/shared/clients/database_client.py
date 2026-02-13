@@ -8,7 +8,7 @@ signatures so that callers know exactly what they can invoke.
 
 import os
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from shared.clients.http_rpc_client import HttpRpcClient
 from shared.utils.converter import Converter
@@ -90,6 +90,28 @@ class _CRUDProxy:
 
     async def get_all(self, *, model_class: Any = None) -> Dict[str, Any]:
         return await self._call("get_all", _model_class=model_class)
+
+    async def get_paginated(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 10,
+        sort: Optional[List[dict]] = None,
+        filters: Optional[List[dict]] = None,
+        search: Optional[str] = None,
+        search_columns: Optional[List[str]] = None,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        """Returns {success, data: {items: [...], total: int}}."""
+        return await self._call(
+            "get_paginated",
+            page=page,
+            page_size=page_size,
+            sort=sort or [],
+            filters=filters or [],
+            search=search or "",
+            search_columns=search_columns or [],
+        )
 
     async def update(
         self,

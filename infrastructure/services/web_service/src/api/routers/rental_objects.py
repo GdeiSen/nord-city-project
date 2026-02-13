@@ -1,10 +1,10 @@
 import logging
-from typing import List
+from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from shared.clients.database_client import db_client
-from api.schemas.common import MessageResponse
+from api.schemas.common import MessageResponse, PaginatedResponse, parse_sort_param
 from api.schemas.rental_objects import ObjectResponse, CreateObjectRequest, UpdateObjectBody
 
 logger = logging.getLogger(__name__)
@@ -20,13 +20,25 @@ async def create_object(body: CreateObjectRequest):
     return response["data"]
 
 
-@router.get("/", response_model=List[ObjectResponse])
-async def get_all_objects():
-    response = await db_client.object.get_all()
+@router.get("/", response_model=PaginatedResponse[ObjectResponse])
+async def get_objects(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=500),
+    search: Optional[str] = None,
+    sort: Optional[str] = None,
+):
+    response = await db_client.object.get_paginated(
+        page=page,
+        page_size=page_size,
+        sort=parse_sort_param(sort),
+        search=search or "",
+        search_columns=["name", "address", "description"],
+    )
     if not response.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail=response.get("error", "Failed to fetch rental objects"))
-    return response.get("data", [])
+    data = response.get("data", {})
+    return PaginatedResponse(items=data.get("items", []), total=data.get("total", 0))
 
 
 @router.get("/{entity_id}", response_model=ObjectResponse)

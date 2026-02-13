@@ -179,6 +179,13 @@ export const schema = z.object({
  * complex user interactions while maintaining performance for large datasets.
  * It uses React.memo optimization patterns and efficient re-rendering strategies.
  */
+export interface ServerPaginationParams {
+  pageIndex: number
+  pageSize: number
+  search: string
+  sort: string
+}
+
 export function DataTable<TData>({
   data,
   columns,
@@ -187,6 +194,11 @@ export function DataTable<TData>({
   view = 'table',
   renderCard,
   cardsClassName,
+  onRowClick,
+  serverPagination = false,
+  totalRowCount = 0,
+  serverParams,
+  onServerParamsChange,
 }: {
   data: TData[]
   columns: ColumnDef<TData>[]
@@ -195,20 +207,50 @@ export function DataTable<TData>({
   view?: 'table' | 'cards'
   renderCard?: (row: Row<TData>) => React.ReactNode
   cardsClassName?: string
+  /** Optional callback when a table row is clicked. Pass the row data. Ignored for card view. */
+  onRowClick?: (row: Row<TData>) => void
+  /** Enable server-side pagination. Data is the current page only. */
+  serverPagination?: boolean
+  /** Total row count for server pagination. */
+  totalRowCount?: number
+  /** Current server params (controlled). */
+  serverParams?: Partial<ServerPaginationParams>
+  /** Callback when pagination/sort/search changes. */
+  onServerParamsChange?: (params: ServerPaginationParams) => void
 }) {
+  const pageSizeFromParams = serverParams?.pageSize ?? 10
   const [rowSelection, setRowSelection] = React.useState({})
   const [columnVisibility, setColumnVisibility] =
     React.useState<VisibilityState>({})
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [pagination, setPagination] = React.useState({
-    pageIndex: 0,
-    pageSize: 10,
+    pageIndex: serverParams?.pageIndex ?? 0,
+    pageSize: pageSizeFromParams,
   })
   const [isSortFilterOpen, setIsSortFilterOpen] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState<'sort' | 'filter'>('sort')
-  const [globalQuery, setGlobalQuery] = React.useState("")
+  const [globalQuery, setGlobalQuery] = React.useState(serverParams?.search ?? "")
   const isMobile = useIsMobile()
+
+  // Sync from serverParams when in server mode
+  React.useEffect(() => {
+    if (serverPagination && serverParams) {
+      setPagination({
+        pageIndex: serverParams.pageIndex ?? 0,
+        pageSize: serverParams.pageSize ?? 10,
+      })
+      setGlobalQuery(serverParams.search ?? "")
+      if (serverParams.sort) {
+        const parts = serverParams.sort.split(",").filter(Boolean)
+        const sorts = parts.map((p) => {
+          const [col, dir] = p.includes(":") ? p.split(":") : [p, "asc"]
+          return { columnId: col.trim(), direction: (dir?.trim() || "asc") as "asc" | "desc" }
+        })
+        setAdvancedSorts(sorts)
+      }
+    }
+  }, [serverPagination, serverParams?.pageIndex, serverParams?.pageSize, serverParams?.search, serverParams?.sort])
   
   // Advanced filter state
   const [advancedFilters, setAdvancedFilters] = React.useState<ColumnFilter[]>([])
@@ -325,6 +367,22 @@ export function DataTable<TData>({
     
     return true
   }, [])
+
+  const isFirstServerParamsSync = React.useRef(true)
+  React.useEffect(() => {
+    if (!serverPagination || !onServerParamsChange) return
+    if (isFirstServerParamsSync.current) {
+      isFirstServerParamsSync.current = false
+      return
+    }
+    const sortStr = advancedSorts.map((s) => `${s.columnId}:${s.direction}`).join(",")
+    onServerParamsChange({
+      pageIndex: pagination.pageIndex,
+      pageSize: pagination.pageSize,
+      search: globalQuery,
+      sort: sortStr,
+    })
+  }, [serverPagination, onServerParamsChange, pagination.pageIndex, pagination.pageSize, globalQuery, advancedSorts])
 
   // Apply advanced filters and sorts to table
   React.useEffect(() => {
@@ -593,6 +651,10 @@ export function DataTable<TData>({
     return false
   }, [])
 
+  const pageCount = serverPagination && totalRowCount > 0
+    ? Math.ceil(totalRowCount / pagination.pageSize) || 1
+    : undefined
+
   const table = useReactTable({
     data,
     columns: wrappedColumns,
@@ -613,12 +675,27 @@ export function DataTable<TData>({
     onPaginationChange: setPagination,
     onGlobalFilterChange: setGlobalQuery,
     getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFacetedRowModel: getFacetedRowModel(),
-    getFacetedUniqueValues: getFacetedUniqueValues(),
-    globalFilterFn: globalSearchFn as any,
+    ...(serverPagination
+      ? {
+          manualPagination: true,
+          manualSorting: true,
+          manualFiltering: true,
+          pageCount: pageCount ?? -1,
+          getFilteredRowModel: undefined,
+          getSortedRowModel: undefined,
+          getPaginationRowModel: undefined,
+          getFacetedRowModel: undefined,
+          getFacetedUniqueValues: undefined,
+          globalFilterFn: undefined,
+        }
+      : {
+          getFilteredRowModel: getFilteredRowModel(),
+          getPaginationRowModel: getPaginationRowModel(),
+          getSortedRowModel: getSortedRowModel(),
+          getFacetedRowModel: getFacetedRowModel(),
+          getFacetedUniqueValues: getFacetedUniqueValues(),
+          globalFilterFn: globalSearchFn as any,
+        }),
     meta: {
       globalQuery,
     },
@@ -795,6 +872,12 @@ export function DataTable<TData>({
                   <TableRow
                     key={row.id}
                     data-state={row.getIsSelected() && "selected"}
+                    className={onRowClick ? "cursor-pointer hover:bg-muted/50 transition-colors" : undefined}
+                    onClick={onRowClick ? (e) => {
+                      const target = e.target as HTMLElement
+                      if (target.closest("button") || target.closest("[role=checkbox]") || target.closest("a")) return
+                      onRowClick(row)
+                    } : undefined}
                   >
                     {row.getVisibleCells().map((cell) => (
                       <TableCell key={cell.id}>
@@ -831,7 +914,9 @@ export function DataTable<TData>({
       )}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex-1 text-sm text-muted-foreground">
-          {table.getFilteredSelectedRowModel().rows.length} of {table.getFilteredRowModel().rows.length} row(s) selected.
+          {serverPagination
+            ? `${table.getFilteredSelectedRowModel().rows.length} of ${totalRowCount} row(s) selected.`
+            : `${table.getFilteredSelectedRowModel().rows.length} of ${table.getFilteredRowModel().rows.length} row(s) selected.`}
         </div>
         <div className="flex items-center justify-end space-x-4 h-9">
           <DropdownMenu>

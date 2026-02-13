@@ -1,10 +1,10 @@
 import logging
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from shared.clients.database_client import db_client
-from api.schemas.common import MessageResponse
+from api.schemas.common import MessageResponse, PaginatedResponse, parse_sort_param
 from api.schemas.rental_spaces import SpaceResponse, CreateSpaceRequest, UpdateSpaceBody
 
 logger = logging.getLogger(__name__)
@@ -20,13 +20,28 @@ async def create_space(body: CreateSpaceRequest):
     return response["data"]
 
 
-@router.get("/", response_model=List[SpaceResponse])
-async def get_all_spaces():
-    response = await db_client.space.get_all()
+@router.get("/", response_model=PaginatedResponse[SpaceResponse])
+async def get_spaces(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=500),
+    search: Optional[str] = None,
+    sort: Optional[str] = None,
+    object_id: Optional[int] = None,
+):
+    filters = [{"columnId": "object_id", "operator": "equals", "value": str(object_id)}] if object_id else []
+    response = await db_client.space.get_paginated(
+        page=page,
+        page_size=page_size,
+        sort=parse_sort_param(sort),
+        filters=filters if filters else None,
+        search=search or "",
+        search_columns=["floor", "description", "status"],
+    )
     if not response.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail=response.get("error", "Failed to fetch rental spaces"))
-    return response.get("data", [])
+    data = response.get("data", {})
+    return PaginatedResponse(items=data.get("items", []), total=data.get("total", 0))
 
 
 @router.get("/rental-objects/{object_id}", response_model=List[SpaceResponse])

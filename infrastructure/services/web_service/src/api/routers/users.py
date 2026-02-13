@@ -1,10 +1,10 @@
 import logging
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from shared.clients.database_client import db_client
-from api.schemas.common import MessageResponse
+from api.schemas.common import MessageResponse, PaginatedResponse, parse_sort_param
 from api.schemas.users import UserResponse, CreateUserRequest, UpdateUserBody
 
 logger = logging.getLogger(__name__)
@@ -20,13 +20,25 @@ async def create_user(body: CreateUserRequest):
     return response["data"]
 
 
-@router.get("/", response_model=List[UserResponse])
-async def get_all_users():
-    response = await db_client.user.get_all()
+@router.get("/", response_model=PaginatedResponse[UserResponse])
+async def get_users(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    search: Optional[str] = None,
+    sort: Optional[str] = None,
+):
+    response = await db_client.user.get_paginated(
+        page=page,
+        page_size=page_size,
+        sort=parse_sort_param(sort),
+        search=search or "",
+        search_columns=["username", "first_name", "last_name", "email", "phone_number"],
+    )
     if not response.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail=response.get("error", "Failed to fetch users"))
-    return response.get("data", [])
+    data = response.get("data", {})
+    return PaginatedResponse(items=data.get("items", []), total=data.get("total", 0))
 
 
 @router.get("/{entity_id}", response_model=UserResponse)

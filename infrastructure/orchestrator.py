@@ -13,6 +13,9 @@ Usage
     python orchestrator.py --services bot           # bot + its dependency (db)
     python orchestrator.py --service db             # start a SINGLE service (no dashboard)
     python orchestrator.py --no-dashboard           # start ALL services, stream logs to terminal
+    python orchestrator.py --background             # run all services in background, logs → infrastructure/logs/
+    python orchestrator.py --kill                   # stop all running background processes
+    python orchestrator.py --info                   # show all running background processes
     python orchestrator.py --list                   # list available services
     python orchestrator.py --help                   # full help
 
@@ -33,6 +36,7 @@ Notes
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import signal
 import subprocess
@@ -76,6 +80,9 @@ STARTUP_DELAY_DEFAULT = 1     # seconds between independent services
 SHUTDOWN_TIMEOUT = 5          # seconds to wait for graceful termination
 LOG_BUFFER_SIZE = 120         # last N log lines kept per service
 REFRESH_RATE = 2              # dashboard refreshes per second
+
+LOGS_DIR = INFRASTRUCTURE_ROOT / "logs"
+STATE_FILE = LOGS_DIR / "orchestrator_state.json"
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +131,7 @@ class ServiceRuntime:
     log_buffer: deque = field(default_factory=lambda: deque(maxlen=LOG_BUFFER_SIZE))
     reader_thread: Optional[threading.Thread] = None
     exit_code: Optional[int] = None
+    log_file_handle: Optional[object] = None  # file handle when log_to_files
 
 
 # Registry — order matters (used as default start order)
@@ -240,12 +248,16 @@ class Orchestrator:
         env_file: Path,
         use_dashboard: bool = True,
         stream_logs: bool = False,
+        log_to_files: bool = False,
+        log_dir: Optional[Path] = None,
     ):
         self.console = Console()
         self.running = False
         self._shutdown_event = threading.Event()
         self.use_dashboard = use_dashboard
         self.stream_logs = stream_logs
+        self.log_to_files = log_to_files
+        self.log_dir = log_dir or LOGS_DIR
 
         # Load .env
         if env_file.exists():
@@ -309,23 +321,37 @@ class Orchestrator:
             return False
 
         try:
-            proc = subprocess.Popen(
-                rt.info.command,
-                cwd=str(rt.info.working_dir),
-                env=self.child_env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                bufsize=1,
-            )
+            if self.log_to_files:
+                self.log_dir.mkdir(parents=True, exist_ok=True)
+                log_path = self.log_dir / f"{alias}.log"
+                rt.log_file_handle = open(log_path, "a", encoding="utf-8")
+                proc = subprocess.Popen(
+                    rt.info.command,
+                    cwd=str(rt.info.working_dir),
+                    env=self.child_env,
+                    stdout=rt.log_file_handle,
+                    stderr=subprocess.STDOUT,
+                    bufsize=1,
+                )
+            else:
+                proc = subprocess.Popen(
+                    rt.info.command,
+                    cwd=str(rt.info.working_dir),
+                    env=self.child_env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    bufsize=1,
+                )
             rt.process = proc
             rt.started_at = datetime.now()
             rt.state = ServiceState.RUNNING
 
-            reader = threading.Thread(
-                target=self._read_output, args=(rt, alias), daemon=True
-            )
-            reader.start()
-            rt.reader_thread = reader
+            if not self.log_to_files:
+                reader = threading.Thread(
+                    target=self._read_output, args=(rt, alias), daemon=True
+                )
+                reader.start()
+                rt.reader_thread = reader
 
             return True
         except Exception as e:
@@ -344,8 +370,35 @@ class Orchestrator:
                         ServiceState.CRASHED if rc != 0 else ServiceState.STOPPED
                     )
 
+    def _save_state(self):
+        """Save orchestrator and service PIDs to state file for --kill/--info."""
+        try:
+            data = {
+                "orchestrator_pid": os.getpid(),
+                "services": {},
+                "started_at": datetime.now().isoformat(),
+            }
+            for alias, rt in self.services.items():
+                if rt.process is not None and rt.process.pid is not None:
+                    data["services"][alias] = rt.process.pid
+            self.log_dir.mkdir(parents=True, exist_ok=True)
+            with open(STATE_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except OSError as e:
+            self.console.print(f"[yellow]Warning: could not save state file: {e}[/yellow]")
+
+    def _remove_state(self):
+        """Remove state file on shutdown."""
+        try:
+            if STATE_FILE.exists():
+                STATE_FILE.unlink()
+        except OSError:
+            pass
+
     def _shutdown_all(self):
         """Gracefully terminate all running processes (reverse order)."""
+        if self.log_to_files:
+            self._remove_state()
         self.console.print("\n[yellow]Shutting down services...[/yellow]")
         for alias in reversed(self.start_order):
             rt = self.services[alias]
@@ -359,6 +412,12 @@ class Orchestrator:
                     rt.process.kill()
                     rt.process.wait(timeout=5)
                 rt.state = ServiceState.STOPPED
+            if rt.log_file_handle is not None:
+                try:
+                    rt.log_file_handle.close()
+                except OSError:
+                    pass
+                rt.log_file_handle = None
         self.console.print("[green]All services stopped.[/green]")
 
     # -- Dashboard -----------------------------------------------------------
@@ -460,6 +519,10 @@ class Orchestrator:
         self.console.print("[green bold]All services started successfully.[/green bold]")
         self.console.print()
 
+        # Save state file when running in background (for --kill and --info)
+        if self.log_to_files:
+            self._save_state()
+
         # Choose between dashboard mode and plain log-streaming mode
         try:
             if self.use_dashboard:
@@ -512,6 +575,182 @@ class Orchestrator:
             pass
         finally:
             self._shutdown_all()
+
+
+# ---------------------------------------------------------------------------
+# Background mode: kill, info, launch
+# ---------------------------------------------------------------------------
+def _load_state() -> Optional[Dict]:
+    """Load state from file. Returns None if not found or invalid."""
+    if not STATE_FILE.exists():
+        return None
+    try:
+        with open(STATE_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def kill_background_processes(console: Optional[Console] = None) -> bool:
+    """
+    Find and terminate all background orchestrator processes and their services.
+    Returns True if any processes were killed, False otherwise.
+    """
+    c = console or Console()
+    state = _load_state()
+    if not state:
+        c.print("[yellow]No background orchestrator is running.[/yellow]")
+        return False
+
+    killed_any = False
+    orch_pid = state.get("orchestrator_pid")
+    services = state.get("services", {})
+
+    # Kill service processes first (children), then orchestrator
+    for alias, pid in services.items():
+        if pid and _send_signal(pid, signal.SIGTERM):
+            c.print(f"  Stopped [bold]{alias}[/bold] (PID {pid})")
+            killed_any = True
+            time.sleep(0.5)  # brief pause between kills
+
+    if orch_pid and _send_signal(orch_pid, signal.SIGTERM):
+        c.print(f"  Stopped [bold]orchestrator[/bold] (PID {orch_pid})")
+        killed_any = True
+
+    if killed_any:
+        time.sleep(1)  # allow graceful shutdown
+        # Force kill any remaining
+        for alias, pid in services.items():
+            if pid and _process_exists(pid):
+                _send_signal(pid, signal.SIGKILL)
+                c.print(f"  Force-killed [bold]{alias}[/bold] (PID {pid})")
+        if orch_pid and _process_exists(orch_pid):
+            _send_signal(orch_pid, signal.SIGKILL)
+            c.print(f"  Force-killed [bold]orchestrator[/bold] (PID {orch_pid})")
+
+    try:
+        if STATE_FILE.exists():
+            STATE_FILE.unlink()
+    except OSError:
+        pass
+
+    if killed_any:
+        c.print("[green]All background processes stopped.[/green]")
+    return killed_any
+
+
+def _send_signal(pid: int, sig: int) -> bool:
+    """Send signal to process. Returns True if process existed."""
+    try:
+        os.kill(pid, sig)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return False
+
+
+def _process_exists(pid: int) -> bool:
+    """Check if process with given PID exists."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists but we can't signal it
+
+
+def show_running_processes(console: Optional[Console] = None) -> None:
+    """Display all running background processes from state file."""
+    c = console or Console()
+    state = _load_state()
+    if not state:
+        c.print("[yellow]No background orchestrator is running.[/yellow]")
+        c.print("[dim]Use --background to start services in the background.[/dim]")
+        return
+
+    table = Table(
+        title="Nord City Background Processes",
+        show_header=True,
+        header_style="bold cyan",
+        padding=(0, 1),
+    )
+    table.add_column("Process", style="bold", min_width=14)
+    table.add_column("PID", width=8, justify="right")
+    table.add_column("Status", width=12, justify="center")
+    table.add_column("Info", min_width=20)
+
+    orch_pid = state.get("orchestrator_pid")
+    services = state.get("services", {})
+    started_at = state.get("started_at", "-")
+
+    if orch_pid:
+        status = "[green]RUNNING[/green]" if _process_exists(orch_pid) else "[red]STOPPED[/red]"
+        table.add_row("orchestrator", str(orch_pid), status, f"Started: {started_at[:19]}")
+
+    for alias, pid in services.items():
+        if pid:
+            info = SERVICES.get(alias)
+            desc = info.name if info else alias
+            status = "[green]RUNNING[/green]" if _process_exists(pid) else "[red]STOPPED[/red]"
+            table.add_row(alias, str(pid), status, desc)
+
+    c.print()
+    c.print(table)
+    c.print()
+    c.print(f"[dim]Logs directory: {LOGS_DIR}[/dim]")
+
+
+def launch_background(
+    requested: List[str],
+    env_file: Path,
+    console: Optional[Console] = None,
+) -> None:
+    """
+    Launch orchestrator in background with logs written to infrastructure/logs.
+    """
+    c = console or Console()
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    orch_log = LOGS_DIR / "orchestrator.log"
+
+    argv = [
+        sys.executable,
+        str(INFRASTRUCTURE_ROOT / "orchestrator.py"),
+        "--services", ",".join(requested),
+        "--background-child",
+    ]
+    if str(env_file) != str(INFRASTRUCTURE_ROOT / ".env"):
+        argv.extend(["--env-file", str(env_file)])
+
+    with open(orch_log, "a", encoding="utf-8") as logf:
+        proc = subprocess.Popen(
+            argv,
+            cwd=str(INFRASTRUCTURE_ROOT),
+            stdout=logf,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+    # Write initial state so --kill/--info work before services are fully started
+    try:
+        state_data = {
+            "orchestrator_pid": proc.pid,
+            "services": {},
+            "started_at": datetime.now().isoformat(),
+        }
+        with open(STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(state_data, f, indent=2)
+    except OSError:
+        pass
+
+    c.print("[green]Orchestrator started in background.[/green]")
+    c.print(f"  PID: {proc.pid}")
+    c.print(f"  Logs: {LOGS_DIR}")
+    c.print(f"  Orchestrator log: {orch_log}")
+    c.print()
+    c.print("[dim]Use --info to see running processes, --kill to stop all.[/dim]")
 
 
 # ---------------------------------------------------------------------------
@@ -577,6 +816,9 @@ Examples:
   python orchestrator.py --services db,web        # only database + web
   python orchestrator.py --services bot           # bot (auto-includes db)
   python orchestrator.py --service db             # single service, foreground
+  python orchestrator.py --background            # run in background, logs in infrastructure/logs/
+  python orchestrator.py --kill                  # stop all background processes
+  python orchestrator.py --info                  # show running background processes
   python orchestrator.py --list                   # show service table
 """,
     )
@@ -610,6 +852,26 @@ Examples:
         help="List available services and exit.",
     )
     parser.add_argument(
+        "--background", "-b",
+        action="store_true",
+        help="Run orchestrator and all services in background. Logs are written to infrastructure/logs/.",
+    )
+    parser.add_argument(
+        "--kill", "-k",
+        action="store_true",
+        help="Stop all running background processes (orchestrator and services). Does not start new services.",
+    )
+    parser.add_argument(
+        "--info", "-i",
+        action="store_true",
+        help="Show all running background processes and their status.",
+    )
+    parser.add_argument(
+        "--background-child",
+        action="store_true",
+        help=argparse.SUPPRESS,  # Internal: used when running as background child
+    )
+    parser.add_argument(
         "--env-file",
         type=str,
         default=None,
@@ -623,6 +885,17 @@ def main():
     parser = _build_parser()
     args = parser.parse_args()
     console = Console()
+
+    # ── --kill ───────────────────────────────────────────────────────────
+    if args.kill:
+        console.print("[bold]Stopping background processes...[/bold]")
+        kill_background_processes(console)
+        return
+
+    # ── --info ───────────────────────────────────────────────────────────
+    if args.info:
+        show_running_processes(console)
+        return
 
     # ── --list ──────────────────────────────────────────────────────────
     if args.list:
@@ -670,25 +943,37 @@ def main():
 
     env_file = Path(args.env_file) if args.env_file else (INFRASTRUCTURE_ROOT / ".env")
 
-    # Banner
-    console.print()
-    console.print(
-        Panel(
-            "[bold white]Nord City Services Orchestrator[/bold white]\n"
-            f"[dim]Services: {', '.join(requested)}[/dim]",
-            border_style="blue",
-            padding=(1, 4),
-        )
-    )
+    # ── --background ───────────────────────────────────────────────────
+    if args.background:
+        launch_background(requested, env_file, console)
+        return
 
-    use_dashboard = not args.no_dashboard
-    stream_logs = args.no_dashboard
+    # ── --background-child (internal) ───────────────────────────────────
+    is_background_child = args.background_child
+
+    # Banner (skip for background child - logs go to file)
+    if not is_background_child:
+        console.print()
+        console.print(
+            Panel(
+                "[bold white]Nord City Services Orchestrator[/bold white]\n"
+                f"[dim]Services: {', '.join(requested)}[/dim]",
+                border_style="blue",
+                padding=(1, 4),
+            )
+        )
+
+    use_dashboard = not args.no_dashboard and not is_background_child
+    stream_logs = args.no_dashboard and not is_background_child
+    log_to_files = is_background_child
 
     orch = Orchestrator(
         requested,
         env_file,
         use_dashboard=use_dashboard,
         stream_logs=stream_logs,
+        log_to_files=log_to_files,
+        log_dir=LOGS_DIR if log_to_files else None,
     )
 
     # Signal handlers

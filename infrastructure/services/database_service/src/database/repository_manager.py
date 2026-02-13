@@ -1,11 +1,25 @@
 import logging
-from typing import Type, TypeVar, Dict, Optional
+from typing import Type, TypeVar, Dict, Optional, List, Any
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import or_, and_
 
 logger = logging.getLogger(__name__)
 
 ModelType = TypeVar("ModelType", bound=DeclarativeBase)
 RepoType = TypeVar("RepoType")
+
+# Filter operators for get_paginated
+FILTER_OPS = {
+    "contains": lambda col, v: col.ilike(f"%{v}%"),
+    "equals": lambda col, v: col == v,
+    "notEquals": lambda col, v: col != v,
+    "greaterThan": lambda col, v: col > v,
+    "lessThan": lambda col, v: col < v,
+    "greaterOrEqual": lambda col, v: col >= v,
+    "lessOrEqual": lambda col, v: col <= v,
+    "isEmpty": lambda col, _: col.is_(None),
+    "isNotEmpty": lambda col, _: col.isnot(None),
+}
 
 class GenericRepository:
     """
@@ -86,6 +100,105 @@ class GenericRepository:
             return result.scalars().all()
         except Exception as e:
             logger.error(f"Error getting all {self.model.__name__}: {e}", exc_info=True)
+            raise
+
+    def _apply_filters(self, query, filters: List[Dict[str, Any]], select_stmt):
+        """Apply filter conditions to the query. Only uses columns that exist on the model."""
+        for f in filters or []:
+            col_id = f.get("columnId") or f.get("column_id")
+            op = f.get("operator", "equals")
+            val = f.get("value")
+            if not col_id or not hasattr(self.model, col_id):
+                continue
+            col = getattr(self.model, col_id)
+            if op in ("isEmpty", "isNotEmpty"):
+                fn = FILTER_OPS.get(op)
+                if fn:
+                    query = query.where(fn(col, None))
+            elif val is not None and str(val).strip() != "":
+                fn = FILTER_OPS.get(op)
+                if fn:
+                    query = query.where(fn(col, val))
+        return query
+
+    def _apply_search(self, query, search: str, search_columns: List[str]):
+        """Apply global search as OR ILIKE across searchable string columns."""
+        if not search or not search.strip():
+            return query
+        q = f"%{search.strip()}%"
+        clauses = []
+        for col_name in search_columns or []:
+            if hasattr(self.model, col_name):
+                col = getattr(self.model, col_name)
+                try:
+                    if hasattr(col, "ilike"):
+                        clauses.append(col.ilike(q))
+                except Exception:
+                    pass
+        if clauses:
+            query = query.where(or_(*clauses))
+        return query
+
+    def _apply_sort(self, query, sort: List[Dict[str, Any]]):
+        """Apply ORDER BY from sort spec."""
+        for s in sort or []:
+            col_id = s.get("columnId") or s.get("column_id")
+            direction = (s.get("direction") or "asc").lower()
+            if not col_id or not hasattr(self.model, col_id):
+                continue
+            col = getattr(self.model, col_id)
+            query = query.order_by(col.desc() if direction == "desc" else col.asc())
+        return query
+
+    async def get_paginated(
+        self,
+        session,
+        *,
+        page: int = 1,
+        page_size: int = 10,
+        sort: Optional[List[Dict[str, Any]]] = None,
+        filters: Optional[List[Dict[str, Any]]] = None,
+        search: Optional[str] = None,
+        search_columns: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Paginated query with optional sorting, filtering, and global search.
+        Returns {items: [...], total: int}.
+        """
+        from sqlalchemy.future import select
+        from sqlalchemy import func as sa_func
+        try:
+            # Base query
+            stmt = select(self.model)
+            count_stmt = select(sa_func.count()).select_from(self.model)
+
+            # Apply filters to both
+            stmt = self._apply_filters(stmt, filters, stmt)
+            count_stmt = self._apply_filters(count_stmt, filters, count_stmt)
+
+            # Apply search to both (default: common text columns)
+            default_search_cols = []
+            for c in self.model.__table__.columns:
+                if hasattr(c.type, "astext") or str(c.type).lower() in ("varchar", "string", "text"):
+                    default_search_cols.append(c.key)
+            cols = search_columns or default_search_cols
+            stmt = self._apply_search(stmt, search, cols)
+            count_stmt = self._apply_search(count_stmt, search, cols)
+
+            # Count (without order/limit)
+            total_result = await session.execute(count_stmt)
+            total = total_result.scalar() or 0
+
+            # Sort and paginate
+            stmt = self._apply_sort(stmt, sort)
+            offset = max(0, (page - 1) * page_size)
+            stmt = stmt.offset(offset).limit(max(1, page_size))
+
+            result = await session.execute(stmt)
+            items = result.scalars().all()
+            return {"items": items, "total": total}
+        except Exception as e:
+            logger.error(f"Error in get_paginated {self.model.__name__}: {e}", exc_info=True)
             raise
             
     async def find(self, session, **filters) -> list[ModelType]:

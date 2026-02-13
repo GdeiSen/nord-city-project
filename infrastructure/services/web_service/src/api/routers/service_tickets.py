@@ -1,10 +1,10 @@
 import logging
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from shared.clients.database_client import db_client
-from api.schemas.common import MessageResponse
+from api.schemas.common import MessageResponse, PaginatedResponse, parse_sort_param
 from api.schemas.service_tickets import (
     ServiceTicketResponse,
     CreateServiceTicketRequest,
@@ -35,13 +35,38 @@ async def get_service_tickets_stats():
     return response["data"]
 
 
-@router.get("/", response_model=List[ServiceTicketResponse])
-async def get_all_service_tickets():
-    response = await db_client.service_ticket.get_all()
+@router.get("/", response_model=PaginatedResponse[ServiceTicketResponse])
+async def get_service_tickets(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    search: Optional[str] = None,
+    sort: Optional[str] = None,
+):
+    response = await db_client.service_ticket.get_paginated(
+        page=page,
+        page_size=page_size,
+        sort=parse_sort_param(sort),
+        search=search or "",
+        search_columns=["msid", "description"],
+    )
     if not response.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail=response.get("error", "Failed to fetch service tickets"))
-    return response.get("data", [])
+    data = response.get("data", {})
+    items = data.get("items", [])
+    # Enrich with user data
+    user_ids = list({t.get("user_id") for t in items if t.get("user_id")})
+    user_map = {}
+    for uid in user_ids:
+        try:
+            ur = await db_client.user.get_by_id(entity_id=uid)
+            if ur.get("success") and ur.get("data"):
+                user_map[uid] = ur["data"]
+        except Exception:
+            pass
+    for t in items:
+        t["user"] = user_map.get(t.get("user_id"), {"first_name": "Unknown", "last_name": "", "username": ""})
+    return PaginatedResponse(items=items, total=data.get("total", 0))
 
 
 @router.get("/msid/{msid}", response_model=List[ServiceTicketResponse])
