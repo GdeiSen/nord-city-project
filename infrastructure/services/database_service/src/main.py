@@ -96,6 +96,39 @@ def _register_resources():
     logger.info("All resources registered successfully.")
 
 
+async def _ensure_default_object():
+    """
+    Ensures that Object with id=1 exists at startup.
+    Creates it with starter information if it does not exist.
+    Required for normal operation of the entire system.
+    """
+    from sqlalchemy import text
+
+    obj_repo = db_manager.repositories.get(Object)
+    async with db_manager.get_session() as session:
+        existing = await obj_repo.get_by_id(session, entity_id=1)
+        if existing is not None:
+            logger.info("Default object (id=1) already exists, skipping creation.")
+            return
+
+        default_obj = Object(
+            id=1,
+            name="Nord City",
+            address="",
+            description="",
+            photos=[],
+            status="ACTIVE",
+        )
+        await obj_repo.create(session, obj_in=default_obj)
+        # Sync PostgreSQL sequence so next auto-generated id is 2+
+        await session.execute(
+            text("SELECT setval('objects_id_seq', (SELECT COALESCE(MAX(id), 1) FROM objects))")
+        )
+        await session.commit()
+
+    logger.info("Created default object with id=1 for system initialization.")
+
+
 async def _rpc_handler(request: dict) -> dict:
     """Universal RPC handler that processes all incoming requests."""
     try:
@@ -137,6 +170,7 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Database Service (HTTP)...")
     await db_manager.initialize_db()
     _register_resources()
+    await _ensure_default_object()
     logger.info("Database Service ready.")
     yield
     logger.info("Shutting down Database Service...")

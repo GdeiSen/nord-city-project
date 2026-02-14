@@ -34,7 +34,6 @@ async def start_app_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYPE
     user_id = bot.get_user_id(update)
     if user_id:
         user = await bot.services.user.get_user_by_id(user_id)
-        print(user)
         if user is None:
             telegram_user = update.effective_user
 
@@ -49,10 +48,7 @@ async def start_app_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYPE
                 role=Roles.LPR
             )
             user = await bot.services.user.create_user(new_user)
-            if user:
-                print(f"New user created: {user_id}")
-            else:
-                print(f"Failed to create user: {user_id}")
+            if not user:
                 return
         
         if user:

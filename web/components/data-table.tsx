@@ -19,6 +19,11 @@ import {
   IconX,
   IconGripVertical,
   IconTrash,
+  IconEdit,
+  IconCopy,
+  IconEyeOff,
+  IconSearch,
+  IconSearchOff,
 } from "@tabler/icons-react"
 import {
   ColumnDef,
@@ -93,13 +98,13 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Spinner } from "@/components/ui/spinner"
 import {
@@ -110,6 +115,65 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Calendar } from "@/components/ui/calendar"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { format } from "date-fns"
+import { ru } from "date-fns/locale"
+import { DataPicker, DataPickerField } from "@/components/data-picker"
+
+function FilterDataPicker({
+  data,
+  fields,
+  displayValue,
+  placeholder,
+  open,
+  onOpenChange,
+  onSelect,
+}: {
+  data: any[]
+  fields: DataPickerField[]
+  displayValue: string
+  placeholder: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSelect: (item: { id: number }) => void
+}) {
+  return (
+    <div className="min-w-[140px] flex-1" onClick={(e) => e.stopPropagation()}>
+      <DataPicker
+        title={placeholder}
+        description="Выберите значение из списка"
+        data={data}
+        fields={fields}
+        displayValue={displayValue}
+        placeholder={placeholder}
+        onSelect={onSelect}
+        open={open}
+        onOpenChange={onOpenChange}
+      />
+    </div>
+  )
+}
 
 /**
  * Filter operator types for different data types
@@ -122,6 +186,7 @@ export type FilterOperator =
   | 'lessThan'      // For numbers: <
   | 'greaterOrEqual'// For numbers: >=
   | 'lessOrEqual'   // For numbers: <=
+  | 'dateRange'     // For dates: from..to
   | 'isEmpty'       // For any: is empty/null
   | 'isNotEmpty'    // For any: is not empty/null
 
@@ -132,6 +197,10 @@ export interface ColumnFilter {
   columnId: string
   operator: FilterOperator
   value: string
+  /** For date columns: start of range (ISO string) */
+  dateFrom?: string
+  /** For date columns: end of range (ISO string) */
+  dateTo?: string
 }
 
 /**
@@ -179,17 +248,45 @@ export const schema = z.object({
  * complex user interactions while maintaining performance for large datasets.
  * It uses React.memo optimization patterns and efficient re-rendering strategies.
  */
+/** Filter item for server-side filtering */
+export interface ServerFilterItem {
+  columnId: string
+  operator: FilterOperator
+  value?: string
+  dateFrom?: string
+  dateTo?: string
+}
+
 export interface ServerPaginationParams {
   pageIndex: number
   pageSize: number
   search: string
   sort: string
   searchColumns?: string[]
+  filters?: ServerFilterItem[]
 }
 
-/** Column meta for server-side search. Add to ColumnDef when column maps to DB columns. */
+/** Column meta for server-side search/filter. Add to ColumnDef when column maps to DB columns. */
 export interface DataTableColumnMeta {
   searchDbColumns?: string[]
+  /** DB column for filtering when frontend column id differs (e.g. user -> user_id) */
+  filterDbColumn?: string
+  /** Use DataPicker for equals operator instead of text input ('users' | 'objects') */
+  filterPicker?: 'users' | 'objects'
+  /** Fixed options for Select (status, role, etc.). Equals only, no "contains" */
+  filterSelect?: { value: string; label: string }[]
+  /** Column type for filter UI (from TableColumnConfig). Falls back to heuristic if omitted. */
+  type?: 'string' | 'number' | 'date'
+}
+
+/** Context menu actions for table rows. All optional — menu only shown when at least one action is provided. */
+export interface DataTableContextMenuActions<TData> {
+  onEdit?: (row: Row<TData>) => void
+  onDelete?: (row: Row<TData>) => void
+  /** Returns text to copy to clipboard. If omitted, Copy action is hidden. */
+  getCopyText?: (row: Row<TData>) => string
+  deleteTitle?: string
+  deleteDescription?: string
 }
 
 /** Unified select column for row selection. Use in all tables for consistent checkbox layout. */
@@ -234,10 +331,12 @@ export function DataTable<TData>({
   renderCard,
   cardsClassName,
   onRowClick,
+  contextMenuActions,
   serverPagination = false,
   totalRowCount = 0,
   serverParams,
   onServerParamsChange,
+  filterPickerData,
 }: {
   data: TData[]
   columns: ColumnDef<TData>[]
@@ -248,6 +347,8 @@ export function DataTable<TData>({
   cardsClassName?: string
   /** Optional callback when a table row is clicked. Pass the row data. Ignored for card view. */
   onRowClick?: (row: Row<TData>) => void
+  /** Context menu on right-click: Edit, Delete (with AlertDialog), Copy. */
+  contextMenuActions?: DataTableContextMenuActions<TData>
   /** Enable server-side pagination. Data is the current page only. */
   serverPagination?: boolean
   /** Total row count for server pagination. */
@@ -256,11 +357,15 @@ export function DataTable<TData>({
   serverParams?: Partial<ServerPaginationParams>
   /** Callback when pagination/sort/search changes. */
   onServerParamsChange?: (params: ServerPaginationParams) => void
+  /** Data for filter pickers: users and/or objects for DataPicker in filters */
+  filterPickerData?: { users?: { id: number; first_name?: string; last_name?: string; username?: string; email?: string }[]; objects?: { id: number; name: string }[] }
 }) {
   const pageSizeFromParams = serverParams?.pageSize ?? 10
   const [rowSelection, setRowSelection] = React.useState({})
   const [columnVisibility, setColumnVisibility] =
     React.useState<VisibilityState>({})
+  /** Columns inactive for search have muted header and are excluded from global search */
+  const [columnSearchActive, setColumnSearchActive] = React.useState<Record<string, boolean>>({})
   const [columnOrder, setColumnOrder] = React.useState<string[]>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
   const [sorting, setSorting] = React.useState<SortingState>([])
@@ -272,7 +377,13 @@ export function DataTable<TData>({
   const [activeTab, setActiveTab] = React.useState<'sort' | 'filter'>('sort')
   const [globalQuery, setGlobalQuery] = React.useState(serverParams?.search ?? "")
   const [debouncedSearch, setDebouncedSearch] = React.useState(serverParams?.search ?? "")
+  const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false)
+  const [pendingDeleteRow, setPendingDeleteRow] = React.useState<Row<TData> | null>(null)
   const isMobile = useIsMobile()
+
+  const hasContextMenu = Boolean(
+    contextMenuActions?.onEdit || contextMenuActions?.onDelete || contextMenuActions?.getCopyText
+  )
 
   // Debounce search input (300ms) for server-side requests
   React.useEffect(() => {
@@ -303,6 +414,7 @@ export function DataTable<TData>({
   
   // Advanced filter state
   const [advancedFilters, setAdvancedFilters] = React.useState<ColumnFilter[]>([])
+  const [openFilterPickerIndex, setOpenFilterPickerIndex] = React.useState<number | null>(null)
   
   // Advanced sort state (ordered list)
   const [advancedSorts, setAdvancedSorts] = React.useState<ColumnSort[]>([])
@@ -313,6 +425,7 @@ export function DataTable<TData>({
     setSorting([])
     setAdvancedFilters([])
     setAdvancedSorts([])
+    setOpenFilterPickerIndex(null)
     setPagination({ pageIndex: 0, pageSize: pagination.pageSize })
     setGlobalQuery("")
   }
@@ -352,10 +465,15 @@ export function DataTable<TData>({
   const addFilter = () => {
     const firstAvailable = availableColumns.find(col => col.canFilter)
     if (firstAvailable) {
+      const colType = getColumnType(firstAvailable.id)
+      const ops = getAvailableOperators(firstAvailable.id)
+      const op = colType === 'date' ? 'dateRange' : (firstAvailable.filterPicker || firstAvailable.filterSelect?.length) ? 'equals' : colType === 'number' ? 'equals' : 'contains'
+      const actualOp = ops.includes(op) ? op : ops[0]
       setAdvancedFilters(prev => [...prev, {
         columnId: firstAvailable.id,
-        operator: 'contains',
-        value: ''
+        operator: actualOp,
+        value: '',
+        ...(colType === 'date' ? { dateFrom: '', dateTo: '' } : {})
       }])
     }
   }
@@ -365,18 +483,41 @@ export function DataTable<TData>({
   }
 
   const updateFilter = (index: number, updates: Partial<ColumnFilter>) => {
-    setAdvancedFilters(prev => 
-      prev.map((f, i) => i === index ? { ...f, ...updates } : f)
+    setAdvancedFilters(prev =>
+      prev.map((f, i) => {
+        if (i !== index) return f
+        const next = { ...f, ...updates }
+        if ('columnId' in updates && updates.columnId) {
+          const ops = getAvailableOperators(updates.columnId)
+          if (!ops.includes(next.operator)) {
+            next.operator = ops[0]
+            if (next.operator === 'dateRange') {
+              next.value = ''
+              next.dateFrom = ''
+              next.dateTo = ''
+            } else {
+              next.dateFrom = undefined
+              next.dateTo = undefined
+            }
+          }
+        }
+        return next
+      })
     )
   }
 
   // Custom filter function that handles our advanced operators
   const customFilterFn = React.useCallback((row: any, columnId: string, filterValue: any) => {
     if (!filterValue || typeof filterValue !== 'object') return true
-    
-    const { operator, value } = filterValue as { operator: FilterOperator; value: string }
+
+    const { operator, value, dateFrom, dateTo } = filterValue as {
+      operator: FilterOperator
+      value?: string
+      dateFrom?: string
+      dateTo?: string
+    }
     const cellValue = row.getValue(columnId)
-    
+
     // Handle empty/not empty operators
     if (operator === 'isEmpty') {
       return cellValue === null || cellValue === undefined || cellValue === ''
@@ -384,14 +525,31 @@ export function DataTable<TData>({
     if (operator === 'isNotEmpty') {
       return cellValue !== null && cellValue !== undefined && cellValue !== ''
     }
-    
+
+    // Date range filter
+    if (operator === 'dateRange') {
+      const from = dateFrom ? new Date(dateFrom) : null
+      const to = dateTo ? new Date(dateTo) : null
+      if (!from && !to) return true
+      const cellDate = cellValue ? new Date(String(cellValue)) : null
+      if (!cellDate || isNaN(cellDate.getTime())) return false
+      const cellTime = cellDate.getTime()
+      if (from && cellTime < from.getTime()) return false
+      if (to) {
+        const toEnd = new Date(to)
+        toEnd.setHours(23, 59, 59, 999)
+        if (cellTime > toEnd.getTime()) return false
+      }
+      return true
+    }
+
     // If no value provided for other operators, don't filter
     if (!value) return true
-    
+
     // Convert to string for comparison
     const cellStr = String(cellValue || '').toLowerCase()
     const valueStr = String(value).toLowerCase()
-    
+
     // String operations
     if (operator === 'contains') {
       return cellStr.includes(valueStr)
@@ -402,23 +560,24 @@ export function DataTable<TData>({
     if (operator === 'notEquals') {
       return cellStr !== valueStr
     }
-    
+
     // Number operations
     const cellNum = parseFloat(String(cellValue))
     const valueNum = parseFloat(value)
-    
+
     if (isNaN(cellNum) || isNaN(valueNum)) return true
-    
+
     if (operator === 'greaterThan') return cellNum > valueNum
     if (operator === 'lessThan') return cellNum < valueNum
     if (operator === 'greaterOrEqual') return cellNum >= valueNum
     if (operator === 'lessOrEqual') return cellNum <= valueNum
-    
+
     return true
   }, [])
 
   const isFirstServerParamsSync = React.useRef(true)
   const prevSearchRef = React.useRef(debouncedSearch)
+  const prevFiltersRef = React.useRef<string>("")
 
   // Apply advanced filters and sorts to table
   React.useEffect(() => {
@@ -432,13 +591,19 @@ export function DataTable<TData>({
 
   // Apply custom filtering manually
   React.useEffect(() => {
-    // We'll handle filtering through the table's filter state
-    // but we need to ensure each column uses our custom filter function
     const filterState: ColumnFiltersState = advancedFilters
-      .filter(f => f.value || f.operator === 'isEmpty' || f.operator === 'isNotEmpty')
+      .filter(f =>
+        f.operator === 'isEmpty' || f.operator === 'isNotEmpty' ||
+        (f.operator === 'dateRange' ? (f.dateFrom || f.dateTo) : f.value)
+      )
       .map(f => ({
         id: f.columnId,
-        value: { operator: f.operator, value: f.value }
+        value: {
+          operator: f.operator,
+          value: f.value,
+          dateFrom: f.dateFrom,
+          dateTo: f.dateTo,
+        }
       }))
     setColumnFilters(filterState)
   }, [advancedFilters])
@@ -453,24 +618,37 @@ export function DataTable<TData>({
       lessThan: 'Меньше',
       greaterOrEqual: 'Больше или равно',
       lessOrEqual: 'Меньше или равно',
+      dateRange: 'Период',
       isEmpty: 'Пусто',
       isNotEmpty: 'Не пусто'
     }
     return labels[operator]
   }
 
-  // Detect column type (string or number)
-  const getColumnType = (columnId: string): 'string' | 'number' => {
-    // Simple heuristic: if column name contains 'id', 'count', 'amount', etc., treat as number
-    const numericKeywords = ['id', 'count', 'amount', 'price', 'total', 'quantity', 'age']
-    return numericKeywords.some(kw => columnId.toLowerCase().includes(kw)) ? 'number' : 'string'
+  // Get column type: from meta first, then heuristic fallback
+  const getColumnType = (columnId: string): 'string' | 'number' | 'date' => {
+    const col = table.getColumn(columnId)
+    const meta = (col?.columnDef as { meta?: DataTableColumnMeta })?.meta
+    if (meta?.type) return meta.type
+    const lower = columnId.toLowerCase()
+    if (['id', 'count', 'amount', 'price', 'total', 'quantity', 'age'].some(kw => lower.includes(kw))) return 'number'
+    if (['_at', 'date', 'time', 'created', 'updated', 'дата', 'время'].some(kw => lower.includes(kw))) return 'date'
+    return 'string'
   }
 
   // Get available operators for column type
   const getAvailableOperators = (columnId: string): FilterOperator[] => {
+    const col = table.getColumn(columnId)
+    const meta = (col?.columnDef as { meta?: DataTableColumnMeta })?.meta
+    if (meta?.filterPicker || meta?.filterSelect?.length) {
+      return ['equals', 'isEmpty', 'isNotEmpty']
+    }
     const type = getColumnType(columnId)
     if (type === 'number') {
       return ['equals', 'notEquals', 'greaterThan', 'lessThan', 'greaterOrEqual', 'lessOrEqual', 'isEmpty', 'isNotEmpty']
+    }
+    if (type === 'date') {
+      return ['dateRange', 'isEmpty', 'isNotEmpty']
     }
     return ['contains', 'equals', 'notEquals', 'isEmpty', 'isNotEmpty']
   }
@@ -589,16 +767,21 @@ export function DataTable<TData>({
       </TabsContent>
 
       <TabsContent value="filter" className="mt-0">
-        <ScrollArea>
-          <div className="space-y-4">
-            {advancedFilters.map((filter, index) => (
-              <div key={index} className="space-y-2 p-3 border rounded-md bg-muted/30">
-                <div className="flex items-center justify-between">
+        <div className="space-y-3">
+          {advancedFilters.map((filter, index) => {
+            const colType = getColumnType(filter.columnId)
+            const isDateFilter = filter.operator === 'dateRange'
+            const needsValue = filter.operator !== 'isEmpty' && filter.operator !== 'isNotEmpty' && !isDateFilter
+
+            return (
+              <div key={index} className="p-3 border rounded-md bg-muted/30 space-y-2">
+                {/* Horizontal row: column | operator | value/calendar | delete */}
+                <div className="flex flex-wrap items-center gap-2">
                   <Select
                     value={filter.columnId}
                     onValueChange={(v) => updateFilter(index, { columnId: v })}
                   >
-                    <SelectTrigger className="h-8 w-[140px]">
+                    <SelectTrigger className="h-8 min-w-[100px] flex-1">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -609,60 +792,161 @@ export function DataTable<TData>({
                       ))}
                     </SelectContent>
                   </Select>
+                  <Select
+                    value={filter.operator}
+                    onValueChange={(v) => updateFilter(index, { operator: v as FilterOperator })}
+                  >
+                    <SelectTrigger className="h-8 min-w-[110px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {getAvailableOperators(filter.columnId).map((op) => (
+                        <SelectItem key={op} value={op}>
+                          {getOperatorLabel(op)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {needsValue && (() => {
+                    const col = availableColumns.find(c => c.id === filter.columnId)
+                    const picker = col?.filterPicker
+                    const pickerData = picker === 'users' ? filterPickerData?.users : picker === 'objects' ? filterPickerData?.objects : undefined
+                    if (picker && pickerData && filter.operator === 'equals') {
+                      const fields: DataPickerField[] = picker === 'users'
+                        ? [
+                            { key: 'first_name', label: 'Имя', searchable: true },
+                            { key: 'last_name', label: 'Фамилия', searchable: true },
+                            { key: 'username', label: 'Username', searchable: true },
+                            { key: 'id', label: 'ID', render: (v) => <span className="text-right">#{v}</span> },
+                          ]
+                        : [
+                            { key: 'name', label: 'Название', searchable: true },
+                            { key: 'id', label: 'ID', render: (v) => <span className="text-right">#{v}</span> },
+                          ]
+                      const selected = picker === 'users'
+                        ? pickerData.find((u: { id: number }) => String(u.id) === filter.value)
+                        : pickerData.find((o: { id: number }) => String(o.id) === filter.value)
+                      const displayValue = selected
+                        ? (picker === 'users'
+                          ? `${(selected as { last_name?: string; first_name?: string }).last_name ?? ''} ${(selected as { first_name?: string }).first_name ?? ''} @${(selected as { username?: string }).username ?? ''}`.trim() || `#${(selected as { id: number }).id}`
+                          : (selected as { name: string }).name || `#${(selected as { id: number }).id}`)
+                        : ''
+                      return (
+                        <FilterDataPicker
+                          key={`picker-${index}`}
+                          data={pickerData}
+                          fields={fields}
+                          displayValue={displayValue}
+                          placeholder={picker === 'users' ? 'Выберите пользователя' : 'Выберите объект'}
+                          open={openFilterPickerIndex === index}
+                          onOpenChange={(open) => setOpenFilterPickerIndex(open ? index : null)}
+                          onSelect={(item: { id: number }) => {
+                            updateFilter(index, { value: String(item.id) })
+                            setOpenFilterPickerIndex(null)
+                          }}
+                        />
+                      )
+                    }
+                    if (col?.filterSelect?.length && filter.operator === 'equals') {
+                      return (
+                        <Select
+                          value={filter.value || '_none'}
+                          onValueChange={(v) => updateFilter(index, { value: v === '_none' ? '' : v })}
+                        >
+                          <SelectTrigger className="h-8 min-w-[140px] flex-1">
+                            <SelectValue placeholder="Выберите..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="_none">
+                              <span className="text-muted-foreground">Не выбрано</span>
+                            </SelectItem>
+                            {col.filterSelect.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )
+                    }
+                    return colType === 'number' ? (
+                      <Input
+                        placeholder="Значение..."
+                        value={filter.value}
+                        onChange={(e) => updateFilter(index, { value: e.target.value })}
+                        className="h-8 w-24 shrink-0"
+                        type="number"
+                      />
+                    ) : (
+                      <Input
+                        placeholder="Текст..."
+                        value={filter.value}
+                        onChange={(e) => updateFilter(index, { value: e.target.value })}
+                        className="h-8 min-w-[120px] flex-1"
+                        type="text"
+                      />
+                    )
+                  })()}
+                  {isDateFilter && (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className="h-8 min-w-[140px] justify-start text-left font-normal">
+                          {filter.dateFrom || filter.dateTo
+                            ? `${filter.dateFrom ? format(new Date(filter.dateFrom), "dd.MM.yyyy", { locale: ru }) : "…"} — ${filter.dateTo ? format(new Date(filter.dateTo), "dd.MM.yyyy", { locale: ru }) : "…"}`
+                            : "Выберите период"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="range"
+                          locale={ru}
+                          selected={{
+                            from: filter.dateFrom ? new Date(filter.dateFrom) : undefined,
+                            to: filter.dateTo ? new Date(filter.dateTo) : undefined,
+                          }}
+                          onSelect={(range) =>
+                            updateFilter(index, {
+                              dateFrom: range?.from?.toISOString().slice(0, 10) ?? "",
+                              dateTo: range?.to ? new Date(range.to).toISOString().slice(0, 10) : "",
+                            })
+                          }
+                          numberOfMonths={2}
+                          className="rounded-md border"
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => removeFilter(index)}
-                    className="h-8 w-8 p-0"
+                    className="h-8 w-8 p-0 shrink-0"
+                    aria-label="Удалить фильтр"
                   >
-                    <IconX className="h-4 w-4" />
+                    <IconTrash className="h-4 w-4" />
                   </Button>
                 </div>
-                <Select
-                  value={filter.operator}
-                  onValueChange={(v) => updateFilter(index, { operator: v as FilterOperator })}
-                >
-                  <SelectTrigger className="h-8">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {getAvailableOperators(filter.columnId).map((op) => (
-                      <SelectItem key={op} value={op}>
-                        {getOperatorLabel(op)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {filter.operator !== 'isEmpty' && filter.operator !== 'isNotEmpty' && (
-                  <Input
-                    placeholder="Введите значение..."
-                    value={filter.value}
-                    onChange={(e) => updateFilter(index, { value: e.target.value })}
-                    className="h-8"
-                    type={getColumnType(filter.columnId) === 'number' ? 'number' : 'text'}
-                  />
-                )}
               </div>
-            ))}
+            )
+          })}
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={addFilter}
-              className="w-full"
-              disabled={availableColumns.filter(col => col.canFilter).length === 0}
-            >
-              <IconPlus className="h-4 w-4 mr-2" />
-              Добавить фильтр
-            </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={addFilter}
+            className="w-full"
+            disabled={availableColumns.filter(col => col.canFilter).length === 0}
+          >
+            <IconPlus className="h-4 w-4 mr-2" />
+            Добавить фильтр
+          </Button>
 
-            {advancedFilters.length === 0 && (
-              <div className="text-center text-sm text-muted-foreground py-8">
-                Нажмите "Добавить фильтр" для начала
-              </div>
-            )}
-          </div>
-        </ScrollArea>
+          {advancedFilters.length === 0 && (
+            <div className="text-center text-sm text-muted-foreground py-8">
+              Нажмите «Добавить фильтр» для начала
+            </div>
+          )}
+        </div>
       </TabsContent>
     </Tabs>
   )
@@ -677,17 +961,17 @@ export function DataTable<TData>({
     [columns, customFilterFn]
   )
 
-  // Global search across all visible columns with left-to-right priority
+  // Global search across visible, search-active columns only
   const globalSearchFn = React.useCallback((row: any, _columnId: string, filterValue: string) => {
     const q = String(filterValue ?? '').toLowerCase().trim()
     if (!q) return true
-    // Check visible cells in rendered order (left -> right)
     for (const cell of row.getVisibleCells()) {
+      if (columnSearchActive[cell.column.id] === false) continue
       const value = row.getValue(cell.column.id)
       if (String(value ?? '').toLowerCase().includes(q)) return true
     }
     return false
-  }, [])
+  }, [columnSearchActive])
 
   const pageCount = serverPagination && totalRowCount > 0
     ? Math.ceil(totalRowCount / pagination.pageSize) || 1
@@ -745,12 +1029,19 @@ export function DataTable<TData>({
   const availableColumns = React.useMemo(() => {
     return table.getAllColumns()
       .filter(col => col.id !== 'select' && col.id !== 'actions')
-      .map(col => ({
-        id: col.id,
-        label: col.id,
-        canSort: col.getCanSort(),
-        canFilter: col.getCanFilter(),
-      }))
+      .map(col => {
+        const meta = (col.columnDef as { meta?: DataTableColumnMeta })?.meta
+        const header = col.columnDef.header
+        const label = typeof header === 'string' ? header : col.id
+        return {
+          id: col.id,
+          label,
+          canSort: col.getCanSort(),
+          canFilter: col.getCanFilter(),
+          filterPicker: meta?.filterPicker,
+          filterSelect: meta?.filterSelect,
+        }
+      })
   }, [table])
 
   // Get columns not yet in sort list
@@ -759,7 +1050,7 @@ export function DataTable<TData>({
     return availableColumns.filter(col => !usedIds.has(col.id) && col.canSort)
   }, [availableColumns, advancedSorts])
 
-  // Build searchColumns for server: visible columns in order, with meta.searchDbColumns expansion
+  // Build searchColumns for server: visible, search-active columns only
   const searchColumns = React.useMemo(() => {
     if (!serverPagination) return undefined
     try {
@@ -768,6 +1059,7 @@ export function DataTable<TData>({
       const seen = new Set<string>()
       for (const col of visible) {
         if (col.id === "select" || col.id === "actions") continue
+        if (columnSearchActive[col.id] === false) continue
         const meta = (col.columnDef as { meta?: DataTableColumnMeta })?.meta
         const dbCols = meta?.searchDbColumns
         const toAdd = Array.isArray(dbCols)
@@ -784,7 +1076,28 @@ export function DataTable<TData>({
     } catch {
       return undefined
     }
-  }, [serverPagination, table, columnVisibility, columnOrder])
+  }, [serverPagination, table, columnVisibility, columnOrder, columnSearchActive])
+
+  // Build server filters from advancedFilters (map columnId to filterDbColumn when needed)
+  const serverFilters = React.useMemo((): ServerFilterItem[] | undefined => {
+    const active = advancedFilters.filter(f =>
+      f.operator === 'isEmpty' || f.operator === 'isNotEmpty' ||
+      (f.operator === 'dateRange' ? (f.dateFrom || f.dateTo) : !!f.value)
+    )
+    if (active.length === 0) return undefined
+    return active.map(f => {
+      const colDef = table.getColumn(f.columnId)?.columnDef
+      const meta = (colDef as { meta?: DataTableColumnMeta })?.meta
+      const dbCol = meta?.filterDbColumn ?? f.columnId
+      return {
+        columnId: dbCol,
+        operator: f.operator,
+        value: f.value,
+        dateFrom: f.dateFrom,
+        dateTo: f.dateTo,
+      }
+    })
+  }, [advancedFilters, table])
 
   // Notify parent when server params change (after searchColumns is available)
   React.useEffect(() => {
@@ -796,19 +1109,23 @@ export function DataTable<TData>({
     }
     const searchChanged = prevSearchRef.current !== debouncedSearch
     prevSearchRef.current = debouncedSearch
-    if (searchChanged) setPagination((p) => ({ ...p, pageIndex: 0 }))
+    const filtersStr = JSON.stringify(serverFilters ?? [])
+    const filtersChanged = prevFiltersRef.current !== filtersStr
+    prevFiltersRef.current = filtersStr
+    if (searchChanged || filtersChanged) setPagination((p) => ({ ...p, pageIndex: 0 }))
     const sortStr = advancedSorts.map((s) => `${s.columnId}:${s.direction}`).join(",")
     onServerParamsChange({
-      pageIndex: searchChanged ? 0 : pagination.pageIndex,
+      pageIndex: (searchChanged || filtersChanged) ? 0 : pagination.pageIndex,
       pageSize: pagination.pageSize,
       search: debouncedSearch,
       sort: sortStr,
       searchColumns: searchColumns ?? undefined,
+      filters: serverFilters,
     })
-  }, [serverPagination, onServerParamsChange, pagination.pageIndex, pagination.pageSize, debouncedSearch, advancedSorts, searchColumns])
+  }, [serverPagination, onServerParamsChange, pagination.pageIndex, pagination.pageSize, debouncedSearch, advancedSorts, searchColumns, serverFilters])
 
   return (
-    <div className="w-full flex flex-col gap-4">
+    <div className="w-full min-w-0 flex flex-col gap-4">
       {/* Top toolbar: global search + sort/filter button */}
       <div className="flex w-full items-center gap-2">
         <Input
@@ -830,17 +1147,19 @@ export function DataTable<TData>({
                 )}
               </Button>
             </DrawerTrigger>
-            <DrawerContent className="p-0">
-              <DrawerHeader>
+            <DrawerContent className="p-0 flex flex-col max-h-[90dvh]">
+              <DrawerHeader className="shrink-0">
                 <DrawerTitle>Сортировка и фильтры</DrawerTitle>
                 <DrawerDescription>
                   Настройте сортировку и фильтры для таблицы
                 </DrawerDescription>
               </DrawerHeader>
-              <div className="overflow-y-auto max-h-[calc(100dvh-8.5rem)] px-4 pb-4">
-                {renderSortFilterContent()}
-              </div>
-              <DrawerFooter>
+              <ScrollArea className="flex-1 min-h-0 px-4">
+                <div className="pb-4">
+                  {renderSortFilterContent()}
+                </div>
+              </ScrollArea>
+              <DrawerFooter className="shrink-0">
                 <DrawerClose asChild>
                   <Button variant="outline">Закрыть</Button>
                 </DrawerClose>
@@ -848,29 +1167,32 @@ export function DataTable<TData>({
             </DrawerContent>
           </Drawer>
         ) : (
-          <Dialog open={isSortFilterOpen} onOpenChange={setIsSortFilterOpen}>
-            <DialogTrigger asChild>
+          <Sheet open={isSortFilterOpen} onOpenChange={setIsSortFilterOpen}>
+            <SheetTrigger asChild>
               <Button variant="outline" size="sm" className="h-9">
-                <IconFilter className="h-4 w-4" />
+                <IconFilter className="h-4 w-4 mr-2" />
+                Сортировка и фильтры
                 {(advancedSorts.length > 0 || advancedFilters.length > 0) && (
                   <Badge variant="secondary" className="ml-2 h-5 w-5 rounded-full p-0 flex items-center justify-center">
                     {advancedSorts.length + advancedFilters.length}
                   </Badge>
                 )}
               </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[520px] p-0">
-              <DialogHeader className="p-4 pb-2">
-                <DialogTitle>Сортировка и фильтры</DialogTitle>
-                <DialogDescription>
+            </SheetTrigger>
+            <SheetContent side="right" className="flex flex-col w-full sm:max-w-md p-0">
+              <SheetHeader className="p-4 pb-2 shrink-0">
+                <SheetTitle>Сортировка и фильтры</SheetTitle>
+                <SheetDescription>
                   Настройте сортировку и фильтры для таблицы
-                </DialogDescription>
-              </DialogHeader>
-              <div className="overflow-y-auto max-h-[70vh] px-4 pb-4">
-                {renderSortFilterContent()}
-              </div>
-            </DialogContent>
-          </Dialog>
+                </SheetDescription>
+              </SheetHeader>
+              <ScrollArea className="flex-1 px-4 min-h-0">
+                <div className="pb-4">
+                  {renderSortFilterContent()}
+                </div>
+              </ScrollArea>
+            </SheetContent>
+          </Sheet>
         )}
       </div>
       {view === 'cards' ? (
@@ -914,8 +1236,8 @@ export function DataTable<TData>({
           )}
         </div>
       ) : (
-        <div className="rounded-md border">
-          <Table className="rounded-md">
+        <div className="min-w-0 overflow-x-auto rounded-md border">
+          <Table className="min-w-full rounded-md">
             <TableHeader className="bg-muted sticky top-0 z-10 rounded-md">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
@@ -942,11 +1264,24 @@ export function DataTable<TData>({
                       setColumnOrder(next)
                     }
 
-                    return (
+                    const isSearchActive = columnSearchActive[header.id] !== false
+                    const toggleSearchActive = () => {
+                      setColumnSearchActive((prev) => ({
+                        ...prev,
+                        [header.id]: !isSearchActive,
+                      }))
+                    }
+                    const canHide = header.column.getCanHide()
+                    const hasColumnContextMenu = canReorder && (canHide || true)
+
+                    const tableHeadEl = (
                       <TableHead
                         key={header.id}
                         colSpan={header.colSpan}
-                        className={canReorder ? "group relative" : ""}
+                        className={cn(
+                          canReorder ? "group relative" : "",
+                          !isSearchActive && "text-muted-foreground"
+                        )}
                       >
                         {header.isPlaceholder ? null : (
                           <>
@@ -996,6 +1331,40 @@ export function DataTable<TData>({
                         )}
                       </TableHead>
                     )
+
+                    if (hasColumnContextMenu) {
+                      return (
+                        <ContextMenu key={header.id}>
+                          <ContextMenuTrigger asChild>
+                            {tableHeadEl}
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56">
+                            {canHide && (
+                              <ContextMenuItem
+                                onClick={() => header.column.toggleVisibility(false)}
+                              >
+                                <IconEyeOff className="h-4 w-4" />
+                                Скрыть
+                              </ContextMenuItem>
+                            )}
+                            <ContextMenuItem onClick={toggleSearchActive}>
+                              {isSearchActive ? (
+                                <>
+                                  <IconSearchOff className="h-4 w-4" />
+                                  Деактивировать для поиска
+                                </>
+                              ) : (
+                                <>
+                                  <IconSearch className="h-4 w-4" />
+                                  Активировать для поиска
+                                </>
+                              )}
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      )
+                    }
+                    return tableHeadEl
                   })}
                 </TableRow>
               ))}
@@ -1021,24 +1390,68 @@ export function DataTable<TData>({
                   </TableCell>
                 </TableRow>
               ) : table.getRowModel().rows?.length ? (
-                table.getRowModel().rows.map((row) => (
-                  <TableRow
-                    key={row.id}
-                    data-state={row.getIsSelected() && "selected"}
-                    className={onRowClick ? "cursor-pointer hover:bg-muted/50 transition-colors" : undefined}
-                    onClick={onRowClick ? (e) => {
-                      const target = e.target as HTMLElement
-                      if (target.closest("button") || target.closest("[role=checkbox]") || target.closest("a")) return
-                      onRowClick(row as Row<TData>)
-                    } : undefined}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))
+                table.getRowModel().rows.map((row) => {
+                  const rowEl = (
+                    <TableRow
+                      key={row.id}
+                      data-state={row.getIsSelected() && "selected"}
+                      className={onRowClick ? "cursor-pointer hover:bg-muted/50 transition-colors" : undefined}
+                      onClick={onRowClick ? (e) => {
+                        const target = e.target as HTMLElement
+                        if (target.closest("button") || target.closest("[role=checkbox]") || target.closest("a")) return
+                        onRowClick(row as Row<TData>)
+                      } : undefined}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  )
+                  if (hasContextMenu) {
+                    return (
+                      <ContextMenu key={row.id}>
+                        <ContextMenuTrigger asChild>{rowEl}</ContextMenuTrigger>
+                        <ContextMenuContent className="w-48">
+                          {contextMenuActions?.onEdit && (
+                            <ContextMenuItem onClick={() => contextMenuActions.onEdit?.(row as Row<TData>)}>
+                              <IconEdit className="h-4 w-4" />
+                              Изменить
+                            </ContextMenuItem>
+                          )}
+                          {contextMenuActions?.getCopyText && (
+                            <ContextMenuItem
+                              onClick={() => {
+                                const text = contextMenuActions.getCopyText?.(row as Row<TData>)
+                                if (text) {
+                                  navigator.clipboard.writeText(text)
+                                  toast.success("Скопировано в буфер обмена")
+                                }
+                              }}
+                            >
+                              <IconCopy className="h-4 w-4" />
+                              Скопировать
+                            </ContextMenuItem>
+                          )}
+                          {contextMenuActions?.onDelete && (
+                            <ContextMenuItem
+                              variant="destructive"
+                              onClick={() => {
+                                setPendingDeleteRow(row as Row<TData>)
+                                setDeleteDialogOpen(true)
+                              }}
+                            >
+                              <IconTrash className="h-4 w-4" />
+                              Удалить
+                            </ContextMenuItem>
+                          )}
+                        </ContextMenuContent>
+                      </ContextMenu>
+                    )
+                  }
+                  return rowEl
+                })
               ) : (
                 <TableRow>
                   <TableCell
@@ -1063,6 +1476,34 @@ export function DataTable<TData>({
               )}
             </TableBody>
           </Table>
+          {hasContextMenu && contextMenuActions?.onDelete && (
+            <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {contextMenuActions.deleteTitle ?? "Удалить?"}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {contextMenuActions.deleteDescription ?? "Это действие нельзя отменить."}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Отмена</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={() => {
+                      if (pendingDeleteRow) {
+                        contextMenuActions.onDelete?.(pendingDeleteRow)
+                        setPendingDeleteRow(null)
+                      }
+                    }}
+                  >
+                    Удалить
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
         </div>
       )}
       <div className="flex flex-wrap items-center justify-between gap-2">

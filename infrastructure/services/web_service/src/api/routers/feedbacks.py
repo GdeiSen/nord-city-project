@@ -1,10 +1,12 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, HTTPException, Response, status
 
 from shared.clients.database_client import db_client
-from api.schemas.common import MessageResponse, PaginatedResponse, parse_sort_param
+from api.schemas.common import MessageResponse, PaginatedResponse
+from api.helpers.paginated_list import create_paginated_list_handler
+from api.helpers.enrichment import enrich_feedbacks_with_users
 from api.schemas.feedbacks import FeedbackResponse, CreateFeedbackRequest, UpdateFeedbackBody
 
 logger = logging.getLogger(__name__)
@@ -20,40 +22,12 @@ async def create_feedback(body: CreateFeedbackRequest):
     return response["data"]
 
 
-@router.get("/", response_model=PaginatedResponse[FeedbackResponse])
-async def get_feedbacks(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(10, ge=1, le=500),
-    search: Optional[str] = None,
-    sort: Optional[str] = None,
-    search_columns: Optional[str] = None,
-):
-    cols = [c.strip() for c in (search_columns or "").split(",") if c.strip()]
-    response = await db_client.feedback.get_paginated(
-        page=page,
-        page_size=page_size,
-        sort=parse_sort_param(sort),
-        search=search or "",
-        search_columns=cols if cols else None,
-    )
-    if not response.get("success"):
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail=response.get("error", "Failed to fetch feedbacks"))
-    data = response.get("data", {})
-    items = data.get("items", [])
-    # Enrich with user data
-    user_ids = list({f.get("user_id") for f in items if f.get("user_id")})
-    user_map = {}
-    for uid in user_ids:
-        try:
-            ur = await db_client.user.get_by_id(entity_id=uid)
-            if ur.get("success") and ur.get("data"):
-                user_map[uid] = ur["data"]
-        except Exception:
-            pass
-    for f in items:
-        f["user"] = user_map.get(f.get("user_id"), {"first_name": "", "last_name": "", "username": ""})
-    return PaginatedResponse(items=items, total=data.get("total", 0))
+get_feedbacks = create_paginated_list_handler(
+    db_client.feedback,
+    enricher=enrich_feedbacks_with_users,
+    entity_label="feedbacks",
+)
+router.get("/", response_model=PaginatedResponse[FeedbackResponse])(get_feedbacks)
 
 
 @router.get("/{entity_id}", response_model=FeedbackResponse)

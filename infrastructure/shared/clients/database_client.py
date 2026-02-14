@@ -129,6 +129,13 @@ class _CRUDProxy:
         return await self._call("find", _model_class=model_class, filters=filters)
 
 
+class _UserProxy(_CRUDProxy):
+    """User proxy with get_by_username for case-insensitive username lookup."""
+
+    async def get_by_username(self, *, username: str, model_class: Any = None) -> Dict[str, Any]:
+        return await self._call("get_by_username", _model_class=model_class, username=username)
+
+
 class _ServiceTicketProxy(_CRUDProxy):
     """Service ticket proxy with additional methods."""
 
@@ -185,7 +192,7 @@ class DatabaseClient:
         self._connected = False
 
         # --- Explicit service proxies ---
-        self.user = _CRUDProxy(self._http, "user")
+        self.user = _UserProxy(self._http, "user")
         self.auth = _CRUDProxy(self._http, "auth")
         self.feedback = _CRUDProxy(self._http, "feedback")
         self.object = _CRUDProxy(self._http, "object")

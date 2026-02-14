@@ -9,8 +9,9 @@ class ServiceTicketResponse(BaseModel):
     """Response schema for ServiceTicket entity."""
     id: Optional[int] = None
     user_id: int
+    object_id: Optional[int] = None
     user: Optional[UserResponse] = None  # Enriched from user_id
-    object: Optional[ObjectSummary] = None  # Enriched from user's object_id
+    object: Optional[ObjectSummary] = None  # Enriched from object_id (or user's object_id as fallback)
     description: Optional[str] = None
     location: Optional[str] = None
     image: Optional[str] = None
@@ -32,6 +33,7 @@ class CreateServiceTicketRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     user_id: int
+    object_id: Optional[int] = None
     description: Optional[str] = None
     location: Optional[str] = None
     image: Optional[str] = None
@@ -51,6 +53,7 @@ class UpdateServiceTicketBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     user_id: Optional[int] = None
+    object_id: Optional[int] = None
     description: Optional[str] = None
     location: Optional[str] = None
     image: Optional[str] = None

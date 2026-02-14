@@ -129,7 +129,7 @@ export default function SpacesPage() {
       <AppSidebar />
       <SidebarInset>
         <SiteHeader />
-        <div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
+        <div className="flex-1 min-w-0 space-y-4 p-4 pt-6 md:p-8">
           <PageHeader
             title="Бизнес-центры"
             description="Управляйте объектами и просматривайте доступные помещения"

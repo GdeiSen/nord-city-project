@@ -19,9 +19,20 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { ServiceTicket, User, TICKET_STATUS, TICKET_PRIORITY } from "@/types"
-import { serviceTicketApi, userApi } from "@/lib/api"
+import { ServiceTicket, User, RentalObject, TICKET_STATUS, TICKET_PRIORITY } from "@/types"
+import { serviceTicketApi, userApi, rentalObjectApi } from "@/lib/api"
 import { DataPicker, DataPickerField } from "@/components/data-picker"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { useLoading } from "@/hooks/use-loading"
 import { toast } from "sonner"
 import { Toaster } from "@/components/ui/sonner"
@@ -34,6 +45,12 @@ const userFields: DataPickerField[] = [
   { key: "id", label: "ID", render: (value) => <span className="text-right">#{value}</span> },
 ]
 
+const objectFields: DataPickerField[] = [
+  { key: "name", label: "Название", searchable: true },
+  { key: "address", label: "Адрес", searchable: true },
+  { key: "id", label: "ID", render: (value) => <span className="text-right">{value}</span> },
+]
+
 export default function ServiceTicketEditPage() {
   const params = useParams<{ id?: string[] }>()
   const router = useRouter()
@@ -43,14 +60,17 @@ export default function ServiceTicketEditPage() {
 
   const { loading, withLoading } = useLoading(true)
   const [users, setUsers] = useState<User[]>([])
+  const [objects, setObjects] = useState<RentalObject[]>([])
   const [formData, setFormData] = useState<Partial<ServiceTicket>>({})
   const [saving, setSaving] = useState(false)
   const [isUserPickerOpen, setIsUserPickerOpen] = useState(false)
+  const [isObjectPickerOpen, setIsObjectPickerOpen] = useState(false)
 
   useEffect(() => {
     const load = async () => {
-      const allUsers = await userApi.getAll()
+      const [allUsers, allObjects] = await Promise.all([userApi.getAll(), rentalObjectApi.getAll()])
       setUsers(allUsers)
+      setObjects(allObjects)
       if (isEdit) {
         const ticket = await serviceTicketApi.getById(ticketId!)
         const user = allUsers.find((u) => u.id === ticket.user_id)
@@ -81,23 +101,35 @@ export default function ServiceTicketEditPage() {
   const handleSave = async () => {
     setSaving(true)
     try {
-      const payload: any = {
-        ...formData,
-        user_id: formData.user_id ?? (formData as any).user?.id,
-        priority: typeof formData.priority === "string" ? parseInt(String(formData.priority), 10) : formData.priority ?? 1,
+      const allowedFields = [
+        "user_id", "object_id", "description", "location", "image", "status", "ddid",
+        "answer", "header", "details", "priority", "category", "msid", "meta",
+      ] as const
+      const payload: Record<string, unknown> = {}
+      for (const key of allowedFields) {
+        let val: unknown = (formData as any)[key]
+        if (key === "user_id" && (val === undefined || val === null)) {
+          val = (formData as any).user?.id
+        }
+        if (key === "priority") {
+          val = typeof val === "string" ? parseInt(String(val), 10) : (val ?? 1)
+        }
+        if (val !== undefined && val !== null) {
+          payload[key] = val
+        }
       }
-      delete payload.user
-      delete payload.id
-      delete payload.created_at
-      delete payload.updated_at
-
       if (isEdit) {
-        await serviceTicketApi.update(ticketId!, payload)
+        await serviceTicketApi.update(ticketId!, payload as any)
         toast.success("Заявка обновлена")
         router.push(`/service-tickets/${ticketId}`)
       } else {
+        if (!payload.user_id) {
+          toast.error("Выберите пользователя")
+          setSaving(false)
+          return
+        }
         if (!payload.ddid) payload.ddid = "0000-0000-0000"
-        const created = await serviceTicketApi.create(payload)
+        const created = await serviceTicketApi.create(payload as any)
         toast.success("Заявка создана")
         router.push(`/service-tickets/${created.id}`)
       }
@@ -110,7 +142,6 @@ export default function ServiceTicketEditPage() {
 
   const handleDelete = async () => {
     if (!isEdit) return
-    if (!confirm("Удалить эту заявку?")) return
     try {
       await serviceTicketApi.delete(ticketId!)
       toast.success("Заявка удалена")
@@ -125,7 +156,7 @@ export default function ServiceTicketEditPage() {
       <AppSidebar />
       <SidebarInset>
         <SiteHeader />
-        <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
+        <div className="flex-1 min-w-0 space-y-4 p-4 md:p-8 pt-6">
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
@@ -223,16 +254,58 @@ export default function ServiceTicketEditPage() {
                       onOpenChange={setIsUserPickerOpen}
                     />
                   </div>
+                  <div className="space-y-2">
+                    <Label>Объект</Label>
+                    <DataPicker
+                      title="Выбор объекта"
+                      description="Найдите объект по названию или адресу."
+                      data={objects}
+                      fields={objectFields}
+                      value={formData.object_id}
+                      displayValue={
+                        formData.object_id
+                          ? (() => {
+                              const obj = objects.find((o) => o.id === formData.object_id)
+                              return obj ? `${obj.name} (БЦ-${obj.id})` : `БЦ-${formData.object_id}`
+                            })()
+                          : undefined
+                      }
+                      placeholder="Не назначен"
+                      onSelect={(obj: RentalObject) => setFormData((prev) => ({ ...prev, object_id: obj.id }))}
+                      open={isObjectPickerOpen}
+                      onOpenChange={setIsObjectPickerOpen}
+                    />
+                  </div>
 
                   <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end pt-4">
                     {isEdit && (
-                      <Button
-                        variant="outline"
-                        onClick={handleDelete}
-                        className="border-red-500 text-red-500 hover:bg-red-50 hover:text-red-600 sm:mr-auto"
-                      >
-                        Удалить
-                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="outline"
+                            className="border-red-500 text-red-500 hover:bg-red-50 hover:text-red-600 sm:mr-auto"
+                          >
+                            Удалить
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Удалить эту заявку?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Это действие нельзя отменить.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Отмена</AlertDialogCancel>
+                            <AlertDialogAction
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              onClick={handleDelete}
+                            >
+                              Удалить
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     )}
                     <Button onClick={handleSave} disabled={saving}>
                       {saving ? "Сохранение..." : "Сохранить"}

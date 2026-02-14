@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { SidebarProvider } from "@/components/ui/sidebar";
 import { ThemeProvider } from "next-themes";
 import { SuppressConsoleWarnings } from "@/components/suppress-console-warnings";
 import { AuthGuard } from "@/components/auth-guard";
+import { LayoutWrapper } from "@/components/layout-wrapper";
 
 export const metadata: Metadata = {
   title: "Business Center Management Dashboard",
@@ -26,9 +26,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <AuthGuard>
-            <SidebarProvider>
-              {children}
-            </SidebarProvider>
+            <LayoutWrapper>{children}</LayoutWrapper>
           </AuthGuard>
         </ThemeProvider>
       </body>

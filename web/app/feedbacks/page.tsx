@@ -1,51 +1,41 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { Feedback } from "@/types"
-import { feedbackApi } from "@/lib/api"
+import { feedbackApi, userApi } from "@/lib/api"
 import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
 import { ColumnDef } from "@tanstack/react-table"
-import { DataTable, ServerPaginationParams, createSelectColumn } from "@/components/data-table"
+import { DataTable, createSelectColumn } from "@/components/data-table"
+import { feedbackColumnMeta } from "@/lib/table-columns"
 import { PageHeader } from "@/components/page-header"
-import { useLoading } from "@/hooks/use-loading"
+import { useServerPaginatedData } from "@/hooks/use-server-paginated-data"
+import { useCanEdit } from "@/hooks/use-can-edit"
+
 export default function FeedbacksPage() {
   const router = useRouter()
-  const [feedbacks, setFeedbacks] = useState<Feedback[]>([])
-  const [total, setTotal] = useState(0)
-  const [serverParams, setServerParams] = useState<ServerPaginationParams>({
-    pageIndex: 0,
-    pageSize: 10,
-    search: "",
-    sort: "",
+  const [filterUsers, setFilterUsers] = useState<{ id: number; first_name?: string; last_name?: string; username?: string }[]>([])
+  const {
+    data: feedbacks,
+    total,
+    loading,
+    serverParams,
+    setServerParams,
+    refetch,
+  } = useServerPaginatedData<Feedback>({
+    api: feedbackApi,
+    errorMessage: "Не удалось загрузить данные",
   })
-  const { loading, withLoading } = useLoading(true)
-
-  const fetchData = useCallback(async () => {
-    await withLoading(async () => {
-      const res = await feedbackApi.getPaginated({
-        page: serverParams.pageIndex + 1,
-        pageSize: serverParams.pageSize,
-        search: serverParams.search || undefined,
-        sort: serverParams.sort || undefined,
-        searchColumns: serverParams.searchColumns?.length ? serverParams.searchColumns : undefined,
-      })
-      setFeedbacks(res.items)
-      setTotal(res.total)
-    }).catch((error: any) => {
-      toast.error("Не удалось загрузить данные")
-      console.error(error)
-    })
-  }, [serverParams.pageIndex, serverParams.pageSize, serverParams.search, serverParams.sort, serverParams.searchColumns, withLoading])
+  const canEdit = useCanEdit()
 
   useEffect(() => {
-    fetchData()
-  }, [fetchData])
+    userApi.getAll().then(setFilterUsers).catch(console.error)
+  }, [])
 
   const formatDate = (dateString: string) =>
     new Date(dateString).toLocaleDateString("ru-RU", {
@@ -61,13 +51,13 @@ export default function FeedbacksPage() {
     {
       accessorKey: "id",
       header: "ID",
-      meta: { searchDbColumns: ["id"] },
+      meta: feedbackColumnMeta.id,
       cell: ({ row }) => <div className="font-medium">#{row.original.id}</div>,
     },
     {
       accessorKey: "user",
       header: "Пользователь",
-      meta: { searchDbColumns: [] },
+      meta: feedbackColumnMeta.user,
       cell: ({ row }) => {
         const u = row.original.user
         const userId = row.original.user_id
@@ -100,7 +90,7 @@ export default function FeedbacksPage() {
     {
       accessorKey: "feedback",
       header: "Отзыв",
-      meta: { searchDbColumns: ["answer", "ddid"] },
+      meta: feedbackColumnMeta.feedback,
       cell: ({ row }) => (
         <div className="space-y-1 max-w-md">
           <div className="text-sm font-medium line-clamp-2">{row.original.answer}</div>
@@ -111,7 +101,7 @@ export default function FeedbacksPage() {
     {
       accessorKey: "date",
       header: "Дата",
-      meta: { searchDbColumns: ["created_at"] },
+      meta: feedbackColumnMeta.date,
       cell: ({ row }) => <div className="text-sm">{formatDate(row.original.created_at)}</div>,
     },
   ]
@@ -121,15 +111,33 @@ export default function FeedbacksPage() {
       <AppSidebar />
       <SidebarInset>
         <SiteHeader />
-        <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
+        <div className="flex-1 min-w-0 space-y-4 p-4 md:p-8 pt-6">
           <PageHeader title="Отзывы пользователей" description="Анализ и управление отзывами пользователей" />
 
           <DataTable
             data={feedbacks}
             columns={columns}
+            filterPickerData={{ users: filterUsers }}
             loading={loading}
             loadingMessage="Загрузка отзывов..."
             onRowClick={(row) => router.push(`/feedbacks/${row.original.id}`)}
+            contextMenuActions={{
+              onEdit: (row) => router.push(`/feedbacks/edit/${row.original.id}`),
+              onDelete: canEdit
+                ? async (row) => {
+                    try {
+                      await feedbackApi.delete(row.original.id)
+                      toast.success("Отзыв удалён")
+                      refetch()
+                    } catch (e: any) {
+                      toast.error("Не удалось удалить", { description: e?.message })
+                    }
+                  }
+                : undefined,
+              getCopyText: (row) => `Отзыв #${row.original.id}\nОтвет: ${row.original.answer ?? ""}\nТекст: ${row.original.text ?? ""}`,
+              deleteTitle: "Удалить отзыв?",
+              deleteDescription: "Это действие нельзя отменить.",
+            }}
             serverPagination
             totalRowCount={total}
             serverParams={serverParams}

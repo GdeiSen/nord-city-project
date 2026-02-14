@@ -21,6 +21,17 @@ import {
 import { User, USER_ROLES, ROLE_LABELS, RentalObject } from "@/types"
 import { userApi, rentalObjectApi } from "@/lib/api"
 import { DataPicker, DataPickerField } from "@/components/data-picker"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { useLoading } from "@/hooks/use-loading"
 import { toast } from "sonner"
 import { Toaster } from "@/components/ui/sonner"
@@ -101,7 +112,6 @@ export default function UserEditPage() {
 
   const handleDelete = async () => {
     if (!isEdit) return
-    if (!confirm("Удалить этого пользователя?")) return
     try {
       await userApi.delete(userId!)
       toast.success("Пользователь удалён")
@@ -116,7 +126,7 @@ export default function UserEditPage() {
       <AppSidebar />
       <SidebarInset>
         <SiteHeader />
-        <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
+        <div className="flex-1 min-w-0 space-y-4 p-4 md:p-8 pt-6">
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
@@ -230,13 +240,33 @@ export default function UserEditPage() {
 
                   <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end pt-4">
                     {isEdit && (
-                      <Button
-                        variant="outline"
-                        onClick={handleDelete}
-                        className="border-red-500 text-red-500 hover:bg-red-50 hover:text-red-600 sm:mr-auto"
-                      >
-                        Удалить
-                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="outline"
+                            className="border-red-500 text-red-500 hover:bg-red-50 hover:text-red-600 sm:mr-auto"
+                          >
+                            Удалить
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Удалить этого пользователя?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Это действие нельзя отменить.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Отмена</AlertDialogCancel>
+                            <AlertDialogAction
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              onClick={handleDelete}
+                            >
+                              Удалить
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     )}
                     <Button onClick={handleSave} disabled={saving}>
                       {saving ? "Сохранение..." : "Сохранить"}

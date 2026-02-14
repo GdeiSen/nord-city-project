@@ -118,10 +118,7 @@ class SpacesDialogGenerator:
         
         # Получаем все помещения для этого объекта
         spaces = await self.rental_spaces_service.get_spaces_by_object_id(obj.id)
-        print(f"[PRINT] Получено {len(spaces)} помещений для объекта {obj.name}")
-        print(f"[PRINT] spaces: {spaces}")
-        print(f"[PRINT] obj: {obj.id}")
-        
+
         # Базовое описание объекта
         object_description = f"{obj.name} - {obj.address}\n\n{obj.description}"
         

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { AppSidebar } from "@/components/app-sidebar"
@@ -10,48 +10,41 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { IconPlus, IconClock, IconCheck, IconX, IconAlertTriangle } from "@tabler/icons-react"
 import { ServiceTicket, TICKET_STATUS, TICKET_STATUS_LABELS_RU, TICKET_PRIORITY, TICKET_PRIORITY_LABELS_RU } from "@/types"
-import { serviceTicketApi } from "@/lib/api"
+import { serviceTicketApi, userApi, rentalObjectApi } from "@/lib/api"
 import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
 import { ColumnDef } from "@tanstack/react-table"
-import { DataTable, ServerPaginationParams, createSelectColumn } from "@/components/data-table"
+import { DataTable, createSelectColumn } from "@/components/data-table"
+import { serviceTicketColumnMeta } from "@/lib/table-columns"
 import { PageHeader } from "@/components/page-header"
-import { useLoading } from "@/hooks/use-loading"
+import { useServerPaginatedData } from "@/hooks/use-server-paginated-data"
 import { useCanEdit } from "@/hooks/use-can-edit"
 
 export default function ServiceTicketsPage() {
   const router = useRouter()
-  const [tickets, setTickets] = useState<ServiceTicket[]>([])
-  const [total, setTotal] = useState(0)
-  const [serverParams, setServerParams] = useState<ServerPaginationParams>({
-    pageIndex: 0,
-    pageSize: 10,
-    search: "",
-    sort: "",
+  const [filterUsers, setFilterUsers] = useState<{ id: number; first_name?: string; last_name?: string; username?: string }[]>([])
+  const [filterObjects, setFilterObjects] = useState<{ id: number; name: string }[]>([])
+  const {
+    data: tickets,
+    total,
+    loading,
+    serverParams,
+    setServerParams,
+    refetch,
+  } = useServerPaginatedData<ServiceTicket>({
+    api: serviceTicketApi,
+    errorMessage: "Не удалось загрузить данные",
   })
-  const { loading, withLoading } = useLoading(true)
   const canEdit = useCanEdit()
 
-  const fetchData = useCallback(async () => {
-    await withLoading(async () => {
-      const res = await serviceTicketApi.getPaginated({
-        page: serverParams.pageIndex + 1,
-        pageSize: serverParams.pageSize,
-        search: serverParams.search || undefined,
-        sort: serverParams.sort || undefined,
-        searchColumns: serverParams.searchColumns?.length ? serverParams.searchColumns : undefined,
-      })
-      setTickets(res.items)
-      setTotal(res.total)
-    }).catch((error: any) => {
-      toast.error("Не удалось загрузить данные", { description: error.message || "Unknown error" })
-      console.error(error)
-    })
-  }, [serverParams.pageIndex, serverParams.pageSize, serverParams.search, serverParams.sort, serverParams.searchColumns, withLoading])
-
   useEffect(() => {
-    fetchData()
-  }, [fetchData])
+    const load = async () => {
+      const [users, objs] = await Promise.all([userApi.getAll(), rentalObjectApi.getAll()])
+      setFilterUsers(users)
+      setFilterObjects(objs)
+    }
+    load().catch(console.error)
+  }, [])
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -98,13 +91,13 @@ export default function ServiceTicketsPage() {
     {
       accessorKey: "id",
       header: "ID",
-      meta: { searchDbColumns: ["id"] },
+      meta: serviceTicketColumnMeta.id,
       cell: ({ row }) => <div className="font-medium">#{row.original.id}</div>,
     },
     {
       accessorKey: "ticket",
       header: "Заявка",
-      meta: { searchDbColumns: ["description", "location", "msid"] },
+      meta: serviceTicketColumnMeta.ticket,
       cell: ({ row }) => (
         <div className="space-y-1">
           <div className="font-medium">{row.original.description || "No description"}</div>
@@ -115,7 +108,7 @@ export default function ServiceTicketsPage() {
     {
       accessorKey: "user",
       header: "Пользователь",
-      meta: { searchDbColumns: [] },
+      meta: serviceTicketColumnMeta.user,
       cell: ({ row }) => {
         const u = row.original.user
         const userId = row.original.user_id
@@ -147,12 +140,12 @@ export default function ServiceTicketsPage() {
     },
     {
       accessorKey: "object",
-      accessorFn: (row) => row.object?.name ?? (row.user?.object_id ? `БЦ-${row.user.object_id}` : ""),
+      accessorFn: (row) => row.object?.name ?? (row.object_id ?? row.user?.object_id ? `БЦ-${row.object_id ?? row.user?.object_id}` : ""),
       header: "Объект",
-      meta: { searchDbColumns: [] },
+      meta: serviceTicketColumnMeta.object,
       cell: ({ row }) => {
         const obj = row.original.object
-        const objectId = obj?.id ?? row.original.user?.object_id
+        const objectId = obj?.id ?? row.original.object_id ?? row.original.user?.object_id
         const display = obj?.name ?? (objectId ? `БЦ-${objectId}` : null)
         if (!display) return <span className="text-muted-foreground">Не назначен</span>
         if (!objectId) return <span className="text-sm">{display}</span>
@@ -166,25 +159,25 @@ export default function ServiceTicketsPage() {
     {
       accessorKey: "status",
       header: "Статус",
-      meta: { searchDbColumns: ["status"] },
+      meta: serviceTicketColumnMeta.status,
       cell: ({ row }) => getStatusBadge(row.original.status),
     },
     {
       accessorKey: "priority",
       header: "Приоритет",
-      meta: { searchDbColumns: ["priority"] },
+      meta: serviceTicketColumnMeta.priority,
       cell: ({ row }) => getPriorityBadge(row.original.priority),
     },
     {
       accessorKey: "category",
       header: "Категория",
-      meta: { searchDbColumns: ["category"] },
+      meta: serviceTicketColumnMeta.category,
       cell: ({ row }) => <Badge variant="outline">{row.original.category || "No category"}</Badge>,
     },
     {
       accessorKey: "created",
       header: "Создана",
-      meta: { searchDbColumns: ["created_at"] },
+      meta: serviceTicketColumnMeta.created,
       cell: ({ row }) => <div className="text-sm">{formatDate(row.original.created_at)}</div>,
     },
   ]
@@ -194,7 +187,7 @@ export default function ServiceTicketsPage() {
       <AppSidebar />
       <SidebarInset>
         <SiteHeader />
-        <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
+        <div className="flex-1 min-w-0 space-y-4 p-4 md:p-8 pt-6">
           <PageHeader
             title="Заявки на обслуживание"
             description="Управление заявками на техническое обслуживание"
@@ -206,9 +199,28 @@ export default function ServiceTicketsPage() {
           <DataTable
             data={tickets}
             columns={columns}
+            filterPickerData={{ users: filterUsers, objects: filterObjects }}
             loading={loading}
             loadingMessage="Загрузка заявок..."
             onRowClick={(row) => router.push(`/service-tickets/${row.original.id}`)}
+            contextMenuActions={{
+              onEdit: (row) => router.push(`/service-tickets/edit/${row.original.id}`),
+              onDelete: canEdit
+                ? async (row) => {
+                    try {
+                      await serviceTicketApi.delete(row.original.id)
+                      toast.success("Заявка удалена")
+                      refetch()
+                    } catch (e: any) {
+                      toast.error("Не удалось удалить", { description: e?.message })
+                    }
+                  }
+                : undefined,
+              getCopyText: (row) =>
+                `Заявка #${row.original.id}\nСтатус: ${row.original.status}\nОписание: ${row.original.description ?? ""}`,
+              deleteTitle: "Удалить заявку?",
+              deleteDescription: "Это действие нельзя отменить.",
+            }}
             serverPagination
             totalRowCount={total}
             serverParams={serverParams}

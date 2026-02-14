@@ -8,7 +8,7 @@ class SpaceResponse(BaseModel):
     id: Optional[int] = None
     object_id: int
     floor: str
-    size: int
+    size: float
     description: Optional[str] = None
     photos: List[str] = []
     status: str = "FREE"
@@ -22,7 +22,7 @@ class CreateSpaceRequest(BaseModel):
 
     object_id: int
     floor: str
-    size: int
+    size: float
     description: Optional[str] = None
     photos: List[str] = []
     status: str = "FREE"
@@ -34,7 +34,7 @@ class UpdateSpaceBody(BaseModel):
 
     object_id: Optional[int] = None
     floor: Optional[str] = None
-    size: Optional[int] = None
+    size: Optional[float] = None
     description: Optional[str] = None
     photos: Optional[List[str]] = None
     status: Optional[str] = None

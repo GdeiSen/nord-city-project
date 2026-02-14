@@ -367,15 +367,11 @@ class Bot:
             # --- Refactoring Change: Use NotificationService ---
             # Check if this is a message in the admin chat replying to a ticket
             if chat_id and self.services.notification.is_admin_chat(chat_id) and update.message.reply_to_message:
-                print(f"[DEBUG] === PROCESSING ADMIN REPLY ===")
                 try:
                     await self.services.notification.handle_admin_reply(update, context)
-                except Exception as e:
-                    print(f"[DEBUG] Error in admin reply processing: {e}")
+                except Exception:
                     import traceback
                     traceback.print_exc()
-            else:
-                print(f"[DEBUG] Not an admin reply - conditions not met")
 
     async def handle_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # --- This command handling logic remains the same ---

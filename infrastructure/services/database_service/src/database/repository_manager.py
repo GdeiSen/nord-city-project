@@ -1,7 +1,12 @@
 import logging
+from datetime import datetime
 from typing import Type, TypeVar, Dict, Optional, List, Any
+
+from sqlalchemy import or_
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy import or_, and_
+from sqlalchemy.types import Integer, BigInteger, SmallInteger, Float, Numeric, Boolean, DateTime, Date
+
+from database.derived_filters import get_derived_filter
 
 logger = logging.getLogger(__name__)
 
@@ -102,23 +107,80 @@ class GenericRepository:
             logger.error(f"Error getting all {self.model.__name__}: {e}", exc_info=True)
             raise
 
+    def _coerce_filter_value(self, val, column) -> Any:
+        """
+        Convert filter value to the appropriate Python type based on SQLAlchemy column type.
+        Returns None if coercion fails (e.g. "п" for int column) so the filter is skipped.
+        """
+        if val is None or (isinstance(val, str) and val.strip() == ""):
+            return None
+        if column is None:
+            return val
+        try:
+            col_type = column.type
+            py_type = getattr(col_type, "python_type", None)
+            if py_type is int or isinstance(col_type, (Integer, BigInteger, SmallInteger)):
+                return int(float(val))
+            if py_type is float or isinstance(col_type, (Float, Numeric)):
+                return float(val)
+            if py_type is bool or isinstance(col_type, Boolean):
+                s = str(val).lower()
+                if s in ("1", "true", "yes"): return True
+                if s in ("0", "false", "no"): return False
+                return None
+        except (ValueError, TypeError):
+            return None
+        return val
+
     def _apply_filters(self, query, filters: List[Dict[str, Any]], select_stmt):
-        """Apply filter conditions to the query. Only uses columns that exist on the model."""
+        """Apply filter conditions to the query. Uses derived filter registry or model columns."""
         for f in filters or []:
             col_id = f.get("columnId") or f.get("column_id")
             op = f.get("operator", "equals")
             val = f.get("value")
-            if not col_id or not hasattr(self.model, col_id):
+            date_from = f.get("dateFrom") or f.get("date_from")
+            date_to = f.get("dateTo") or f.get("date_to")
+            if not col_id:
+                continue
+
+            # Check derived filter registry first
+            derived_handler = get_derived_filter(self.model.__name__, col_id)
+            if derived_handler is not None:
+                try:
+                    query = derived_handler(query, self.model, op, val, date_from, date_to)
+                except Exception as e:
+                    logger.warning(f"Derived filter failed for {self.model.__name__}.{col_id}: {e}")
+                continue
+
+            if not hasattr(self.model, col_id):
                 continue
             col = getattr(self.model, col_id)
             if op in ("isEmpty", "isNotEmpty"):
                 fn = FILTER_OPS.get(op)
                 if fn:
                     query = query.where(fn(col, None))
+            elif op == "dateRange" and (date_from or date_to):
+                try:
+                    if date_from:
+                        dt_from = datetime.fromisoformat(date_from.replace("Z", "+00:00"))
+                        query = query.where(col >= dt_from)
+                    if date_to:
+                        dt_to = datetime.fromisoformat(date_to.replace("Z", "+00:00"))
+                        dt_to_end = dt_to.replace(hour=23, minute=59, second=59, microsecond=999999)
+                        query = query.where(col <= dt_to_end)
+                except (ValueError, TypeError):
+                    pass
             elif val is not None and str(val).strip() != "":
-                fn = FILTER_OPS.get(op)
-                if fn:
-                    query = query.where(fn(col, val))
+                col_obj = self.model.__table__.columns.get(col_id)
+                coerced = self._coerce_filter_value(val, col_obj) if col_obj is not None else val
+                if coerced is not None:
+                    fn = FILTER_OPS.get(op)
+                    if fn:
+                        query = query.where(fn(col, coerced))
+                elif col_obj is not None and isinstance(col_obj.type, (Integer, BigInteger, SmallInteger, Float, Numeric, Boolean)):
+                    # Coercion failed for numeric/bool column (e.g. "pqw" for user_id) — return no results
+                    from sqlalchemy.sql.expression import false
+                    query = query.where(false())
         return query
 
     def _apply_search(self, query, search: str, search_columns: List[str]):

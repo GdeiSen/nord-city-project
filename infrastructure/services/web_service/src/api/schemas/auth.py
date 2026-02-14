@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 from typing import Optional
 from datetime import datetime
 
@@ -8,16 +8,26 @@ from datetime import datetime
 # ---------------------------------------------------------------------------
 
 class RequestOtpBody(BaseModel):
-    """Request body for initiating OTP code delivery via Telegram."""
+    """Request body for initiating OTP code delivery via Telegram.
+    Provide either user_id (Telegram ID) or username (Telegram username without @).
+    """
     model_config = ConfigDict(extra="forbid")
 
-    user_id: int
+    user_id: Optional[int] = None
+    username: Optional[str] = None
+
+    @model_validator(mode="after")
+    def require_identifier(self):
+        if self.user_id is None and not (self.username and self.username.strip()):
+            raise ValueError("Provide either user_id or username")
+        return self
 
 
 class RequestOtpResponse(BaseModel):
-    """Response for OTP request."""
+    """Response for OTP request. Contains user_id for use in verify-otp step."""
     success: bool
     message: str
+    user_id: Optional[int] = None  # Resolved user_id (e.g. when lookup was by username)
 
 
 class VerifyOtpBody(BaseModel):

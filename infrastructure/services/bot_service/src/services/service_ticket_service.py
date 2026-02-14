@@ -48,7 +48,6 @@ class ServiceTicketService(BaseService):
         return None
 
     async def update_service_ticket_status(self, service_ticket_id: int, status: str, msid: int, user_id: int) -> Optional[ServiceTicketLog]:
-        print(f"[PRINT] update_service_ticket_status: called with id={service_ticket_id}, status={status}, msid={msid}, user_id={user_id}")
         try:
             ticket_status = status
             if status == ServiceTicketStatus.ASSIGNED:
@@ -56,9 +55,7 @@ class ServiceTicketService(BaseService):
             result = await self.bot.managers.database.service_ticket.update(
                 entity_id=service_ticket_id, update_data={"status": ticket_status}, model_class=ServiceTicket
             )
-            print(f"[PRINT] update_service_ticket_status: update result={result}, type={type(result)}")
             if not result.get("success"):
-                print(f"[PRINT] update_service_ticket_status: update not successful, returning None")
                 return None
 
             log_obj = ServiceTicketLog(
@@ -67,12 +64,9 @@ class ServiceTicketService(BaseService):
                 msid=msid,
                 user_id=user_id
             )
-            print(f"[PRINT] update_service_ticket_status: log_obj={log_obj}, type={type(log_obj)}")
             log_created = await self.bot.services.service_ticket_log.create_service_ticket_log(log_obj)
-            print(f"[PRINT] update_service_ticket_status: log_created={log_created}, type={type(log_created)}")
             return log_created
-        except Exception as e:
-            print(f"[PRINT] update_service_ticket_status: exception: {e}, type={type(e)}")
+        except Exception:
             return None
 
     async def delete_service_ticket(self, service_ticket_id: int) -> bool:

@@ -20,6 +20,17 @@ import {
 } from "@/components/ui/breadcrumb"
 import { Feedback } from "@/types"
 import { feedbackApi } from "@/lib/api"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { useLoading } from "@/hooks/use-loading"
 import { toast } from "sonner"
 import { Toaster } from "@/components/ui/sonner"
@@ -76,7 +87,6 @@ export default function FeedbackEditPage() {
 
   const handleDelete = async () => {
     if (!isEdit) return
-    if (!confirm("Удалить этот отзыв?")) return
     try {
       await feedbackApi.delete(feedbackId!)
       toast.success("Отзыв удалён")
@@ -91,7 +101,7 @@ export default function FeedbackEditPage() {
       <AppSidebar />
       <SidebarInset>
         <SiteHeader />
-        <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
+        <div className="flex-1 min-w-0 space-y-4 p-4 md:p-8 pt-6">
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
@@ -129,13 +139,33 @@ export default function FeedbackEditPage() {
                     </div>
 
                     <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end pt-4">
-                      <Button
-                        variant="outline"
-                        onClick={handleDelete}
-                        className="border-red-500 text-red-500 hover:bg-red-50 hover:text-red-600 sm:mr-auto"
-                      >
-                        Удалить
-                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="outline"
+                            className="border-red-500 text-red-500 hover:bg-red-50 hover:text-red-600 sm:mr-auto"
+                          >
+                            Удалить
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Удалить этот отзыв?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Это действие нельзя отменить.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Отмена</AlertDialogCancel>
+                            <AlertDialogAction
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              onClick={handleDelete}
+                            >
+                              Удалить
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                       <Button onClick={handleSave} disabled={saving}>
                         {saving ? "Сохранение..." : "Сохранить"}
                       </Button>

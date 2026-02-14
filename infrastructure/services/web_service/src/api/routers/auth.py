@@ -45,10 +45,41 @@ def _decode_access_token(token: str) -> Optional[dict]:
         return None
 
 
+async def _resolve_user_id(body: RequestOtpBody) -> int:
+    """Resolve user_id from body. If username provided, lookup in database."""
+    if body.user_id is not None:
+        return body.user_id
+    # Lookup by username (case-insensitive, strip leading @)
+    username = (body.username or "").strip().lstrip("@")
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Укажите Telegram ID или имя пользователя (@username).",
+        )
+    result = await db_client.user.get_by_username(username=username)
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Ошибка при поиске пользователя.",
+        )
+    user_data = result.get("data")
+    if not user_data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Пользователь @{username} не найден.",
+        )
+    user_id = user_data.get("id") if isinstance(user_data, dict) else getattr(user_data, "id", None)
+    if user_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь не найден.")
+    return int(user_id)
+
+
 @router.post("/request-otp", response_model=RequestOtpResponse)
 async def request_otp(body: RequestOtpBody):
     try:
-        result = await bot_client.telegram_auth.send_otp_code(user_id=body.user_id)
+        user_id = await _resolve_user_id(body)
+
+        result = await bot_client.telegram_auth.send_otp_code(user_id=user_id)
 
         if not result.get("success"):
             error = result.get("error", "unknown_error")
@@ -61,7 +92,8 @@ async def request_otp(body: RequestOtpBody):
 
         return RequestOtpResponse(
             success=True,
-            message="Код подтверждения отправлен в Telegram."
+            message="Код подтверждения отправлен в Telegram.",
+            user_id=user_id,
         )
     except HTTPException:
         raise

@@ -116,16 +116,12 @@ class StatsService(BaseService):
             message_info = self.get_message_info()
 
             if message_info and not self.is_message_expired():
-                print(f"[DEBUG] Attempting to edit existing stats message {message_info['message_id']}")
                 success = await self.bot.managers.message.edit_message(
                     chat_id=message_info["chat_id"], message_id=message_info["message_id"],
                     text=message_text, parse_mode='HTML'
                 )
                 if success:
-                    print(f"[DEBUG] Successfully edited stats message {message_info['message_id']}")
                     return
-                else:
-                    print(f"[DEBUG] Failed to edit message {message_info['message_id']}, creating new one")
 
             # Создаем новое сообщение, если редактирование не удалось или сообщение истекло
             await self._create_new_stats_message(admin_chat_id, message_text)
@@ -140,33 +136,23 @@ class StatsService(BaseService):
             chat_id: ID чата для отправки сообщения
             message_text: Текст сообщения со статистикой
         """
-        # Удаляем старое сообщение перед созданием нового
-        print("[DEBUG] Creating new stats message, deleting old one first...")
         await self._delete_old_message()
-        
+
         try:
-            # Небольшая задержка для гарантии удаления старого сообщения
             await asyncio.sleep(0.5)
-            
-            print(f"[DEBUG] Sending new stats message to chat {chat_id}")
+
             message = await self.bot.application.bot.send_message(
                 chat_id=int(chat_id), text=message_text, parse_mode='HTML'
             )
-            
-            print(f"[DEBUG] New stats message created with ID {message.message_id}")
-            
-            # Пытаемся закрепить сообщение
+
             try:
                 await self.bot.application.bot.pin_chat_message(
                     chat_id=int(chat_id), message_id=message.message_id, disable_notification=True
                 )
-                print(f"[DEBUG] Stats message {message.message_id} pinned successfully")
-            except Exception as e:
-                print(f"[DEBUG] Failed to pin message: {e}. Check bot permissions.")
-            
-            # Сохраняем информацию о новом сообщении
+            except Exception:
+                pass  # Pin may fail without admin permissions
+
             self.save_message_info(int(chat_id), message.message_id)
-            print(f"[DEBUG] Stats message info saved: chat_id={chat_id}, message_id={message.message_id}")
         except BadRequest as e:
             if "Chat not found" in str(e) or "chat not found" in str(e).lower():
                 print(
@@ -194,35 +180,27 @@ class StatsService(BaseService):
         """
         message_info = self.get_message_info()
         if not message_info:
-            print("[DEBUG] No old stats message to delete")
-            return True  # Нет сообщения для удаления - это нормально
-        
+            return True
+
         chat_id = message_info.get("chat_id")
         message_id = message_info.get("message_id")
-        
+
         if not chat_id or not message_id:
-            print("[DEBUG] Invalid message info, clearing data")
             self.save_message_info(None, None)
             return True
         
         try:
-            print(f"[DEBUG] Attempting to delete old stats message {message_id} from chat {chat_id}")
             deleted = await self.bot.managers.message.delete_message(
                 chat_id=chat_id, message_id=message_id
             )
-            
+
             if deleted:
-                print(f"[DEBUG] Successfully deleted old stats message {message_id}")
-                self.save_message_info(None, None)  # Очищаем информацию
+                self.save_message_info(None, None)
                 return True
             else:
-                # Сообщение не удалось удалить (возможно, уже удалено или не существует)
-                print(f"[DEBUG] Failed to delete message {message_id}, clearing info anyway")
-                self.save_message_info(None, None)  # Очищаем информацию в любом случае
+                self.save_message_info(None, None)
                 return False
-        except Exception as e:
-            print(f"[DEBUG] Error deleting old stats message: {e}")
-            # Очищаем информацию даже при ошибке, чтобы не блокировать создание нового сообщения
+        except Exception:
             self.save_message_info(None, None)
             return False
 

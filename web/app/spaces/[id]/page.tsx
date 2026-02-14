@@ -215,7 +215,7 @@ export default function RentalObjectSpacesPage() {
       <AppSidebar />
       <SidebarInset>
         <SiteHeader />
-        <div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
+        <div className="flex-1 min-w-0 space-y-4 p-4 pt-6 md:p-8">
 
           <PageHeader
             title={rentalObject?.name ?? "Помещения"}
@@ -240,10 +240,9 @@ export default function RentalObjectSpacesPage() {
                 <span className="text-sm text-muted-foreground">Фотография обложки не добавлена</span>
               </div>
             )}
-            <div>
-              <h1 className="text-2xl font-semibold">{rentalObject?.name ?? "—"}</h1>
-              <p className="text-sm text-muted-foreground mt-1">{rentalObject?.description || "Описание отсутствует"}</p>
-            </div>
+            {rentalObject?.description && (
+              <p className="text-sm text-muted-foreground">{rentalObject.description}</p>
+            )}
             <div className="grid gap-4 md:grid-cols-4">
               <div className="space-y-1">
                 <div className="text-xs text-muted-foreground">Адрес</div>
@@ -270,6 +269,24 @@ export default function RentalObjectSpacesPage() {
             loading={loading}
             loadingMessage="Загрузка помещений..."
             onRowClick={(row) => router.push(`/spaces/${objectId}/${row.original.id}`)}
+            contextMenuActions={{
+              onEdit: (row) => router.push(`/spaces/${objectId}/edit/${row.original.id}`),
+              onDelete: canEdit
+                ? async (row) => {
+                    try {
+                      await rentalSpaceApi.delete(row.original.id)
+                      toast.success("Помещение удалено")
+                      fetchSpaces()
+                    } catch (e: any) {
+                      toast.error("Не удалось удалить", { description: e?.message })
+                    }
+                  }
+                : undefined,
+              getCopyText: (row) =>
+                `Помещение #${row.original.id}\nЭтаж: ${row.original.floor}\nПлощадь: ${row.original.size} м²\nСтатус: ${row.original.status}`,
+              deleteTitle: "Удалить помещение?",
+              deleteDescription: "Это действие нельзя отменить.",
+            }}
           />
         </div>
       </SidebarInset>

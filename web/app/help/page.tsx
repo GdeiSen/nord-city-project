@@ -19,7 +19,7 @@ export default function HelpPage() {
       <AppSidebar />
       <SidebarInset>
         <SiteHeader />
-        <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
+        <div className="flex-1 min-w-0 space-y-4 p-4 md:p-8 pt-6">
           <PageHeader
             title="Справка"
             description="Документация и поддержка пользователей"

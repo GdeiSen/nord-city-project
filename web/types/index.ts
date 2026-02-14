@@ -150,7 +150,7 @@ export interface RentalSpace extends BaseEntity {
   object_id: number;
   /** Floor information */
   floor: string;
-  /** Space size in square meters */
+  /** Space size in square meters (supports tenths, e.g. 50.5) */
   size: number;
   /** Space description */
   description?: string;
@@ -192,6 +192,8 @@ export interface RentalSpaceView extends BaseEntity {
 export interface ServiceTicket extends BaseEntity {
   /** User ID who created the ticket */
   user_id: number;
+  /** Associated rental object ID (direct reference) */
+  object_id?: number;
   /** Ticket description */
   description?: string;
   /** Location where service is needed */
@@ -212,7 +214,7 @@ export interface ServiceTicket extends BaseEntity {
   category?: string;
   /** Associated user */
   user?: User;
-  /** Associated rental object (from user's object_id) */
+  /** Associated rental object (from object_id) */
   object?: { id: number; name: string };
   /** Status history logs */
   status_logs?: ServiceTicketLog[];

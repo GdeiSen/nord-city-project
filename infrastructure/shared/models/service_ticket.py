@@ -12,6 +12,7 @@ class ServiceTicket(Base):
     __tablename__ = 'service_tickets'
     id: Mapped[int] = mapped_column(Integer, Sequence('service_tickets_id_seq'), primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('users.id'))
+    object_id: Mapped[Optional[int]] = mapped_column(ForeignKey('objects.id'))
     description: Mapped[Optional[str]] = mapped_column(Text)
     location: Mapped[Optional[str]] = mapped_column(String(500))
     image: Mapped[Optional[str]] = mapped_column(String(1000))

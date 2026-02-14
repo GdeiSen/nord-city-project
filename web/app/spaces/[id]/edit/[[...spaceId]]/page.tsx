@@ -22,6 +22,17 @@ import {
 import { RentalSpace } from "@/types"
 import { rentalSpaceApi, rentalObjectApi } from "@/lib/api"
 import { PhotoLinksEditor } from "@/components/photo-links-editor"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { useLoading } from "@/hooks/use-loading"
 import { toast } from "sonner"
 import { Toaster } from "@/components/ui/sonner"
@@ -100,13 +111,15 @@ export default function SpaceEditPage() {
 
     setSaving(true)
     try {
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         object_id: objectId,
-        floor: formData.floor,
-        size: Number(formData.size),
-        description: formData.description,
+        floor: String(formData.floor ?? "").trim(),
+        size: Math.round(Number(formData.size) * 10) / 10 || 0,
         status: formData.status ?? DEFAULT_STATUS,
-        photos: (formData.photos ?? []).map((u) => u.trim()).filter(Boolean),
+        photos: (formData.photos ?? []).map((u) => String(u).trim()).filter(Boolean),
+      }
+      if (formData.description != null && formData.description !== "") {
+        payload.description = formData.description
       }
 
       if (isEdit) {
@@ -127,7 +140,6 @@ export default function SpaceEditPage() {
 
   const handleDelete = async () => {
     if (!isEdit) return
-    if (!confirm("Удалить это помещение?")) return
     try {
       await rentalSpaceApi.delete(spaceId!)
       toast.success("Помещение удалено")
@@ -142,7 +154,7 @@ export default function SpaceEditPage() {
       <AppSidebar />
       <SidebarInset>
         <SiteHeader />
-        <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
+        <div className="flex-1 min-w-0 space-y-4 p-4 md:p-8 pt-6">
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
@@ -193,7 +205,7 @@ export default function SpaceEditPage() {
                       id="size"
                       name="size"
                       type="number"
-                      min={1}
+                      min={0.1}
                       step="0.1"
                       value={formData.size ?? ""}
                       onChange={handleInputChange}
@@ -234,13 +246,33 @@ export default function SpaceEditPage() {
 
                   <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end pt-4">
                     {isEdit && (
-                      <Button
-                        variant="outline"
-                        onClick={handleDelete}
-                        className="border-red-500 text-red-500 hover:bg-red-50 hover:text-red-600 sm:mr-auto"
-                      >
-                        Удалить
-                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="outline"
+                            className="border-red-500 text-red-500 hover:bg-red-50 hover:text-red-600 sm:mr-auto"
+                          >
+                            Удалить
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Удалить это помещение?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Это действие нельзя отменить.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Отмена</AlertDialogCancel>
+                            <AlertDialogAction
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              onClick={handleDelete}
+                            >
+                              Удалить
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     )}
                     <Button onClick={handleSave} disabled={saving}>
                       {saving ? "Сохранение..." : "Сохранить"}

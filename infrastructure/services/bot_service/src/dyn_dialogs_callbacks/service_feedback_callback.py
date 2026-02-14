@@ -76,7 +76,6 @@ async def service_feedback_callback(
                 )
             return await bot.managers.router.execute(Dialogs.MENU, update, context)
         elif option_id == 202 and state == True:
-            print("service_feedback_speed_problems")
             # Сохраняем сообщение о проблемах скорости
             bot.managers.storage.set(context, "feedback_message", bot.get_text('service_feedback_speed_problems'))
             if ticket_id:

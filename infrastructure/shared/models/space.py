@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import List, Optional, Any, TYPE_CHECKING
-from sqlalchemy import String, Integer, Boolean, DateTime, func, ForeignKey, Text, JSON, Sequence
+from sqlalchemy import String, Integer, Float, Boolean, DateTime, func, ForeignKey, Text, JSON, Sequence
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base
 
@@ -14,7 +14,7 @@ class Space(Base):
     id: Mapped[int] = mapped_column(Integer, Sequence('object_spaces_id_seq'), primary_key=True)
     object_id: Mapped[int] = mapped_column(ForeignKey('objects.id'))
     floor: Mapped[str] = mapped_column(String(100))
-    size: Mapped[int] = mapped_column(Integer)
+    size: Mapped[float] = mapped_column(Float)
     description: Mapped[Optional[str]] = mapped_column(Text)
     photos: Mapped[List[Any]] = mapped_column(JSON, default=list)
     status: Mapped[str] = mapped_column(String(100), default='FREE')

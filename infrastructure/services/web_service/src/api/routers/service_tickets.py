@@ -4,7 +4,9 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from shared.clients.database_client import db_client
-from api.schemas.common import MessageResponse, PaginatedResponse, parse_sort_param
+from api.schemas.common import MessageResponse, PaginatedResponse
+from api.helpers.paginated_list import create_paginated_list_handler
+from api.helpers.enrichment import enrich_service_tickets_with_users_and_objects
 from api.schemas.service_tickets import (
     ServiceTicketResponse,
     CreateServiceTicketRequest,
@@ -35,70 +37,12 @@ async def get_service_tickets_stats():
     return response["data"]
 
 
-@router.get("/", response_model=PaginatedResponse[ServiceTicketResponse])
-async def get_service_tickets(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(10, ge=1, le=500),
-    search: Optional[str] = None,
-    sort: Optional[str] = None,
-    search_columns: Optional[str] = None,
-):
-    cols = [c.strip() for c in (search_columns or "").split(",") if c.strip()]
-    response = await db_client.service_ticket.get_paginated(
-        page=page,
-        page_size=page_size,
-        sort=parse_sort_param(sort),
-        search=search or "",
-        search_columns=cols if cols else None,
-    )
-    if not response.get("success"):
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail=response.get("error", "Failed to fetch service tickets"))
-    data = response.get("data", {})
-    items = data.get("items", [])
-    # Enrich with user data
-    user_ids = list({t.get("user_id") for t in items if t.get("user_id")})
-    user_map = {}
-    for uid in user_ids:
-        try:
-            ur = await db_client.user.get_by_id(entity_id=uid)
-            if ur.get("success") and ur.get("data"):
-                user_map[uid] = ur["data"]
-        except Exception:
-            pass
-    # Enrich with object (business center) from user's object_id - batch fetch for reliable names
-    object_ids = set(u.get("object_id") for u in user_map.values() if u.get("object_id"))
-    object_map = {}
-    if object_ids:
-        try:
-            page, page_size = 1, 100
-            while object_ids - object_map.keys():
-                obj_resp = await db_client.object.get_paginated(
-                    page=page, page_size=page_size
-                )
-                if not obj_resp.get("success"):
-                    break
-                data = obj_resp.get("data", {})
-                objs = data.get("items", [])
-                if not objs:
-                    break
-                for obj in objs:
-                    oid = obj.get("id")
-                    if oid in object_ids and oid not in object_map:
-                        name = obj.get("name") or (f"БЦ-{oid}" if oid else "")
-                        object_map[oid] = {"id": oid, "name": name}
-                total = data.get("total", 0)
-                if page * page_size >= total:
-                    break
-                page += 1
-        except Exception as e:
-            logger.warning("Failed to batch-fetch objects for enrichment: %s", e)
-    for t in items:
-        u = user_map.get(t.get("user_id"), {"first_name": "Unknown", "last_name": "", "username": ""})
-        t["user"] = u
-        oid = u.get("object_id")
-        t["object"] = object_map.get(oid) if oid else None
-    return PaginatedResponse(items=items, total=data.get("total", 0))
+get_service_tickets = create_paginated_list_handler(
+    db_client.service_ticket,
+    enricher=enrich_service_tickets_with_users_and_objects,
+    entity_label="service tickets",
+)
+router.get("/", response_model=PaginatedResponse[ServiceTicketResponse])(get_service_tickets)
 
 
 @router.get("/msid/{msid}", response_model=List[ServiceTicketResponse])

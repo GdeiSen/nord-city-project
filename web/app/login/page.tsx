@@ -12,126 +12,142 @@ import {
   InputOTPSlot,
   InputOTPSeparator,
 } from "@/components/ui/input-otp"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { authApi } from "@/lib/api"
 import { setToken, setUser } from "@/lib/auth"
-import { IconBrandTelegram, IconShieldLock, IconLoader2 } from "@tabler/icons-react"
+import { IconBrandTelegram, IconLoader2, IconAlertCircle } from "@tabler/icons-react"
 
 type AuthStep = "enter_id" | "enter_otp"
+
+function formatError(err: unknown): { title: string; details: string } {
+  const e = err as Error & { status?: number; details?: unknown }
+  const title = e?.message || "Произошла ошибка"
+  const parts: string[] = []
+
+  if (e?.status) {
+    parts.push(`Код ответа: ${e.status}`)
+  }
+  const details = e?.details
+  if (Array.isArray(details)) {
+    details.forEach((item: { loc?: string[]; msg?: string }) => {
+      const loc = Array.isArray(item.loc) ? item.loc.join(" → ") : ""
+      const msg = item.msg || ""
+      if (msg) parts.push(loc ? `${loc}: ${msg}` : msg)
+    })
+  } else if (typeof details === "object" && details !== null) {
+    const extra = (details as Record<string, string>).msg || JSON.stringify(details)
+    if (extra && extra !== title) parts.push(extra)
+  } else if (typeof details === "string" && details !== title) {
+    parts.push(details)
+  }
+
+  return { title, details: parts.length ? parts.join("\n") : "" }
+}
 
 export default function LoginPage() {
   const router = useRouter()
   const [step, setStep] = useState<AuthStep>("enter_id")
-  const [userId, setUserId] = useState("")
+  const [identifier, setIdentifier] = useState("")
+  const [resolvedUserId, setResolvedUserId] = useState<number | null>(null)
   const [otpCode, setOtpCode] = useState("")
-  const [error, setError] = useState("")
+  const [errorInfo, setErrorInfo] = useState<{ title: string; details: string } | null>(null)
   const [loading, setLoading] = useState(false)
-  const [otpDialogOpen, setOtpDialogOpen] = useState(false)
 
   const handleRequestOtp = useCallback(async () => {
-    setError("")
+    setErrorInfo(null)
 
-    const id = parseInt(userId.trim(), 10)
-    if (!id || isNaN(id)) {
-      setError("Введите корректный Telegram ID.")
+    const trimmed = identifier.trim()
+    if (!trimmed) {
+      setErrorInfo({ title: "Ошибка ввода", details: "Введите Telegram ID или @username." })
       return
     }
 
     setLoading(true)
     try {
-      const result = await authApi.requestOtp(id)
+      const idNum = parseInt(trimmed, 10)
+      const isNumeric = !isNaN(idNum) && String(idNum) === trimmed
+      const params = isNumeric ? { userId: idNum } : { username: trimmed }
+      const result = await authApi.requestOtp(params)
       if (result.success) {
+        setResolvedUserId(result.user_id ?? (isNumeric ? idNum : null))
         setStep("enter_otp")
-        setOtpDialogOpen(true)
       }
-    } catch (err: any) {
-      const detail = err?.response
-        ? (() => { try { return JSON.parse(err.response).detail } catch { return null } })()
-        : null
-      setError(detail || err?.message || "Ошибка при отправке кода.")
+    } catch (err: unknown) {
+      setErrorInfo(formatError(err))
     } finally {
       setLoading(false)
     }
-  }, [userId])
+  }, [identifier])
 
   const handleVerifyOtp = useCallback(async (code: string) => {
-    setError("")
+    setErrorInfo(null)
 
     if (code.length !== 6) return
+    if (resolvedUserId == null) {
+      setErrorInfo({
+        title: "Ошибка сессии",
+        details: "Сессия истекла. Запросите код повторно.",
+      })
+      return
+    }
 
     setLoading(true)
     try {
-      const id = parseInt(userId.trim(), 10)
-      const result = await authApi.verifyOtp(id, code)
+      const result = await authApi.verifyOtp(resolvedUserId, code)
 
       if (result.success && result.access_token) {
         setToken(result.access_token)
         if (result.user) {
           setUser(result.user)
         }
-        setOtpDialogOpen(false)
         router.push("/")
       }
-    } catch (err: any) {
-      const detail = err?.response
-        ? (() => { try { return JSON.parse(err.response).detail } catch { return null } })()
-        : null
-      setError(detail || err?.message || "Неверный код.")
+    } catch (err: unknown) {
+      setErrorInfo(formatError(err))
       setOtpCode("")
     } finally {
       setLoading(false)
     }
-  }, [userId, router])
+  }, [resolvedUserId, router])
 
   const handleOtpChange = useCallback((value: string) => {
     setOtpCode(value)
-    setError("")
+    setErrorInfo(null)
     if (value.length === 6) {
       handleVerifyOtp(value)
     }
   }, [handleVerifyOtp])
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+    <div className="flex min-h-screen w-full items-center justify-center bg-background p-4">
       <div className="w-full max-w-md">
-        {/* Logo / Brand */}
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
-            <IconShieldLock className="h-8 w-8 text-primary" />
-          </div>
+      <div className="mb-8 text-center">
           <h1 className="text-2xl font-bold tracking-tight">Nord City</h1>
           <p className="text-sm text-muted-foreground">Панель управления</p>
         </div>
-
         {/* Login Card */}
         <Card>
           <CardHeader className="text-center">
             <CardTitle className="text-xl">Авторизация</CardTitle>
             <CardDescription>
-              Введите ваш Telegram ID для получения кода подтверждения
+              {step === "enter_id"
+                ? "Введите ваш Telegram ID или @username для получения кода подтверждения"
+                : "Мы отправили 6-значный код в ваш Telegram. Введите его ниже для входа."}
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {step === "enter_id" ? (
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="telegram-id">Telegram ID</Label>
+                <Label htmlFor="telegram-id">Telegram ID или @username</Label>
                 <div className="relative">
                   <IconBrandTelegram className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     id="telegram-id"
                     type="text"
-                    inputMode="numeric"
-                    placeholder="Например: 123456789"
-                    value={userId}
+                    value={identifier}
                     onChange={(e) => {
-                      setUserId(e.target.value)
-                      setError("")
+                      setIdentifier(e.target.value)
+                      setErrorInfo(null)
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") handleRequestOtp()
@@ -142,14 +158,26 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              {error && step === "enter_id" && (
-                <p className="text-sm text-destructive">{error}</p>
+              {errorInfo && (
+                <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3">
+                  <div className="flex gap-2">
+                    <IconAlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                    <div className="space-y-1 text-sm">
+                      <p className="font-medium text-destructive">{errorInfo.title}</p>
+                      {errorInfo.details && (
+                        <pre className="whitespace-pre-wrap break-words text-destructive/90 font-sans text-xs">
+                          {errorInfo.details}
+                        </pre>
+                      )}
+                    </div>
+                  </div>
+                </div>
               )}
 
               <Button
                 className="w-full"
                 onClick={handleRequestOtp}
-                disabled={loading || !userId.trim()}
+                disabled={loading || !identifier.trim()}
               >
                 {loading ? (
                   <>
@@ -158,7 +186,6 @@ export default function LoginPage() {
                   </>
                 ) : (
                   <>
-                    <IconBrandTelegram className="mr-2 h-4 w-4" />
                     Получить код
                   </>
                 )}
@@ -170,24 +197,10 @@ export default function LoginPage() {
                 Доступ предоставляется только администраторам.
               </p>
             </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* OTP Verification Dialog */}
-      <Dialog open={otpDialogOpen} onOpenChange={setOtpDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-center">Введите код подтверждения</DialogTitle>
-            <DialogDescription className="text-center">
-              Мы отправили 6-значный код в ваш Telegram.
-              <br />
-              Введите его ниже для входа.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="flex flex-col items-center gap-4 py-4">
-            <InputOTP
+            ) : (
+            <div className="space-y-4">
+              <div className="flex flex-col items-center gap-4">
+                <InputOTP
               maxLength={6}
               value={otpCode}
               onChange={handleOtpChange}
@@ -213,29 +226,44 @@ export default function LoginPage() {
               </div>
             )}
 
-            {error && step === "enter_otp" && (
-              <p className="text-sm text-destructive text-center">{error}</p>
+            {errorInfo && (
+              <div className="w-full rounded-md border border-destructive/50 bg-destructive/10 p-3">
+                <div className="flex gap-2">
+                  <IconAlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                  <div className="flex-1 space-y-1 text-sm">
+                    <p className="font-medium text-destructive">{errorInfo.title}</p>
+                    {errorInfo.details && (
+                      <pre className="whitespace-pre-wrap break-words text-destructive/90 font-sans text-xs">
+                        {errorInfo.details}
+                      </pre>
+                    )}
+                  </div>
+                </div>
+              </div>
             )}
 
-            <p className="text-xs text-muted-foreground text-center">
-              Код действителен 5 минут.
-              <br />
-              <button
-                type="button"
-                onClick={() => {
-                  setOtpCode("")
-                  setError("")
-                  handleRequestOtp()
-                }}
-                className="text-primary underline-offset-4 hover:underline disabled:opacity-50"
-                disabled={loading}
-              >
-                Отправить код повторно
-              </button>
-            </p>
-          </div>
-        </DialogContent>
-      </Dialog>
+                <p className="text-xs text-muted-foreground text-center">
+                  Код действителен 5 минут.
+                  <br />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOtpCode("")
+                      setErrorInfo(null)
+                      handleRequestOtp()
+                    }}
+                    className="text-primary underline-offset-4 hover:underline disabled:opacity-50"
+                    disabled={loading}
+                  >
+                    Отправить код повторно
+                  </button>
+                </p>
+              </div>
+            </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

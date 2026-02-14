@@ -96,32 +96,23 @@ class NotificationService(BaseService):
 
     async def handle_admin_reply(self, update: "Update", context: "ContextTypes.DEFAULT_TYPE") -> bool:
         try:
-            print("[DEBUG] handle_admin_reply called")
             if not update.message or not update.message.reply_to_message:
-                print("[DEBUG] No reply_to_message found")
                 return False
 
             reply_to_message = update.message.reply_to_message
             user_id = update.message.from_user.id if update.message.from_user else None
 
-            print(f"[DEBUG] Looking for ticket by msid={reply_to_message.message_id}")
             ticket = await self.bot.services.service_ticket.get_service_ticket_by_msid(
                 reply_to_message.message_id
             )
-            print(f"[DEBUG] Ticket found: {ticket}")
             if not ticket:
-                print("[DEBUG] No ticket found for this message_id")
                 return False
 
             message_text = update.message.text
-            print(f"[DEBUG] Admin reply text: {message_text}")
             if not message_text:
-                print("[DEBUG] No message text in admin reply")
                 return False
 
-            # Process different types of admin commands
             if re.search(r'принят[оа]', message_text.lower()):
-                print("[DEBUG] Detected 'принято' command, processing acceptance...")
                 await self._process_ticket_accepted(update, context, ticket, user_id)
                 return True
 
@@ -130,16 +121,13 @@ class NotificationService(BaseService):
                  assigned_match = re.search(r'передал\s+["\']?([А-Яа-я\s]+)["\']?', message_text, re.IGNORECASE)
             if assigned_match:
                 assignee = assigned_match.group(1).strip().title()
-                print(f"[DEBUG] Detected 'передано' command, assignee: {assignee}")
                 await self._process_ticket_assigned(update, context, ticket, user_id, assignee)
                 return True
 
             if re.search(r'выполнен[оа]', message_text.lower()):
-                print("[DEBUG] Detected 'выполнено' command, processing completion...")
                 await self._process_ticket_completed(update, context, ticket, user_id)
                 return True
 
-            print("[DEBUG] No known admin command detected")
             return False
         except Exception as e:
             print(f"Error handling admin reply: {e}")
@@ -150,15 +138,12 @@ class NotificationService(BaseService):
     async def ensure_user_exists(self, user_id: int):
         user = await self.bot.services.user.get_user_by_id(user_id)
         if not user:
-            print(f"[DEBUG] User with id={user_id} not found, creating...")
             user = User(id=user_id, object_id=1, role=Roles.GUEST)
             await self.bot.services.user.create_user(user)
 
     async def _process_ticket_accepted(self, update: "Update", context: "ContextTypes.DEFAULT_TYPE", ticket, user_id: int):
-        print(f"[DEBUG] _process_ticket_accepted: ticket={ticket}, user_id={user_id}")
         await self.ensure_user_exists(user_id)
         log = await self.bot.services.service_ticket.update_service_ticket_status(ticket.id, ServiceTicketStatus.ACCEPTED, update.message.message_id, user_id)
-        print(f"[DEBUG] update_service_ticket_status result: {log}")
         if log is not None:
             await self.bot.managers.message.reply_message(
                 update, context, "ticket_accepted", payload=[str(ticket.id)]
@@ -166,10 +151,8 @@ class NotificationService(BaseService):
             await self.bot.services.stats.force_update_stats()
 
     async def _process_ticket_assigned(self, update: "Update", context: "ContextTypes.DEFAULT_TYPE", ticket, user_id: int, assignee: str):
-        print(f"[DEBUG] _process_ticket_assigned: ticket={ticket}, user_id={user_id}, assignee={assignee}")
         await self.ensure_user_exists(user_id)
         log = await self.bot.services.service_ticket.update_service_ticket_status(ticket.id, ServiceTicketStatus.ASSIGNED, update.message.message_id, user_id)
-        print(f"[DEBUG] update_service_ticket_status result: {log}")
         if log is not None:
             await self.bot.managers.message.reply_message(
                 update, context, "ticket_assigned", payload=[str(ticket.id), assignee]
@@ -177,10 +160,8 @@ class NotificationService(BaseService):
             await self.bot.services.stats.force_update_stats()
 
     async def _process_ticket_completed(self, update: "Update", context: "ContextTypes.DEFAULT_TYPE", ticket, user_id: int):
-        print(f"[DEBUG] _process_ticket_completed: ticket={ticket}, user_id={user_id}")
         await self.ensure_user_exists(user_id)
         log = await self.bot.services.service_ticket.update_service_ticket_status(ticket.id, ServiceTicketStatus.COMPLETED, update.message.message_id, user_id)
-        print(f"[DEBUG] update_service_ticket_status result: {log}")
         if log is not None:
             await self.bot.managers.message.reply_message(
                 update, context, "ticket_completed", payload=[str(ticket.id)]
@@ -259,7 +240,6 @@ class NotificationService(BaseService):
         """
         try:
             if not self._admin_chat_id:
-                print("[DEBUG] Admin chat ID not configured, skipping reply deletion")
                 return
 
             # Получаем все логи тикета
@@ -267,7 +247,6 @@ class NotificationService(BaseService):
             ticket_logs = [log for log in all_logs if getattr(log, 'ticket_id', None) == ticket.id]
             
             if not ticket_logs:
-                print(f"[DEBUG] No logs found for ticket {ticket.id}, nothing to delete")
                 return
             
             # Собираем все message_id из логов (кроме исходного сообщения тикета)
@@ -281,10 +260,7 @@ class NotificationService(BaseService):
                     message_ids_to_delete.add(log_msid)
             
             if not message_ids_to_delete:
-                print(f"[DEBUG] No reply messages found to delete for ticket {ticket.id}")
                 return
-            
-            print(f"[DEBUG] Found {len(message_ids_to_delete)} unique reply messages to delete for ticket {ticket.id}")
             
             # Удаляем все собранные сообщения
             deleted_count = 0
@@ -297,15 +273,10 @@ class NotificationService(BaseService):
                     )
                     if success:
                         deleted_count += 1
-                        print(f"[DEBUG] Successfully deleted message {message_id}")
                     else:
                         failed_count += 1
-                        print(f"[DEBUG] Failed to delete message {message_id}")
-                except Exception as e:
+                except Exception:
                     failed_count += 1
-                    print(f"[DEBUG] Error deleting message {message_id}: {e}")
-            
-            print(f"[DEBUG] Deletion summary: {deleted_count} deleted, {failed_count} failed out of {len(message_ids_to_delete)} total")
         except Exception as e:
             print(f"Error deleting ticket reply messages: {e}")
             import traceback

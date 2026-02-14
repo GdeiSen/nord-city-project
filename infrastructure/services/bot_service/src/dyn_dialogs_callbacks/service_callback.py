@@ -65,11 +65,14 @@ async def service_callback(
         bot.managers.storage.set(context, Variables.USER_SERVICE_TICKET, None)
     if (item_id in [97, 98, 99]):
         if (service_ticket is None):
-            # Create DDID in format "0000-0000-0000" (dialog_id-sequence_id-item_id)
+            user_id = update.effective_user.id
+            user = await bot.services.user.get_user_by_id(user_id)
+            object_id = user.object_id if user else None
             ddid = f"{dialog.id:04d}-{sequence_id:04d}-{item_id:04d}"
             service_ticket = ServiceTicket(
                 id=None,
-                user_id=update.effective_user.id,
+                user_id=user_id,
+                object_id=object_id,
                 ddid=ddid,
                 description=None,
                 location=None,
