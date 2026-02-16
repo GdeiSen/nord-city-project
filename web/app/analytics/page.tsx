@@ -6,16 +6,13 @@ import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { IconChartBar, IconTrendingUp, IconUsers, IconTicket, IconBuildingSkyscraper } from "@tabler/icons-react"
+import { IconTrendingUp, IconUsers, IconTicket, IconBuildingSkyscraper } from "@tabler/icons-react"
 import { serviceTicketApi, userApi, feedbackApi, rentalSpaceApi } from '@/lib/api'
 import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/page-header"
-import { ChartAdvanced } from "@/components/chart-advanced"
-
 export default function AnalyticsPage() {
   const [analytics, setAnalytics] = useState<any>({})
-  const [chartData, setChartData] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   const fetchAnalytics = async () => {
@@ -40,21 +37,12 @@ export default function AnalyticsPage() {
 
       const occupancy = spaces.length > 0 ? ((spaces.filter(s => s.status !== 'FREE').length / spaces.length) * 100).toFixed(1) + '%' : '0%'
 
-      // Monthly tickets for chart
-      const monthlyTickets = tickets.reduce((acc, t) => {
-        const month = new Date(t.created_at).toLocaleString('default', { month: 'short', year: 'numeric' })
-        acc[month] = (acc[month] || 0) + 1
-        return acc
-      }, {} as Record<string, number>)
-      const chartData = Object.entries(monthlyTickets).map(([month, count]) => ({ month, count })).sort((a, b) => new Date(a.month).getTime() - new Date(b.month).getTime())
-
       setAnalytics({
         userCount: users.length,
         resolutionTime: averageResolutionTime,
         occupancy,
         satisfaction: satisfactionRating,
       })
-      setChartData(chartData)
     } catch (error) {
       toast.error('Failed to fetch analytics')
       console.error(error)
@@ -121,7 +109,6 @@ export default function AnalyticsPage() {
               </CardContent>
             </Card>
           </div>
-          <ChartAdvanced />
         </div>
       </SidebarInset>
       <Toaster />

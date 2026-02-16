@@ -5,6 +5,9 @@
  * for the frontend application communicating with the backend service.
  */
 
+// Re-export filter types for convenience
+export type { FilterOperator, FilterItem, ServerPaginationParams } from "./filters"
+
 // Role constants and types
 export const USER_ROLES = {
   GUEST: 0,

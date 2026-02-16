@@ -1,6 +1,5 @@
 "use client"
 
-import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { AppSidebar } from "@/components/app-sidebar"
@@ -10,20 +9,20 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { IconPlus, IconClock, IconCheck, IconX, IconAlertTriangle } from "@tabler/icons-react"
 import { ServiceTicket, TICKET_STATUS, TICKET_STATUS_LABELS_RU, TICKET_PRIORITY, TICKET_PRIORITY_LABELS_RU } from "@/types"
-import { serviceTicketApi, userApi, rentalObjectApi } from "@/lib/api"
+import { serviceTicketApi } from "@/lib/api"
 import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
 import { ColumnDef } from "@tanstack/react-table"
 import { DataTable, createSelectColumn } from "@/components/data-table"
-import { serviceTicketColumnMeta } from "@/lib/table-columns"
+import { serviceTicketColumnMeta } from "@/lib/table-configs"
 import { PageHeader } from "@/components/page-header"
 import { useServerPaginatedData } from "@/hooks/use-server-paginated-data"
+import { useFilterPickerData } from "@/hooks/use-filter-picker-data"
 import { useCanEdit } from "@/hooks/use-can-edit"
 
 export default function ServiceTicketsPage() {
   const router = useRouter()
-  const [filterUsers, setFilterUsers] = useState<{ id: number; first_name?: string; last_name?: string; username?: string }[]>([])
-  const [filterObjects, setFilterObjects] = useState<{ id: number; name: string }[]>([])
+  const filterPickerData = useFilterPickerData({ users: true, objects: true })
   const {
     data: tickets,
     total,
@@ -36,15 +35,6 @@ export default function ServiceTicketsPage() {
     errorMessage: "Не удалось загрузить данные",
   })
   const canEdit = useCanEdit()
-
-  useEffect(() => {
-    const load = async () => {
-      const [users, objs] = await Promise.all([userApi.getAll(), rentalObjectApi.getAll()])
-      setFilterUsers(users)
-      setFilterObjects(objs)
-    }
-    load().catch(console.error)
-  }, [])
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -199,7 +189,7 @@ export default function ServiceTicketsPage() {
           <DataTable
             data={tickets}
             columns={columns}
-            filterPickerData={{ users: filterUsers, objects: filterObjects }}
+            filterPickerData={filterPickerData}
             loading={loading}
             loadingMessage="Загрузка заявок..."
             onRowClick={(row) => router.push(`/service-tickets/${row.original.id}`)}

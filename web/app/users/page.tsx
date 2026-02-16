@@ -1,6 +1,5 @@
 "use client"
 
-import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { AppSidebar } from "@/components/app-sidebar"
@@ -14,14 +13,15 @@ import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
 import { ColumnDef } from "@tanstack/react-table"
 import { DataTable, createSelectColumn } from "@/components/data-table"
-import { userColumnMeta } from "@/lib/table-columns"
+import { userColumnMeta } from "@/lib/table-configs"
 import { PageHeader } from "@/components/page-header"
 import { useServerPaginatedData } from "@/hooks/use-server-paginated-data"
+import { useFilterPickerData } from "@/hooks/use-filter-picker-data"
 import { useCanEdit } from "@/hooks/use-can-edit"
 
 export default function UsersPage() {
   const router = useRouter()
-  const [filterObjects, setFilterObjects] = useState<{ id: number; name: string }[]>([])
+  const filterPickerData = useFilterPickerData({ objects: true })
   const {
     data: users,
     total,
@@ -34,10 +34,6 @@ export default function UsersPage() {
     errorMessage: "Не удалось загрузить пользователей",
   })
   const canEdit = useCanEdit()
-
-  useEffect(() => {
-    rentalObjectApi.getAll().then(setFilterObjects).catch(console.error)
-  }, [])
 
   const getRoleBadge = (role: number | undefined) => {
     if (role === undefined) return <Badge variant="outline">Неопределен</Badge>
@@ -148,7 +144,7 @@ export default function UsersPage() {
           <DataTable
             data={users}
             columns={columns}
-            filterPickerData={{ objects: filterObjects }}
+            filterPickerData={filterPickerData}
             loading={loading}
             loadingMessage="Загрузка пользователей..."
             onRowClick={(row) => router.push(`/users/${row.original.id}`)}

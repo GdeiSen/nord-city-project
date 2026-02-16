@@ -1,25 +1,25 @@
 "use client"
 
-import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { Feedback } from "@/types"
-import { feedbackApi, userApi } from "@/lib/api"
+import { feedbackApi } from "@/lib/api"
 import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
 import { ColumnDef } from "@tanstack/react-table"
 import { DataTable, createSelectColumn } from "@/components/data-table"
-import { feedbackColumnMeta } from "@/lib/table-columns"
+import { feedbackColumnMeta } from "@/lib/table-configs"
 import { PageHeader } from "@/components/page-header"
 import { useServerPaginatedData } from "@/hooks/use-server-paginated-data"
+import { useFilterPickerData } from "@/hooks/use-filter-picker-data"
 import { useCanEdit } from "@/hooks/use-can-edit"
 
 export default function FeedbacksPage() {
   const router = useRouter()
-  const [filterUsers, setFilterUsers] = useState<{ id: number; first_name?: string; last_name?: string; username?: string }[]>([])
+  const filterPickerData = useFilterPickerData({ users: true })
   const {
     data: feedbacks,
     total,
@@ -32,10 +32,6 @@ export default function FeedbacksPage() {
     errorMessage: "Не удалось загрузить данные",
   })
   const canEdit = useCanEdit()
-
-  useEffect(() => {
-    userApi.getAll().then(setFilterUsers).catch(console.error)
-  }, [])
 
   const formatDate = (dateString: string) =>
     new Date(dateString).toLocaleDateString("ru-RU", {
@@ -117,7 +113,7 @@ export default function FeedbacksPage() {
           <DataTable
             data={feedbacks}
             columns={columns}
-            filterPickerData={{ users: filterUsers }}
+            filterPickerData={filterPickerData}
             loading={loading}
             loadingMessage="Загрузка отзывов..."
             onRowClick={(row) => router.push(`/feedbacks/${row.original.id}`)}
