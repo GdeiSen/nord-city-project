@@ -22,11 +22,14 @@ class SpaceService(BaseService):
         super().__init__(db_manager)
 
     @db_session_manager
-    async def get_by_object_id(self, *, session, entity_id: int) -> List[Space]:
-        return await self.repository.find(session=session, object_id=entity_id)
+    async def get_by_object_id(self, *, session, entity_id: int, only_free: bool = False) -> List[Space]:
+        filters = {"object_id": entity_id}
+        if only_free:
+            filters["status"] = "FREE"
+        return await self.repository.find(session=session, **filters)
 
     @db_session_manager
-    async def update(self, *, session, entity_id, update_data):
+    async def update(self, *, session, entity_id, update_data, **kwargs):
         """Override to cleanup media files that are no longer referenced."""
         if "photos" in update_data:
             existing = await self.repository.get_by_id(session=session, entity_id=entity_id)
@@ -41,10 +44,10 @@ class SpaceService(BaseService):
                         logger.info("Cleaned up orphaned media: %s", path)
                     except Exception as e:
                         logger.warning("Failed to cleanup media %s: %s", path, e)
-        return await super().update(session=session, entity_id=entity_id, update_data=update_data)
+        return await super().update(session=session, entity_id=entity_id, update_data=update_data, **kwargs)
 
     @db_session_manager
-    async def delete(self, *, session, entity_id):
+    async def delete(self, *, session, entity_id, **kwargs):
         """Override to cleanup media files when space is deleted."""
         existing = await self.repository.get_by_id(session=session, entity_id=entity_id)
         if existing and existing.photos:
@@ -57,4 +60,4 @@ class SpaceService(BaseService):
                         logger.info("Cleaned up media on delete: %s", path)
                     except Exception as e:
                         logger.warning("Failed to cleanup media %s: %s", path, e)
-        return await super().delete(session=session, entity_id=entity_id)
+        return await super().delete(session=session, entity_id=entity_id, **kwargs)

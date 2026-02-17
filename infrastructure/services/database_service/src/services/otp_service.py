@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
 from sqlalchemy import select, and_
@@ -23,29 +23,40 @@ class OtpService(BaseService):
 
     # Override BaseService.create to normalise expires_at before insert
     @db_session_manager
-    async def create(self, *, session, model_instance: OtpCode | Dict[str, Any]) -> Optional[OtpCode]:
+    async def create(self, *, session, model_instance: OtpCode | Dict[str, Any], **kwargs) -> Optional[OtpCode]:
         """
         Create a new OTP code.
 
         Normalises ``expires_at`` to a proper ``datetime`` instance to avoid
         asyncpg errors when the value is provided as an ISO string.
         """
+        def _to_naive_utc(dt: datetime) -> datetime:
+            """Convert datetime to naive UTC for TIMESTAMP WITHOUT TIME ZONE."""
+            if dt.tzinfo is not None:
+                return dt.astimezone(timezone.utc).replace(tzinfo=None)
+            return dt
+
         # When called via RPC, model_instance will typically be a dict that
         # came from JSON and Converter.to_dict on the client side.
         if isinstance(model_instance, dict):
             expires = model_instance.get("expires_at")
             if isinstance(expires, str):
                 try:
-                    # fromisoformat can handle 'YYYY-MM-DDTHH:MM:SS[.ffffff]'
-                    model_instance["expires_at"] = datetime.fromisoformat(expires)
+                    dt = datetime.fromisoformat(expires)
+                    model_instance["expires_at"] = _to_naive_utc(dt)
                 except Exception:
                     logger.warning("Failed to parse expires_at from string for OtpCode")
             model_instance = Converter.from_dict(self.model_class, model_instance)
         elif isinstance(model_instance, OtpCode) and isinstance(model_instance.expires_at, str):
             try:
-                model_instance.expires_at = datetime.fromisoformat(model_instance.expires_at)
+                dt = datetime.fromisoformat(model_instance.expires_at)
+                model_instance.expires_at = _to_naive_utc(dt)
             except Exception:
                 logger.warning("Failed to parse expires_at on OtpCode instance")
+
+        # Ensure expires_at is naive UTC before insert (asyncpg requires it for TIMESTAMP WITHOUT TIME ZONE)
+        if isinstance(model_instance, OtpCode) and model_instance.expires_at is not None:
+            model_instance.expires_at = _to_naive_utc(model_instance.expires_at)
 
         created_instance = await self.repository.create(session=session, obj_in=model_instance)
         if created_instance is None:

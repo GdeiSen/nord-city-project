@@ -41,10 +41,12 @@ def parse_list_params_from_query(
     sort: Optional[str] = None,
     search_columns: Optional[str] = None,
     filters: Optional[str] = None,
+    max_page_size: Optional[int] = 500,
 ) -> tuple[int, int, str, str, Optional[list[str]], Optional[list[dict]]]:
     """
     Parse and validate list params from query string.
     Returns (page, page_size, search, sort, search_columns_list, filters_list).
+    max_page_size: cap for page_size (default 500). Pass None to skip cap.
     """
     import json
 
@@ -65,9 +67,13 @@ def parse_list_params_from_query(
         except (json.JSONDecodeError, ValueError, TypeError):
             filter_list = None
 
+    size = max(1, page_size)
+    if max_page_size is not None:
+        size = min(max_page_size, size)
+
     return (
         max(1, page),
-        min(500, max(1, page_size)),
+        size,
         search or "",
         sort or "",
         cols,

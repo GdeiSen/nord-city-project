@@ -44,7 +44,7 @@ export default function ServiceTicketEditPage() {
   const { loading, withLoading } = useLoading(true)
   const [users, setUsers] = useState<User[]>([])
   const [objects, setObjects] = useState<RentalObject[]>([])
-  const [formData, setFormData] = useState<Partial<ServiceTicket>>({})
+  const [formData, setFormData] = useState<Partial<ServiceTicket> & { assignee_id?: number | null; meta?: string | Record<string, unknown> }>({})
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -55,12 +55,22 @@ export default function ServiceTicketEditPage() {
       if (isEdit) {
         const ticket = await serviceTicketApi.getById(Number(ticketId!))
         const user = allUsers.find((u) => u.id === ticket.user_id)
+        let assigneeId: number | null = null
+        if (ticket.meta) {
+          try {
+            const m = typeof ticket.meta === "string" ? JSON.parse(ticket.meta) : ticket.meta
+            assigneeId = m?.assignee_id ?? null
+          } catch {
+            assigneeId = null
+          }
+        }
         setFormData({
           ...ticket,
           user: user || undefined,
+          assignee_id: assigneeId,
         })
       } else {
-        setFormData({})
+        setFormData({ status: TICKET_STATUS.NEW })
       }
     }
     withLoading(load).catch((err: any) => {
@@ -82,12 +92,12 @@ export default function ServiceTicketEditPage() {
   const handleSave = async () => {
     setSaving(true)
     try {
-      const allowedFields = [
+      const payload: Record<string, unknown> = {}
+      const fields = [
         "user_id", "object_id", "description", "location", "image", "status", "ddid",
         "answer", "header", "details", "msid", "meta",
       ] as const
-      const payload: Record<string, unknown> = {}
-      for (const key of allowedFields) {
+      for (const key of fields) {
         let val: unknown = (formData as any)[key]
         if (key === "user_id" && (val === undefined || val === null)) {
           val = (formData as any).user?.id
@@ -97,6 +107,26 @@ export default function ServiceTicketEditPage() {
         }
       }
       if (isEdit) {
+        if (formData.status === TICKET_STATUS.ASSIGNED) {
+          if (!formData.assignee_id || formData.assignee_id <= 0) {
+            toast.error("При статусе «Передана» укажите исполнителя")
+            setSaving(false)
+            return
+          }
+        }
+        if (formData.status === TICKET_STATUS.ASSIGNED && formData.assignee_id != null && formData.assignee_id > 0) {
+          const existingMeta = (() => {
+            try {
+              const m = formData.meta
+              if (!m) return {}
+              return typeof m === "string" ? JSON.parse(m) : (m || {})
+            } catch {
+              return {}
+            }
+          })()
+          payload.meta = JSON.stringify({ ...existingMeta, assignee_id: formData.assignee_id })
+          payload.assignee_id = formData.assignee_id
+        }
         await serviceTicketApi.update(Number(ticketId!), payload as any)
         toast.success("Заявка обновлена")
         router.push(`/service-tickets/${Number(ticketId!)}`)
@@ -106,6 +136,7 @@ export default function ServiceTicketEditPage() {
           setSaving(false)
           return
         }
+        payload.status = TICKET_STATUS.NEW
         if (!payload.ddid) payload.ddid = "0000-0000-0000"
         const created = await serviceTicketApi.create(payload as any)
         toast.success("Заявка создана")
@@ -177,20 +208,49 @@ export default function ServiceTicketEditPage() {
                     <Label htmlFor="location">Местоположение</Label>
                     <Input id="location" name="location" value={formData.location ?? ""} onChange={handleInputChange} />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="status">Статус</Label>
-                    <Select value={formData.status ?? ""} onValueChange={(v) => handleSelectChange("status", v)}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Выберите статус" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={TICKET_STATUS.NEW}>Новая</SelectItem>
-                        <SelectItem value={TICKET_STATUS.ACCEPTED}>Принята</SelectItem>
-                        <SelectItem value={TICKET_STATUS.ASSIGNED}>В работе</SelectItem>
-                        <SelectItem value={TICKET_STATUS.COMPLETED}>Завершена</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  {isEdit && (
+                    <div className="grid gap-6 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="status">Статус</Label>
+                        <Select value={formData.status ?? ""} onValueChange={(v) => handleSelectChange("status", v)}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Выберите статус" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={TICKET_STATUS.NEW}>Новая</SelectItem>
+                            <SelectItem value={TICKET_STATUS.ASSIGNED}>Передана</SelectItem>
+                            <SelectItem value={TICKET_STATUS.IN_PROGRESS}>В работе</SelectItem>
+                            <SelectItem value={TICKET_STATUS.COMPLETED}>Выполнена</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {formData.status === TICKET_STATUS.ASSIGNED && (
+                        <div className="space-y-2">
+                          <Label htmlFor="assignee_id">Передана кому</Label>
+                          <EntityPicker<User>
+                            dataConfig={{
+                              data: users,
+                              getValue: (u) => u.id,
+                              getLabel: (u) => {
+                                const name = `${u.last_name ?? ""} ${u.first_name ?? ""}`.trim()
+                                return name
+                                  ? `${name}${u.username ? ` (@${u.username})` : ""}`
+                                  : (u.username ? `@${u.username}` : `#${u.id}`)
+                              },
+                            }}
+                            value={formData.assignee_id ?? null}
+                            onSelect={(user) => setFormData((prev) => ({ ...prev, assignee_id: user.id }))}
+                            placeholder="Выберите исполнителя"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {!isEdit && (
+                    <div className="rounded-lg border border-border/50 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+                      Статус новой заявки: Новая (изменить нельзя)
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <Label htmlFor="user_id">Пользователь</Label>
                     <EntityPicker<User>

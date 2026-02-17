@@ -89,7 +89,7 @@ export default function FeedbackDetailPage() {
               </BreadcrumbList>
             </Breadcrumb>
             {canEdit && (
-              <Button asChild size="sm">
+              <Button asChild size="default" className="shrink-0">
                 <Link href={`/feedbacks/edit/${feedbackId}`} className="gap-2">
                   <IconEdit className="h-4 w-4" />
                   Редактировать

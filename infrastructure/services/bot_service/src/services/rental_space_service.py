@@ -26,11 +26,17 @@ class RentalSpaceService(BaseService):
             return result["data"]
         return None
 
-    async def get_spaces_by_object_id(self, object_id: int) -> List[Space]:
-        result = await self.bot.managers.database.space.get_by_object_id(entity_id=object_id, model_class=Space)
+    async def get_spaces_by_object_id(self, object_id: int, only_free: bool = False) -> List[Space]:
+        result = await self.bot.managers.database.space.get_by_object_id(
+            entity_id=object_id, only_free=only_free, model_class=Space
+        )
         if result["success"]:
             return result["data"]
         return []
+
+    async def get_free_spaces_by_object_id(self, object_id: int) -> List[Space]:
+        """Returns only spaces with status='FREE' for the given object."""
+        return await self.get_spaces_by_object_id(object_id, only_free=True)
 
     async def get_all_spaces(self) -> List[Space]:
         result = await self.bot.managers.database.space.get_all(model_class=Space)

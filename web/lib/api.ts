@@ -214,10 +214,89 @@ export const mediaApi = {
   },
 }
 
+/** Params for CSV export - matches current table view (filters, sort, columns) */
+export interface GetExportParams {
+  page?: number
+  pageSize?: number
+  search?: string
+  sort?: string
+  searchColumns?: string[]
+  filters?: FilterItem[]
+  columns: string[]
+  limit: number
+}
+
+function createExportApi(basePath: string) {
+  return {
+    async getExport(params: GetExportParams): Promise<Blob> {
+      const { columns, limit, search, sort, searchColumns, filters } = params
+      const q = new URLSearchParams()
+      q.set("columns", columns.join(","))
+      q.set("limit", String(limit))
+      if (search) q.set("search", search)
+      if (sort) q.set("sort", sort)
+      if (searchColumns?.length) q.set("search_columns", searchColumns.join(","))
+      if (filters?.length) q.set("filters", JSON.stringify(filters))
+      const token = typeof window !== "undefined" ? getToken() : null
+      const headers: Record<string, string> = {}
+      if (token) headers["Authorization"] = `Bearer ${token}`
+      const res = await fetch(`${API_BASE}${basePath}/export?${q}`, { headers })
+      if (!res.ok) {
+        const text = await res.text()
+        let detail = res.statusText
+        try {
+          const data = JSON.parse(text)
+          detail = typeof data?.detail === "string" ? data.detail : data?.detail?.msg ?? detail
+        } catch {
+          /* ignore */
+        }
+        throw new Error(detail)
+      }
+      return res.blob()
+    },
+  }
+}
+
 // Resource APIs
-export const userApi = createCrudApi<any>("/users")
-export const serviceTicketApi = createCrudApi<any>("/service-tickets")
-export const feedbackApi = createCrudApi<any>("/feedbacks")
+const userBase = createCrudApi<any>("/users")
+export const userApi = {
+  ...userBase,
+  ...createExportApi("/users"),
+}
+const serviceTicketBase = createCrudApi<any>("/service-tickets")
+export const serviceTicketApi = {
+  ...serviceTicketBase,
+  ...createExportApi("/service-tickets"),
+}
+
+// Audit log (read-only)
+export const auditLogApi = {
+  async getByEntity(entityType: string, entityId: number): Promise<any[]> {
+    const params = new URLSearchParams({
+      entity_type: entityType,
+      entity_id: String(entityId),
+    })
+    return apiFetch<any[]>(`/audit-log/?${params}`)
+  },
+
+  async getPaginated(params: GetPaginatedParams = {}): Promise<PaginatedResponse<any>> {
+    const { page = 1, pageSize = 10, search, sort, searchColumns, filters } = params
+    const q = new URLSearchParams()
+    q.set("page", String(page))
+    q.set("page_size", String(pageSize))
+    if (search) q.set("search", search)
+    if (sort) q.set("sort", sort)
+    if (searchColumns?.length) q.set("search_columns", searchColumns.join(","))
+    if (filters?.length) q.set("filters", JSON.stringify(filters))
+    const res = await apiFetch<PaginatedResponse<any>>(`/audit-log/list?${q}`)
+    return { items: res?.items ?? [], total: res?.total ?? 0 }
+  },
+}
+const feedbackBase = createCrudApi<any>("/feedbacks")
+export const feedbackApi = {
+  ...feedbackBase,
+  ...createExportApi("/feedbacks"),
+}
 export const rentalObjectApi = createCrudApi<any>("/rental-objects")
 
 // Rental spaces: base CRUD + getByObjectId (GET /rental-spaces/rental-objects/{object_id})

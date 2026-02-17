@@ -16,6 +16,7 @@ import {
   IconSearch,
   IconSearchOff,
   IconX,
+  IconDownload,
 } from "@tabler/icons-react"
 import type { Column } from "@tanstack/react-table"
 import {
@@ -97,6 +98,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { DataTableToolbar } from "./toolbar"
 import { DataTableSortPanel } from "./sort"
 import { DataTableFilterPanel } from "./filter"
@@ -106,6 +116,7 @@ import {
   createClientFilterFn,
 } from "./filter"
 import type { FilterItem, ServerPaginationParams } from "@/types/filters"
+import type { GetExportParams } from "@/lib/api"
 import type { ColumnFilter, ColumnSort, DataTableColumnMeta, DataTableContextMenuActions } from "./types"
 
 /** Returns human-readable column label for column selector (header string or meta.headerLabel or id) */
@@ -181,6 +192,7 @@ export function DataTable<TData>({
   serverParams,
   onServerParamsChange,
   filterPickerData,
+  exportConfig,
 }: {
   data: TData[]
   columns: ColumnDef<TData>[]
@@ -196,6 +208,11 @@ export function DataTable<TData>({
   serverParams?: Partial<ServerPaginationParams>
   onServerParamsChange?: (params: ServerPaginationParams) => void
   filterPickerData?: import("@/hooks/data/use-filter-picker-data").FilterPickerData
+  exportConfig?: {
+    getExport: (params: GetExportParams) => Promise<Blob>
+    maxLimit?: number
+    filename?: string
+  }
 }) {
   const pageSizeFromParams = serverParams?.pageSize ?? 10
   const isCardsView = view === "cards"
@@ -214,6 +231,8 @@ export function DataTable<TData>({
   })
   const [isSortFilterOpen, setIsSortFilterOpen] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState<'sort' | 'filter'>('sort')
+  const [exportModalOpen, setExportModalOpen] = React.useState(false)
+  const [exporting, setExporting] = React.useState(false)
   const [globalQuery, setGlobalQuery] = React.useState(serverParams?.search ?? "")
   const debouncedSearch = useDebounce(globalQuery, 300)
   const isMobile = useIsMobile()
@@ -501,6 +520,54 @@ export function DataTable<TData>({
     () => setPagination((p) => ({ ...p, pageIndex: 0 })),
     []
   )
+
+  const handleExport = React.useCallback(async () => {
+    if (!exportConfig?.getExport || !serverPagination) return
+    setExporting(true)
+    try {
+      const visibleCols = table.getVisibleLeafColumns()
+        .filter((c) => c.id !== "select" && c.id !== "actions")
+        .map((c) => c.id)
+      if (visibleCols.length === 0) {
+        toast.error("Нет видимых столбцов для экспорта")
+        return
+      }
+      const sortStr = advancedSorts
+        .filter((s) => s.columnId)
+        .map((s) => `${s.columnId}:${s.direction}`)
+        .join(",")
+      const blob = await exportConfig.getExport({
+        page: 1,
+        pageSize: exportConfig.maxLimit ?? 10_000,
+        search: debouncedSearch || undefined,
+        sort: sortStr || undefined,
+        searchColumns: searchColumns ?? undefined,
+        filters: serverFilters,
+        columns: visibleCols,
+        limit: exportConfig.maxLimit ?? 10_000,
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = exportConfig.filename ?? "export.csv"
+      a.click()
+      URL.revokeObjectURL(url)
+      setExportModalOpen(false)
+      toast.success("Экспорт завершён")
+    } catch (e: any) {
+      toast.error("Ошибка экспорта", { description: e?.message })
+    } finally {
+      setExporting(false)
+    }
+  }, [
+    exportConfig,
+    serverPagination,
+    table,
+    advancedSorts,
+    debouncedSearch,
+    searchColumns,
+    serverFilters,
+  ])
 
   useServerParamsSync({
     serverPagination,
@@ -844,6 +911,30 @@ export function DataTable<TData>({
               : `${table.getFilteredSelectedRowModel().rows.length} of ${table.getFilteredRowModel().rows.length} row(s) selected.`}
           </div>
           <div className="flex items-center justify-end space-x-4 h-9">
+            {exportConfig && serverPagination && (
+              <Dialog open={exportModalOpen} onOpenChange={setExportModalOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-9">
+                    <IconDownload className="h-4 w-4 mr-2" />
+                    Export
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Экспорт данных</DialogTitle>
+                    <DialogDescription>
+                      Будет экспортировано до {(exportConfig.maxLimit ?? 10_000).toLocaleString("ru")} записей
+                      с текущими фильтрами, сортировкой и видимыми столбцами.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter>
+                    <Button onClick={handleExport} disabled={exporting}>
+                      {exporting ? "Экспорт..." : "Экспорт"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="h-9">

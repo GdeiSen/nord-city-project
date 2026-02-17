@@ -23,7 +23,7 @@ export function PageHeader({
         <p className="text-muted-foreground">{description}</p>
       </div>
       {buttonText && onButtonClick && (
-        <Button onClick={onButtonClick} className="whitespace-nowrap mt-1">
+        <Button onClick={onButtonClick} size="default" className="whitespace-nowrap shrink-0">
           {buttonIcon}
           {buttonText}
         </Button>

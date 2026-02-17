@@ -6,7 +6,7 @@ from .base import Base
 
 if TYPE_CHECKING:
     from .user import User
-    from .service_ticket_log import ServiceTicketLog
+
 
 class ServiceTicket(Base):
     __tablename__ = 'service_tickets'
@@ -27,4 +27,3 @@ class ServiceTicket(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
     
     user: Mapped["User"] = relationship(back_populates="service_tickets")
-    logs: Mapped[List["ServiceTicketLog"]] = relationship(back_populates="ticket", cascade="all, delete-orphan")

@@ -29,7 +29,7 @@ class ServiceTicketResponse(BaseModel):
 
 
 class CreateServiceTicketRequest(BaseModel):
-    """Request body for creating a service ticket."""
+    """Request body for creating a service ticket. Status is always NEW."""
     model_config = ConfigDict(extra="forbid")
 
     user_id: int
@@ -37,7 +37,7 @@ class CreateServiceTicketRequest(BaseModel):
     description: Optional[str] = None
     location: Optional[str] = None
     image: Optional[str] = None
-    status: str = "NEW"
+    status: str = "NEW"  # Ignored: always NEW for new tickets
     ddid: Optional[str] = None
     answer: Optional[str] = None
     header: Optional[str] = None
@@ -58,6 +58,7 @@ class UpdateServiceTicketBody(BaseModel):
     location: Optional[str] = None
     image: Optional[str] = None
     status: Optional[str] = None
+    assignee_id: Optional[int] = None  # For status=ASSIGNED: user_id to whom ticket is assigned (stored in meta)
     ddid: Optional[str] = None
     answer: Optional[str] = None
     header: Optional[str] = None

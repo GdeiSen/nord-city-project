@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { IconLink, IconPlus } from "@tabler/icons-react"
+import { IconPlus } from "@tabler/icons-react"
 import { ColumnDef } from "@tanstack/react-table"
 import { toast } from "sonner"
 
@@ -124,33 +124,6 @@ export default function RentalObjectSpacesPage() {
         accessorKey: "status",
         header: "Статус",
         cell: ({ row }) => getSpaceStatusBadge(row.original.status ?? ""),
-      },
-      {
-        accessorKey: "photos",
-        header: "Фотографии",
-        cell: ({ row }) => {
-          const photos = row.original.photos ?? []
-          if (photos.length === 0) {
-            return <span className="text-sm text-muted-foreground">—</span>
-          }
-
-          return (
-            <div className="flex flex-col gap-1 text-sm">
-              <a
-                href={photos[0]}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-primary hover:underline"
-              >
-                <IconLink className="h-3.5 w-3.5" />
-                Первое фото
-              </a>
-              {photos.length > 1 && (
-                <span className="text-xs text-muted-foreground">+{photos.length - 1} дополнительно</span>
-              )}
-            </div>
-          )
-        },
       },
       {
         accessorKey: "description",

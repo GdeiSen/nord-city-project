@@ -1,10 +1,16 @@
+from sqlalchemy import select, func
 from database.database_manager import DatabaseManager
 from shared.models.service_ticket import ServiceTicket
 from .base_service import BaseService, db_session_manager
-# You can import other models if this service needs to interact with them
-# from shared.models.service_ticket_log import ServiceTicketLog
 from shared.entities.service_tickets_stats import ServiceTicketsStats
 from shared.constants import ServiceTicketStatus
+
+IN_PROGRESS_STATUSES = (
+    ServiceTicketStatus.IN_PROGRESS,
+    ServiceTicketStatus.ACCEPTED,
+    ServiceTicketStatus.ASSIGNED,
+)
+
 
 class ServiceTicketService(BaseService):
     """
@@ -15,10 +21,6 @@ class ServiceTicketService(BaseService):
 
     def __init__(self, db_manager: DatabaseManager):
         super().__init__(db_manager)
-        # If this service needs to work with other repositories, get them here.
-        # For example, to manage logs related to tickets:
-        # from shared.models.service_ticket_log import ServiceTicketLog
-        # self.log_repository = self.db_manager.repositories.get(ServiceTicketLog)
 
     # You can add custom business logic methods here.
     # For example:
@@ -34,17 +36,24 @@ class ServiceTicketService(BaseService):
 
     @db_session_manager
     async def get_stats(self, *, session):
-        tickets = await self.repository.get_all(session=session)
-        new_tickets = [t for t in tickets if getattr(t, 'status', None) == ServiceTicketStatus.NEW]
-        in_progress_tickets = [t for t in tickets if getattr(t, 'status', None) in (ServiceTicketStatus.IN_PROGRESS, ServiceTicketStatus.ACCEPTED, ServiceTicketStatus.ASSIGNED)]
-        completed_tickets = [t for t in tickets if getattr(t, 'status', None) == ServiceTicketStatus.COMPLETED]
-        stats = ServiceTicketsStats(
-            total_count=len(tickets),
-            new_count=len(new_tickets),
-            in_progress_count=len(in_progress_tickets),
-            completed_count=len(completed_tickets),
-            new_tickets=[t.id for t in new_tickets],
-            in_progress_tickets=[t.id for t in in_progress_tickets],
-            completed_tickets=[t.id for t in completed_tickets],
-        )
-        return stats.model_dump()
+        """Aggregate stats via single SQL query (no full table load)."""
+        stmt = select(
+            func.count().label("total"),
+            func.count().filter(ServiceTicket.status == ServiceTicketStatus.NEW).label("new_count"),
+            func.count().filter(ServiceTicket.status.in_(IN_PROGRESS_STATUSES)).label("in_progress_count"),
+            func.count().filter(ServiceTicket.status == ServiceTicketStatus.COMPLETED).label("completed_count"),
+            func.array_agg(ServiceTicket.id).filter(ServiceTicket.status == ServiceTicketStatus.NEW).label("new_ids"),
+            func.array_agg(ServiceTicket.id).filter(ServiceTicket.status.in_(IN_PROGRESS_STATUSES)).label("in_progress_ids"),
+            func.array_agg(ServiceTicket.id).filter(ServiceTicket.status == ServiceTicketStatus.COMPLETED).label("completed_ids"),
+        ).select_from(ServiceTicket)
+        result = await session.execute(stmt)
+        row = result.one()
+        return ServiceTicketsStats(
+            total_count=row.total or 0,
+            new_count=row.new_count or 0,
+            in_progress_count=row.in_progress_count or 0,
+            completed_count=row.completed_count or 0,
+            new_tickets=list(row.new_ids or []),
+            in_progress_tickets=list(row.in_progress_ids or []),
+            completed_tickets=list(row.completed_ids or []),
+        ).model_dump()

@@ -40,6 +40,7 @@ export const TICKET_STATUS = {
   NEW: 'NEW',
   ACCEPTED: 'ACCEPTED',
   ASSIGNED: 'ASSIGNED',
+  IN_PROGRESS: 'IN_PROGRESS', // используется при передаче исполнителю
   COMPLETED: 'COMPLETED',
 } as const
 
@@ -48,14 +49,16 @@ export type TicketStatus = typeof TICKET_STATUS[keyof typeof TICKET_STATUS]
 export const TICKET_STATUS_LABELS_RU: Record<TicketStatus, string> = {
   [TICKET_STATUS.NEW]: 'Новая',
   [TICKET_STATUS.ACCEPTED]: 'Принята',
-  [TICKET_STATUS.ASSIGNED]: 'В работе',
-  [TICKET_STATUS.COMPLETED]: 'Завершена',
+  [TICKET_STATUS.ASSIGNED]: 'Передана',
+  [TICKET_STATUS.IN_PROGRESS]: 'В работе',
+  [TICKET_STATUS.COMPLETED]: 'Выполнена',
 } as const
 
 export const TICKET_STATUS_FILTER_LABELS_RU: Record<TicketStatus, string> = {
   [TICKET_STATUS.NEW]: 'Новые',
   [TICKET_STATUS.ACCEPTED]: 'Принятые',
-  [TICKET_STATUS.ASSIGNED]: 'В работе',
+  [TICKET_STATUS.ASSIGNED]: 'Переданные',
+  [TICKET_STATUS.IN_PROGRESS]: 'В работе',
   [TICKET_STATUS.COMPLETED]: 'Завершенные',
 } as const
 
@@ -219,37 +222,32 @@ export interface ServiceTicket extends BaseEntity {
   user?: User;
   /** Associated rental object (from object_id) */
   object?: { id: number; name: string };
-  /** Status history logs */
-  status_logs?: ServiceTicketLog[];
+  /** Audit log entries for status/change history (fetched via auditLogApi) */
+  audit_logs?: AuditLogEntry[];
 }
 
 /**
- * Service ticket log entry for tracking status changes
- * 
- * @interface ServiceTicketLog
+ * Universal audit log entry for tracking data changes across all entities
+ *
+ * @interface AuditLogEntry
  * @extends BaseEntity
  */
-export interface ServiceTicketLog extends BaseEntity {
-  /** Service ticket ID */
-  ticket_id: number;
-  /** Status value (NEW, ACCEPTED, ASSIGNED, COMPLETED) */
-  status: string;
-  /** User ID who changed the status */
-  user_id?: number;
-  /** Assignee name or identifier */
-  assignee?: string;
-  /** Telegram message ID for tracking */
-  message_id?: number;
-  /** Comment about the status change */
-  comment?: string;
-  /** Associated service ticket */
-  ticket?: ServiceTicket;
-  /** User who made the change */
-  user?: User;
+export interface AuditLogEntry extends BaseEntity {
+  /** Entity type (e.g. ServiceTicket, User) */
+  entity_type: string;
+  /** Entity ID */
+  entity_id: number;
+  /** Action: create, update, delete */
+  action: string;
+  /** Previous state (for update/delete) */
+  old_data?: Record<string, unknown>;
+  /** New state (for create/update) */
+  new_data?: Record<string, unknown>;
+  /** Domain-specific metadata (msid, assignee, type, etc.) */
+  meta?: Record<string, unknown>;
+  /** Assignee: user id, 1=system, or service identifier */
+  assignee_id?: number;
 }
-
-// Keep the old interface name for backward compatibility
-export interface ServiceTicketStatus extends ServiceTicketLog {}
 
 /**
  * Feedback entity for user feedback

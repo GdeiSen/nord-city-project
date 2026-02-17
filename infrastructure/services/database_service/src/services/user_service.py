@@ -1,3 +1,4 @@
+from typing import List
 from sqlalchemy import select, func
 from database.database_manager import DatabaseManager
 from shared.models.user import User
@@ -20,3 +21,10 @@ class UserService(BaseService):
         stmt = select(User).where(func.lower(User.username) == func.lower(normalized))
         result = await session.execute(stmt)
         return result.scalars().first()
+
+    @db_session_manager
+    async def get_by_ids(self, *, session, ids: List[int]) -> List[User]:
+        """Batch-fetch users by IDs. Returns list of User (order not guaranteed)."""
+        if not ids:
+            return []
+        return await self.repository.get_by_ids(session=session, ids=ids)

@@ -8,7 +8,6 @@ from .user_auth import UserAuth
 if TYPE_CHECKING:
     from .user_auth import UserAuth
     from .service_ticket import ServiceTicket
-    from .service_ticket_log import ServiceTicketLog
     from .feedback import Feedback
     from .poll_answer import PollAnswer
     from .object import Object
@@ -37,6 +36,5 @@ class User(Base):
     feedbacks: Mapped[List["Feedback"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     poll_answers: Mapped[List["PollAnswer"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     object: Mapped["Object"] = relationship(back_populates="users")
-    ticket_status_logs: Mapped[List["ServiceTicketLog"]] = relationship(back_populates="user")
     auth: Mapped["UserAuth"] = relationship(back_populates="user", cascade="all, delete-orphan", uselist=False)
     space_views: Mapped[List["SpaceView"]] = relationship(back_populates="user", cascade="all, delete-orphan")

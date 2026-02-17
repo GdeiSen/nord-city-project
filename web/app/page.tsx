@@ -14,7 +14,13 @@ import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
 import { LoadingWrapper } from "@/components/ui/loading-wrapper"
 import { useLoading } from "@/hooks"
+import dynamic from "next/dynamic"
 import { PageHeader } from "@/components/page-header"
+
+const DashboardChart = dynamic(
+  () => import("@/components/chart").then((m) => m.DashboardChart),
+  { ssr: false }
+)
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats>({
@@ -42,7 +48,7 @@ export default function DashboardPage() {
       setStats({
         total_users: users.length,
         total_tickets: tickets.length,
-        pending_tickets: tickets.filter(t => ['NEW', 'ACCEPTED', 'ASSIGNED'].includes(t.status)).length,
+        pending_tickets: tickets.filter(t => ['NEW', 'ACCEPTED', 'ASSIGNED', 'IN_PROGRESS'].includes(t.status)).length,
         completed_tickets: tickets.filter(t => t.status === 'COMPLETED').length,
         total_feedbacks: feedbacks.length,
         total_objects: objects.length,
@@ -70,7 +76,7 @@ export default function DashboardPage() {
             description="Обзор ключевых метрик системы"
             buttonText="Обновить данные"
             onButtonClick={fetchStats}
-            buttonIcon={<IconRefresh className="h-4 w-4 mr-2" />}
+            buttonIcon={<IconRefresh className="h-4 w-4" />}
           />
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -162,6 +168,8 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
           </div>
+
+          <DashboardChart className="mt-6" />
         </div>
       </SidebarInset>
       <Toaster />

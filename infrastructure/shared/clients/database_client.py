@@ -35,7 +35,14 @@ class _CRUDProxy:
         self._client = client
         self._service = service_name
 
-    async def _call(self, method: str, *, _model_class: Any = None, **params) -> Dict[str, Any]:
+    async def _call(
+        self,
+        method: str,
+        *,
+        _model_class: Any = None,
+        _audit_context: Optional[Dict[str, Any]] = None,
+        **params,
+    ) -> Dict[str, Any]:
         """Execute an RPC call and optionally deserialise ``data``.
 
         Parameters
@@ -45,12 +52,15 @@ class _CRUDProxy:
         _model_class : type, optional
             If provided, ``result["data"]`` will be converted from a raw
             dict (or list of dicts) into instances of this class via
-            ``Converter.from_dict``.  This restores the behaviour callers
-            relied on in the old RabbitMQ-based client.
+            ``Converter.from_dict``.
+        _audit_context : dict, optional
+            Audit context ({user_id, ip_address}) to attach to create/update/delete.
         **params
             Keyword arguments forwarded as RPC params.
         """
         params.pop("model_class", None)
+        if _audit_context is not None:
+            params["_audit_context"] = _audit_context
         serializable = {k: Converter.to_dict(v) for k, v in params.items()}
         result = await self._client.call(self._service, method, serializable)
 
@@ -75,15 +85,19 @@ class _CRUDProxy:
         model_data: Optional[dict] = None,
         model_instance: Any = None,
         model_class: Any = None,
+        _audit_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Create an entity.  Accepts either ``model_data`` (dict) or
         ``model_instance`` (ORM / Pydantic object, auto-converted via
-        Converter)."""
+        Converter). Optionally pass ``_audit_context`` for audit logging."""
         if model_instance is not None:
             model_data = Converter.to_dict(model_instance)
         if model_data is None:
             raise ValueError("Either model_data or model_instance must be provided.")
-        return await self._call("create", _model_class=model_class, model_data=model_data)
+        return await self._call(
+            "create", _model_class=model_class, model_data=model_data,
+            _audit_context=_audit_context,
+        )
 
     async def get_by_id(self, *, entity_id: Any, model_class: Any = None) -> Dict[str, Any]:
         return await self._call("get_by_id", _model_class=model_class, entity_id=entity_id)
@@ -119,21 +133,38 @@ class _CRUDProxy:
         entity_id: Any,
         update_data: dict,
         model_class: Any = None,
+        _audit_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        return await self._call("update", _model_class=model_class, entity_id=entity_id, update_data=update_data)
+        return await self._call(
+            "update", _model_class=model_class, entity_id=entity_id, update_data=update_data,
+            _audit_context=_audit_context,
+        )
 
-    async def delete(self, *, entity_id: Any, model_class: Any = None) -> Dict[str, Any]:
-        return await self._call("delete", _model_class=model_class, entity_id=entity_id)
+    async def delete(
+        self,
+        *,
+        entity_id: Any,
+        model_class: Any = None,
+        _audit_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "delete", _model_class=model_class, entity_id=entity_id,
+            _audit_context=_audit_context,
+        )
 
     async def find(self, *, filters: dict, model_class: Any = None) -> Dict[str, Any]:
         return await self._call("find", _model_class=model_class, filters=filters)
 
 
 class _UserProxy(_CRUDProxy):
-    """User proxy with get_by_username for case-insensitive username lookup."""
+    """User proxy with get_by_username and get_by_ids."""
 
     async def get_by_username(self, *, username: str, model_class: Any = None) -> Dict[str, Any]:
         return await self._call("get_by_username", _model_class=model_class, username=username)
+
+    async def get_by_ids(self, *, ids: List[int], model_class: Any = None) -> Dict[str, Any]:
+        """Batch-fetch users by IDs. Returns {success, data: [user_dict, ...]}."""
+        return await self._call("get_by_ids", _model_class=model_class, ids=ids if ids else [])
 
 
 class _ServiceTicketProxy(_CRUDProxy):
@@ -146,11 +177,48 @@ class _ServiceTicketProxy(_CRUDProxy):
         return await self._call("get_by_msid", _model_class=model_class, msid=msid)
 
 
+class _AuditLogProxy(_CRUDProxy):
+    """Audit log proxy with find_by_entity for status history queries."""
+
+    async def find_by_entity(
+        self,
+        *,
+        entity_type: str,
+        entity_id: int,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "find_by_entity",
+            _model_class=model_class,
+            entity_type=entity_type,
+            entity_id=entity_id,
+        )
+
+
+class _ObjectProxy(_CRUDProxy):
+    """Object proxy with get_by_ids for batch enrichment."""
+
+    async def get_by_ids(self, *, ids: List[int], model_class: Any = None) -> Dict[str, Any]:
+        """Batch-fetch objects by IDs. Returns {success, data: [object_dict, ...]}."""
+        return await self._call("get_by_ids", _model_class=model_class, ids=ids if ids else [])
+
+
 class _SpaceProxy(_CRUDProxy):
     """Space proxy with ``get_by_object_id``."""
 
-    async def get_by_object_id(self, *, entity_id: Any, model_class: Any = None) -> Dict[str, Any]:
-        return await self._call("get_by_object_id", _model_class=model_class, entity_id=entity_id)
+    async def get_by_object_id(
+        self,
+        *,
+        entity_id: Any,
+        only_free: bool = False,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "get_by_object_id",
+            _model_class=model_class,
+            entity_id=entity_id,
+            only_free=only_free,
+        )
 
 
 class _OtpProxy(_CRUDProxy):
@@ -195,10 +263,10 @@ class DatabaseClient:
         self.user = _UserProxy(self._http, "user")
         self.auth = _CRUDProxy(self._http, "auth")
         self.feedback = _CRUDProxy(self._http, "feedback")
-        self.object = _CRUDProxy(self._http, "object")
+        self.object = _ObjectProxy(self._http, "object")
         self.poll = _CRUDProxy(self._http, "poll")
         self.service_ticket = _ServiceTicketProxy(self._http, "service_ticket")
-        self.service_ticket_log = _CRUDProxy(self._http, "service_ticket_log")
+        self.audit_log = _AuditLogProxy(self._http, "audit_log")
         self.space = _SpaceProxy(self._http, "space")
         self.space_view = _CRUDProxy(self._http, "space_view")
         self.otp = _OtpProxy(self._http, "otp")

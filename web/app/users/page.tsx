@@ -133,7 +133,7 @@ export default function UsersPage() {
             description="Управление пользователями системы"
             buttonText={canCreateUser ? "Добавить пользователя" : undefined}
             onButtonClick={canCreateUser ? () => router.push("/users/edit") : undefined}
-            buttonIcon={canCreateUser ? <IconUserPlus className="h-4 w-4 mr-2" /> : undefined}
+            buttonIcon={canCreateUser ? <IconUserPlus className="h-4 w-4" /> : undefined}
           />
 
           <DataTable
@@ -165,6 +165,11 @@ export default function UsersPage() {
             totalRowCount={total}
             serverParams={serverParams}
             onServerParamsChange={setServerParams}
+            exportConfig={{
+              getExport: (params) => userApi.getExport(params),
+              maxLimit: 10_000,
+              filename: "users.csv",
+            }}
           />
         </div>
       </SidebarInset>

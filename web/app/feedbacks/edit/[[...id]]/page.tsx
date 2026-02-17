@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
@@ -16,8 +17,8 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { Feedback } from "@/types"
-import { feedbackApi } from "@/lib/api"
+import { Feedback, User } from "@/types"
+import { feedbackApi, userApi } from "@/lib/api"
 import { EntityPicker } from "@/components/entity-picker"
 import {
   AlertDialog,
@@ -43,6 +44,7 @@ export default function FeedbackEditPage() {
     formData,
     saving,
     handleInputChange,
+    handleSelectChange,
     handleSave,
     handleDelete,
   } = useEntityForm<Feedback>({
@@ -82,6 +84,11 @@ export default function FeedbackEditPage() {
     },
     onLoadErrorRedirect: () => `/feedbacks/${entityId}`,
   })
+
+  const [users, setUsers] = useState<User[]>([])
+  useEffect(() => {
+    userApi.getAll().then(setUsers).catch(() => {})
+  }, [])
 
   return (
     <>
@@ -182,10 +189,17 @@ export default function FeedbackEditPage() {
                 <div className="grid gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="user_id">Пользователь</Label>
-                    <EntityPicker
-                      value={formData.user_id != null ? String(formData.user_id) : ""}
-                      onValueChange={(v) => handleSelectChange("user_id", v ? Number(v) : 0)}
-                      dataConfig={{ kind: "users" }}
+                    <EntityPicker<User>
+                      value={formData.user_id ?? null}
+                      onSelect={(user) => handleSelectChange("user_id", user.id)}
+                      dataConfig={{
+                        data: users,
+                        getValue: (u) => u.id,
+                        getLabel: (u) => {
+                          const name = `${u.last_name ?? ""} ${u.first_name ?? ""}`.trim()
+                          return name ? `${name}${u.username ? ` (@${u.username})` : ""}` : (u.username ? `@${u.username}` : `#${u.id}`)
+                        },
+                      }}
                       placeholder="Выберите пользователя"
                     />
                   </div>

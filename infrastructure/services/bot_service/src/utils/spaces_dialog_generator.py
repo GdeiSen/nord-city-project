@@ -116,8 +116,8 @@ class SpacesDialogGenerator:
         """
         logger.debug(f"Создание последовательности для объекта {obj.name} (ID={sequence_id})")
         
-        # Получаем все помещения для этого объекта
-        spaces = await self.rental_spaces_service.get_spaces_by_object_id(obj.id)
+        # Получаем только свободные помещения для этого объекта
+        spaces = await self.rental_spaces_service.get_free_spaces_by_object_id(obj.id)
 
         # Базовое описание объекта
         object_description = f"{obj.name} - {obj.address}\n\n{obj.description}"

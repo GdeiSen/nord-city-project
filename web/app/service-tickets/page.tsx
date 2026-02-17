@@ -7,7 +7,7 @@ import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { IconPlus, IconClock, IconCheck, IconX, IconAlertTriangle } from "@tabler/icons-react"
+import { IconPlus } from "@tabler/icons-react"
 import { ServiceTicket, TICKET_STATUS, TICKET_STATUS_LABELS_RU } from "@/types"
 import { serviceTicketApi } from "@/lib/api"
 import { Toaster } from "@/components/ui/sonner"
@@ -40,18 +40,18 @@ export default function ServiceTicketsPage() {
   const canEdit = useCanEdit()
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case TICKET_STATUS.NEW:
-        return <Badge variant="destructive"><IconX className="h-3 w-3 mr-1" />{TICKET_STATUS_LABELS_RU[TICKET_STATUS.NEW]}</Badge>
-      case TICKET_STATUS.ACCEPTED:
-        return <Badge variant="secondary"><IconClock className="h-3 w-3 mr-1" />{TICKET_STATUS_LABELS_RU[TICKET_STATUS.ACCEPTED]}</Badge>
-      case TICKET_STATUS.ASSIGNED:
-        return <Badge variant="default"><IconAlertTriangle className="h-3 w-3 mr-1" />{TICKET_STATUS_LABELS_RU[TICKET_STATUS.ASSIGNED]}</Badge>
-      case TICKET_STATUS.COMPLETED:
-        return <Badge variant="outline"><IconCheck className="h-3 w-3 mr-1" />{TICKET_STATUS_LABELS_RU[TICKET_STATUS.COMPLETED]}</Badge>
-      default:
-        return <Badge variant="outline">Неизвестно</Badge>
-    }
+    const label = TICKET_STATUS_LABELS_RU[status as keyof typeof TICKET_STATUS_LABELS_RU] ?? status ?? "—"
+    const colorClass =
+      status === TICKET_STATUS.NEW
+        ? "bg-blue-500 text-white border-blue-500 hover:bg-blue-500"
+        : status === TICKET_STATUS.ASSIGNED
+          ? "bg-gray-500 text-white border-gray-500 hover:bg-gray-500"
+          : status === TICKET_STATUS.IN_PROGRESS || status === TICKET_STATUS.ACCEPTED
+            ? "bg-orange-500 text-white border-orange-500 hover:bg-orange-500"
+            : status === TICKET_STATUS.COMPLETED
+              ? "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-600"
+              : ""
+    return <Badge variant="outline" className={colorClass || undefined}>{label}</Badge>
   }
 
   const columns: ColumnDef<ServiceTicket>[] = [
@@ -149,7 +149,7 @@ export default function ServiceTicketsPage() {
             description="Управление заявками на техническое обслуживание"
             buttonText={canEdit ? "Создать заявку" : undefined}
             onButtonClick={canEdit ? () => router.push("/service-tickets/edit") : undefined}
-            buttonIcon={canEdit ? <IconPlus className="h-4 w-4 mr-2" /> : undefined}
+            buttonIcon={canEdit ? <IconPlus className="h-4 w-4" /> : undefined}
           />
 
           <DataTable
@@ -159,6 +159,11 @@ export default function ServiceTicketsPage() {
             loading={loading}
             loadingMessage="Загрузка заявок..."
             onRowClick={(row) => router.push(`/service-tickets/${row.original.id}`)}
+            exportConfig={{
+              getExport: (params) => serviceTicketApi.getExport(params),
+              maxLimit: 10_000,
+              filename: "service-tickets.csv",
+            }}
             contextMenuActions={{
               onEdit: (row) => router.push(`/service-tickets/edit/${row.original.id}`),
               onDelete: canEdit

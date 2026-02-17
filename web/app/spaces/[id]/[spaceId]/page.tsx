@@ -114,7 +114,7 @@ export default function SpaceDetailPage() {
               </BreadcrumbList>
             </Breadcrumb>
             {canEdit && (
-              <Button asChild size="sm">
+              <Button asChild size="default" className="shrink-0">
                 <Link href={`/spaces/${objectId}/edit/${spaceId}`} className="gap-2">
                   <IconEdit className="h-4 w-4" />
                   Редактировать

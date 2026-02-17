@@ -7,11 +7,7 @@ import {
   IconTicket,
   IconMessageCircle,
   IconBuildingSkyscraper,
-  IconChartBar,
-  IconSettings,
-  IconHelp,
-  IconBell,
-  IconReportAnalytics,
+  IconHistory,
 } from "@tabler/icons-react"
 
 import { NavMain } from "@/components/nav-main"
@@ -25,7 +21,13 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 /**
  * Navigation data configuration for the Business Center Management System
@@ -37,7 +39,7 @@ import {
  * 
  * The navigation structure follows a logical grouping where primary
  * navigation contains core business operations (users, tickets, spaces)
- * while secondary navigation includes system functions (settings, reports).
+ * while secondary navigation includes supporting functions (help).
  * 
  * @type {Object} Navigation configuration object
  */
@@ -87,41 +89,13 @@ const data = {
       icon: IconBuildingSkyscraper,
     },
     {
-      title: "Аналитика",
-      url: "/analytics",
-      icon: IconChartBar,
+      title: "Журнал аудита",
+      url: "/audit-log",
+      icon: IconHistory,
     },
   ],
   
-  /**
-   * Secondary navigation items for system administration
-   * 
-   * These represent supporting functions and administrative tools
-   * that are used less frequently but are essential for system
-   * maintenance and reporting.
-   */
-  navSecondary: [
-    {
-      title: "Уведомления",
-      url: "/notifications",
-      icon: IconBell,
-    },
-    {
-      title: "Отчеты",
-      url: "/reports",
-      icon: IconReportAnalytics,
-    },
-    {
-      title: "Настройки",
-      url: "/settings",
-      icon: IconSettings,
-    },
-    {
-      title: "Помощь",
-      url: "/help",
-      icon: IconHelp,
-    },
-  ],
+  navSecondary: [],
 }
 
 /**
@@ -147,6 +121,8 @@ const data = {
  * @returns {JSX.Element} The complete sidebar navigation interface with theme toggle
  */
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const { state, isMobile } = useSidebar()
+
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
@@ -166,17 +142,33 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={data.navMain} />
-        <div className="mt-auto">
-          <NavMain items={data.navSecondary} />
-        </div>
+        {data.navSecondary.length > 0 && (
+          <div className="mt-auto">
+            <NavMain items={data.navSecondary} />
+          </div>
+        )}
       </SidebarContent>
       <SidebarFooter>
-        <div className="flex items-center justify-between p-2">
-          <div className="flex-1">
+        <div className="flex items-center justify-between gap-2 p-2 group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:gap-1">
+          <div className="flex-1 min-w-0 group-data-[collapsible=icon]:flex-none group-data-[collapsible=icon]:w-fit group-data-[collapsible=icon]:flex group-data-[collapsible=icon]:justify-center [&_[data-sidebar=menu]]:group-data-[collapsible=icon]:w-auto">
             <NavUser user={data.user} />
           </div>
-          <div className="ml-2">
-            <ThemeToggle />
+          <div className="shrink-0 group-data-[collapsible=icon]:ml-0">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div>
+                  <ThemeToggle />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent
+                side="right"
+                align="center"
+                sideOffset={8}
+                hidden={state !== "collapsed" || isMobile}
+              >
+                Переключить тему
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
       </SidebarFooter>

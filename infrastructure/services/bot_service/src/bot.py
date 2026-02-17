@@ -63,7 +63,6 @@ from services.poll_service import PollService
 from services.rental_object_service import RentalObjectService
 from services.rental_space_service import RentalSpaceService
 from services.service_ticket_service import ServiceTicketService
-from services.service_ticket_log_service import ServiceTicketLogService
 from services.telegram_auth_service import TelegramAuthService
 
 # Telegram-related imports
@@ -167,7 +166,6 @@ class Bot:
         self.services.register_service(RentalObjectService(self))
         self.services.register_service(RentalSpaceService(self))
         self.services.register_service(ServiceTicketService(self))
-        self.services.register_service(ServiceTicketLogService(self))
         self.services.register_service(TelegramAuthService(self))
 
     async def handle_error(self, code: int, message: str):

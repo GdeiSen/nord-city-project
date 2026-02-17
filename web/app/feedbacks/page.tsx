@@ -116,7 +116,7 @@ export default function FeedbacksPage() {
             title="Отзывы пользователей"
             description="Анализ и управление отзывами пользователей"
             buttonText={isSuperAdmin ? "Добавить отзыв" : undefined}
-            buttonIcon={isSuperAdmin ? <IconPlus className="h-4 w-4 mr-2" /> : undefined}
+            buttonIcon={isSuperAdmin ? <IconPlus className="h-4 w-4" /> : undefined}
             onButtonClick={isSuperAdmin ? () => router.push("/feedbacks/edit") : undefined}
           />
 
@@ -148,6 +148,11 @@ export default function FeedbacksPage() {
             totalRowCount={total}
             serverParams={serverParams}
             onServerParamsChange={setServerParams}
+            exportConfig={{
+              getExport: (params) => feedbackApi.getExport(params),
+              maxLimit: 10_000,
+              filename: "feedbacks.csv",
+            }}
           />
         </div>
       </SidebarInset>

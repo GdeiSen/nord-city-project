@@ -68,8 +68,32 @@ class Variables:
     BUFFER_MEDIA_MESSAGES = 132
 
 class ServiceTicketStatus:
-    NEW = "NEW"      
-    ACCEPTED = "ACCEPTED"  
-    ASSIGNED = "ASSIGNED"  
-    COMPLETED = "COMPLETED"  
-    IN_PROGRESS = "IN_PROGRESS"  
+    NEW = "NEW"
+    ACCEPTED = "ACCEPTED"
+    ASSIGNED = "ASSIGNED"
+    COMPLETED = "COMPLETED"
+    IN_PROGRESS = "IN_PROGRESS"
+
+
+# Entity types (model __name__) that should be audited
+AUDITED_ENTITY_TYPES = frozenset(
+    {"User", "Feedback", "Object", "PollAnswer", "ServiceTicket", "Space", "SpaceView"}
+)
+
+# Audit modes: fast (no old/new), smart (diff only), heavy (full old/new)
+AUDIT_MODE_FAST = "fast"
+AUDIT_MODE_SMART = "smart"
+AUDIT_MODE_HEAVY = "heavy"
+
+# Per-entity audit mode. Default: fast. ServiceTicket: smart.
+AUDIT_ENTITY_MODES: dict[str, str] = {
+    "User": AUDIT_MODE_FAST,
+    "Feedback": AUDIT_MODE_FAST,
+    "Object": AUDIT_MODE_FAST,
+    "PollAnswer": AUDIT_MODE_FAST,
+    "ServiceTicket": AUDIT_MODE_SMART,
+    "Space": AUDIT_MODE_FAST,
+    "SpaceView": AUDIT_MODE_FAST,
+}
+
+ASSIGNEE_SYSTEM = 1

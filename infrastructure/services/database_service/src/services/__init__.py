@@ -10,8 +10,6 @@ from .poll_service import PollService
 from .service_ticket_service import ServiceTicketService
 from .object_service import ObjectService
 from .space_service import SpaceService
-from .service_ticket_log_service import ServiceTicketLogService
-
 __all__ = [
     # User services
     "UserService",
@@ -25,5 +23,4 @@ __all__ = [
     "ServiceTicketService",
     "ObjectService",
     "SpaceService",
-    "ServiceTicketLogService",
 ]

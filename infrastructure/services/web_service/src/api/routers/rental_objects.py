@@ -1,9 +1,10 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
 from shared.clients.database_client import db_client
+from api.dependencies import get_audit_context, get_optional_current_user
 from api.schemas.common import MessageResponse, PaginatedResponse, parse_sort_param
 from api.schemas.rental_objects import ObjectResponse, CreateObjectRequest, UpdateObjectBody
 
@@ -12,8 +13,11 @@ router = APIRouter(prefix="/rental-objects", tags=["Rental Objects"])
 
 
 @router.post("/", response_model=ObjectResponse, status_code=status.HTTP_201_CREATED)
-async def create_object(body: CreateObjectRequest):
-    response = await db_client.object.create(model_data=body.model_dump())
+async def create_object(body: CreateObjectRequest, request: Request):
+    response = await db_client.object.create(
+        model_data=body.model_dump(),
+        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+    )
     if not response.get("success"):
         error = response.get("error", "Failed to create rental object")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error)
@@ -54,11 +58,15 @@ async def get_object_by_id(entity_id: int):
 
 
 @router.put("/{entity_id}", response_model=MessageResponse)
-async def update_object(entity_id: int, body: UpdateObjectBody):
+async def update_object(entity_id: int, body: UpdateObjectBody, request: Request):
     update_data = body.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
-    response = await db_client.object.update(entity_id=entity_id, update_data=update_data)
+    response = await db_client.object.update(
+        entity_id=entity_id,
+        update_data=update_data,
+        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+    )
     if not response.get("success"):
         error = response.get("error", "Failed to update rental object")
         code = status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_400_BAD_REQUEST
@@ -67,8 +75,11 @@ async def update_object(entity_id: int, body: UpdateObjectBody):
 
 
 @router.delete("/{entity_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_object(entity_id: int):
-    response = await db_client.object.delete(entity_id=entity_id)
+async def delete_object(entity_id: int, request: Request):
+    response = await db_client.object.delete(
+        entity_id=entity_id,
+        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+    )
     if not response.get("success"):
         error = response.get("error", "Failed to delete rental object")
         code = status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_400_BAD_REQUEST

@@ -43,6 +43,26 @@ class _TelegramAuthProxy(_BotServiceProxy):
         return await self._call("send_otp_code", user_id=user_id)
 
 
+class _NotificationProxy(_BotServiceProxy):
+    """Proxy for the NotificationService in bot_service."""
+
+    async def notify_new_ticket(self, *, ticket_id: int) -> Dict[str, Any]:
+        """Notify admin chat about a new service ticket."""
+        return await self._call("notify_new_ticket", ticket_id=ticket_id)
+
+    async def edit_ticket_message(self, *, ticket_id: int) -> Dict[str, Any]:
+        """Edit the ticket message in admin chat with current data. Call when ticket is edited via website."""
+        return await self._call("edit_ticket_message", ticket_id=ticket_id)
+
+    async def delete_ticket_messages(self, *, ticket_id: int) -> Dict[str, Any]:
+        """Delete ticket message and all replies from admin chat. Call before deleting ticket from DB."""
+        return await self._call("delete_ticket_messages", ticket_id=ticket_id)
+
+    async def notify_ticket_completion(self, *, ticket_id: int) -> Dict[str, Any]:
+        """Notify user about ticket completion. Bot sends message and deletes reply messages in admin chat."""
+        return await self._call("notify_ticket_completion", ticket_id=ticket_id)
+
+
 # ---------------------------------------------------------------------------
 # Main client
 # ---------------------------------------------------------------------------
@@ -73,6 +93,7 @@ class BotClient:
 
         # --- Explicit service proxies ---
         self.telegram_auth = _TelegramAuthProxy(self._http, "telegram_auth")
+        self.notification = _NotificationProxy(self._http, "notification")
 
         self._is_initialized = True
 

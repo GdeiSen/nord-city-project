@@ -54,16 +54,6 @@ export function SiteHeader() {
         return 'Отзывы пользователей'
       case '/spaces':
         return 'Бизнес-центры'
-      case '/analytics':
-        return 'Аналитика'
-      case '/notifications':
-        return 'Уведомления'
-      case '/reports':
-        return 'Отчеты'
-      case '/settings':
-        return 'Настройки'
-      case '/help':
-        return 'Справка'
       default:
         if (pathname.startsWith('/spaces/')) {
           return 'Помещения бизнес-центра'

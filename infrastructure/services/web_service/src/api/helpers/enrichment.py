@@ -61,56 +61,63 @@ async def enrich_service_tickets_with_users_and_objects(items: list) -> None:
 async def batch_fetch_objects(object_ids: Set[int]) -> Dict[int, dict]:
     """
     Batch-fetch rental objects by IDs. Returns {object_id: {"id": id, "name": name}}.
-    Paginates through /objects when needed (object service has no batch-by-ids).
     """
     if not object_ids:
         return {}
     result: Dict[int, dict] = {}
-    page, page_size = 1, 100
     try:
-        while object_ids - result.keys():
-            resp = await db_client.object.get_paginated(
-                page=page,
-                page_size=page_size,
-            )
-            if not resp.get("success"):
-                break
-            data = resp.get("data", {})
-            objs = data.get("items", [])
-            if not objs:
-                break
-            for obj in objs:
-                oid = obj.get("id")
-                if oid in object_ids and oid not in result:
-                    result[oid] = {
-                        "id": oid,
-                        "name": obj.get("name") or (f"БЦ-{oid}" if oid else ""),
-                    }
-            total = data.get("total", 0)
-            if page * page_size >= total:
-                break
-            page += 1
+        resp = await db_client.object.get_by_ids(ids=list(object_ids))
+        if not resp.get("success"):
+            return result
+        for obj in resp.get("data", []):
+            oid = obj.get("id")
+            if oid is not None:
+                result[oid] = {
+                    "id": oid,
+                    "name": obj.get("name") or (f"БЦ-{oid}" if oid else ""),
+                }
     except Exception as e:
         logger.warning("Failed to batch-fetch objects for enrichment: %s", e)
     return result
 
 
+async def enrich_audit_log_with_assignees(items: list) -> None:
+    """Enrich audit log entries with assignee display name. Mutates items in place."""
+    if not items:
+        return
+    assignee_ids = list({a.get("assignee_id") for a in items if a.get("assignee_id") is not None and a.get("assignee_id") > 1})
+    user_map = await batch_fetch_users(assignee_ids)
+    for a in items:
+        aid = a.get("assignee_id")
+        if aid is None or aid <= 1:
+            a["assignee_display"] = "Система"
+        elif aid in user_map:
+            u = user_map[aid]
+            parts = [u.get("last_name"), u.get("first_name")]
+            name = " ".join(p or "" for p in parts).strip()
+            un = u.get("username", "")
+            a["assignee_display"] = f"{name} @{un}".strip(" @") if (name or un) else f"#{aid}"
+        else:
+            a["assignee_display"] = f"#{aid}"
+
+
 async def batch_fetch_users(user_ids: List[int]) -> Dict[int, dict]:
     """
     Batch-fetch users by IDs. Returns {user_id: user_dict}.
-    Uses get_by_id per user (user service has no batch-by-ids).
     """
     if not user_ids:
         return {}
     result: Dict[int, dict] = {}
-    seen = set(user_ids)
-    for uid in seen:
-        try:
-            ur = await db_client.user.get_by_id(entity_id=uid)
-            if ur.get("success") and ur.get("data"):
-                result[uid] = ur["data"]
-        except Exception:
-            pass
+    try:
+        resp = await db_client.user.get_by_ids(ids=user_ids)
+        if not resp.get("success"):
+            return result
+        for u in resp.get("data", []):
+            uid = u.get("id")
+            if uid is not None:
+                result[uid] = u
+    except Exception as e:
+        logger.warning("Failed to batch-fetch users for enrichment: %s", e)
     return result
 
 

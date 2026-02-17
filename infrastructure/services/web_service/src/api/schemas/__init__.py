@@ -14,6 +14,6 @@ from .service_tickets import (
     UpdateServiceTicketBody,
     ServiceTicketsStatsResponse,
 )
-from .service_ticket_logs import ServiceTicketLogResponse, CreateLogRequest, UpdateLogBody
+from .audit_log import AuditLogEntryResponse
 from .rental_spaces import SpaceResponse, CreateSpaceRequest, UpdateSpaceBody
 from .space_views import SpaceViewResponse, CreateSpaceViewRequest, UpdateSpaceViewBody

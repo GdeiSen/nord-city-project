@@ -1,9 +1,10 @@
 import logging
 from typing import List
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 
 from shared.clients.database_client import db_client
+from api.dependencies import get_audit_context, get_optional_current_user
 from api.schemas.common import MessageResponse
 from api.schemas.polls import PollAnswerResponse, CreatePollRequest, UpdatePollBody
 
@@ -12,8 +13,11 @@ router = APIRouter(prefix="/polls", tags=["Polls"])
 
 
 @router.post("/", response_model=PollAnswerResponse, status_code=status.HTTP_201_CREATED)
-async def create_poll(body: CreatePollRequest):
-    response = await db_client.poll.create(model_data=body.model_dump())
+async def create_poll(body: CreatePollRequest, request: Request):
+    response = await db_client.poll.create(
+        model_data=body.model_dump(),
+        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+    )
     if not response.get("success"):
         error = response.get("error", "Failed to create poll answer")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error)
@@ -42,11 +46,15 @@ async def get_poll_by_id(entity_id: int):
 
 
 @router.put("/{entity_id}", response_model=MessageResponse)
-async def update_poll(entity_id: int, body: UpdatePollBody):
+async def update_poll(entity_id: int, body: UpdatePollBody, request: Request):
     update_data = body.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
-    response = await db_client.poll.update(entity_id=entity_id, update_data=update_data)
+    response = await db_client.poll.update(
+        entity_id=entity_id,
+        update_data=update_data,
+        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+    )
     if not response.get("success"):
         error = response.get("error", "Failed to update poll answer")
         code = status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_400_BAD_REQUEST
@@ -55,8 +63,11 @@ async def update_poll(entity_id: int, body: UpdatePollBody):
 
 
 @router.delete("/{entity_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_poll(entity_id: int):
-    response = await db_client.poll.delete(entity_id=entity_id)
+async def delete_poll(entity_id: int, request: Request):
+    response = await db_client.poll.delete(
+        entity_id=entity_id,
+        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+    )
     if not response.get("success"):
         error = response.get("error", "Failed to delete poll answer")
         code = status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_400_BAD_REQUEST

@@ -25,7 +25,7 @@ from shared.models.feedback import Feedback
 from shared.models.object import Object
 from shared.models.poll_answer import PollAnswer
 from shared.models.service_ticket import ServiceTicket
-from shared.models.service_ticket_log import ServiceTicketLog
+from shared.models.audit_log import AuditLog
 from shared.models.space import Space
 from shared.models.space_view import SpaceView
 from shared.models.otp_code import OtpCode
@@ -39,7 +39,7 @@ from services.object_service import ObjectService
 from services.poll_service import PollService
 from services.space_service import SpaceService
 from services.service_ticket_service import ServiceTicketService
-from services.service_ticket_log_service import ServiceTicketLogService
+from services.audit_log_service import AuditLogService
 from services.space_view_service import SpaceViewService
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -73,7 +73,7 @@ def _register_resources():
 
     models_to_register = [
         User, UserAuth, Feedback, Object, PollAnswer,
-        ServiceTicket, ServiceTicketLog, Space, SpaceView, OtpCode,
+        ServiceTicket, AuditLog, Space, SpaceView, OtpCode,
     ]
     for model in models_to_register:
         db_manager.repositories.register(model)
@@ -86,7 +86,7 @@ def _register_resources():
         "poll": PollService,
         "space": SpaceService,
         "service_ticket": ServiceTicketService,
-        "service_ticket_log": ServiceTicketLogService,
+        "audit_log": AuditLogService,
         "space_view": SpaceViewService,
         "otp": OtpService,
     }

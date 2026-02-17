@@ -300,6 +300,17 @@ class GenericRepository:
             logger.error(f"Error in get_paginated {self.model.__name__}: {e}", exc_info=True)
             raise
             
+    async def get_by_ids(self, session, *, ids: List[int]) -> list[ModelType]:
+        """Fetch multiple entities by primary key. Returns [] if ids is empty."""
+        if not ids:
+            return []
+        if self.pk_column is None:
+            raise Exception(f"Cannot get_by_ids: No primary key 'id' on {self.model.__name__}")
+        from sqlalchemy.future import select
+        query = select(self.model).where(self.pk_column.in_(ids))
+        result = await session.execute(query)
+        return list(result.scalars().all())
+
     async def find(self, session, **filters) -> list[ModelType]:
         """
         Finds entities that match the given filters.

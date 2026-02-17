@@ -32,7 +32,11 @@ class Converter:
         if isinstance(data, dict):
             return {k: cls.to_dict(v) for k, v in data.items()}
         if isinstance(data, datetime):
-            return data.isoformat()
+            s = data.isoformat()
+            # Naive datetime из БД (PostgreSQL) — UTC. Добавляем Z для корректного парсинга на фронте.
+            if data.tzinfo is None and "+" not in s and "Z" not in s:
+                s += "Z"
+            return s
         return data
 
     @classmethod
@@ -56,7 +60,11 @@ class Converter:
         """
         if isinstance(value, datetime):
             # Преобразуем datetime в строку формата ISO 8601
-            return value.isoformat()
+            # Naive datetime из БД — UTC. Добавляем Z для корректного парсинга на фронте.
+            s = value.isoformat()
+            if value.tzinfo is None and "+" not in s and "Z" not in s:
+                s += "Z"
+            return s
         
         # Другие типы (int, str, bool, list, dict, None) уже готовы к сериализации
         return value
