@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { useParams, useRouter } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { IconLink, IconPlus } from "@tabler/icons-react"
 import { ColumnDef } from "@tanstack/react-table"
 import { toast } from "sonner"
 
 import { AppSidebar } from "@/components/app-sidebar"
+import { MediaCarousel } from "@/components/media-carousel"
 import { PageHeader } from "@/components/page-header"
 import { DataTable, createSelectColumn } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
@@ -15,8 +16,8 @@ import { Badge } from "@/components/ui/badge"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { Toaster } from "@/components/ui/sonner"
-import { useLoading } from "@/hooks/use-loading"
-import { useCanEdit } from "@/hooks/use-can-edit"
+import { useLoading, useSpaceRouteIds } from "@/hooks"
+import { useCanEdit } from "@/hooks"
 import { rentalObjectApi, rentalSpaceApi } from "@/lib/api"
 import { RentalObject, RentalSpace } from "@/types"
 
@@ -39,12 +40,10 @@ const SPACE_STATUS_VARIANTS: Record<string, SpaceStatusVariant> = {
 const DEFAULT_SPACE_STATUS = "FREE"
 
 export default function RentalObjectSpacesPage() {
-  const params = useParams<{ id: string }>()
   const router = useRouter()
   const canEdit = useCanEdit()
   const { loading, withLoading } = useLoading(true)
-
-  const objectId = Number(params?.id)
+  const { objectId } = useSpaceRouteIds()
 
   const [rentalObject, setRentalObject] = useState<RentalObject | null>(null)
   const [spaces, setSpaces] = useState<RentalSpace[]>([])
@@ -189,7 +188,7 @@ export default function RentalObjectSpacesPage() {
     [getSpaceStatusBadge, objectId]
   )
 
-  if (Number.isNaN(objectId)) {
+  if (objectId == null || Number.isNaN(objectId)) {
     return (
       <div className="flex min-h-screen flex-col">
         <AppSidebar />
@@ -230,16 +229,10 @@ export default function RentalObjectSpacesPage() {
           />
 
           <div className="space-y-4">
-            {rentalObject?.photos && rentalObject.photos.length > 0 ? (
-              <div
-                className="h-48 w-full rounded-lg bg-cover bg-center"
-                style={{ backgroundImage: `url(${rentalObject.photos[0]})` }}
-              />
-            ) : (
-              <div className="flex h-48 w-full items-center justify-center rounded-lg border border-dashed">
-                <span className="text-sm text-muted-foreground">Фотография обложки не добавлена</span>
-              </div>
-            )}
+            <MediaCarousel
+              items={rentalObject?.photos ?? []}
+              emptyMessage="Фотография обложки не добавлена"
+            />
             {rentalObject?.description && (
               <p className="text-sm text-muted-foreground">{rentalObject.description}</p>
             )}

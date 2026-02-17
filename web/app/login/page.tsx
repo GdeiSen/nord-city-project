@@ -1,7 +1,5 @@
 "use client"
 
-import { useState, useCallback } from "react"
-import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,110 +10,22 @@ import {
   InputOTPSlot,
   InputOTPSeparator,
 } from "@/components/ui/input-otp"
-import { authApi } from "@/lib/api"
-import { setToken, setUser } from "@/lib/auth"
 import { IconBrandTelegram, IconLoader2, IconAlertCircle } from "@tabler/icons-react"
-
-type AuthStep = "enter_id" | "enter_otp"
-
-function formatError(err: unknown): { title: string; details: string } {
-  const e = err as Error & { status?: number; details?: unknown }
-  const title = e?.message || "Произошла ошибка"
-  const parts: string[] = []
-
-  if (e?.status) {
-    parts.push(`Код ответа: ${e.status}`)
-  }
-  const details = e?.details
-  if (Array.isArray(details)) {
-    details.forEach((item: { loc?: string[]; msg?: string }) => {
-      const loc = Array.isArray(item.loc) ? item.loc.join(" → ") : ""
-      const msg = item.msg || ""
-      if (msg) parts.push(loc ? `${loc}: ${msg}` : msg)
-    })
-  } else if (typeof details === "object" && details !== null) {
-    const extra = (details as Record<string, string>).msg || JSON.stringify(details)
-    if (extra && extra !== title) parts.push(extra)
-  } else if (typeof details === "string" && details !== title) {
-    parts.push(details)
-  }
-
-  return { title, details: parts.length ? parts.join("\n") : "" }
-}
+import { useOtpAuth } from "@/hooks"
 
 export default function LoginPage() {
-  const router = useRouter()
-  const [step, setStep] = useState<AuthStep>("enter_id")
-  const [identifier, setIdentifier] = useState("")
-  const [resolvedUserId, setResolvedUserId] = useState<number | null>(null)
-  const [otpCode, setOtpCode] = useState("")
-  const [errorInfo, setErrorInfo] = useState<{ title: string; details: string } | null>(null)
-  const [loading, setLoading] = useState(false)
-
-  const handleRequestOtp = useCallback(async () => {
-    setErrorInfo(null)
-
-    const trimmed = identifier.trim()
-    if (!trimmed) {
-      setErrorInfo({ title: "Ошибка ввода", details: "Введите Telegram ID или @username." })
-      return
-    }
-
-    setLoading(true)
-    try {
-      const idNum = parseInt(trimmed, 10)
-      const isNumeric = !isNaN(idNum) && String(idNum) === trimmed
-      const params = isNumeric ? { userId: idNum } : { username: trimmed }
-      const result = await authApi.requestOtp(params)
-      if (result.success) {
-        setResolvedUserId(result.user_id ?? (isNumeric ? idNum : null))
-        setStep("enter_otp")
-      }
-    } catch (err: unknown) {
-      setErrorInfo(formatError(err))
-    } finally {
-      setLoading(false)
-    }
-  }, [identifier])
-
-  const handleVerifyOtp = useCallback(async (code: string) => {
-    setErrorInfo(null)
-
-    if (code.length !== 6) return
-    if (resolvedUserId == null) {
-      setErrorInfo({
-        title: "Ошибка сессии",
-        details: "Сессия истекла. Запросите код повторно.",
-      })
-      return
-    }
-
-    setLoading(true)
-    try {
-      const result = await authApi.verifyOtp(resolvedUserId, code)
-
-      if (result.success && result.access_token) {
-        setToken(result.access_token)
-        if (result.user) {
-          setUser(result.user)
-        }
-        router.push("/")
-      }
-    } catch (err: unknown) {
-      setErrorInfo(formatError(err))
-      setOtpCode("")
-    } finally {
-      setLoading(false)
-    }
-  }, [resolvedUserId, router])
-
-  const handleOtpChange = useCallback((value: string) => {
-    setOtpCode(value)
-    setErrorInfo(null)
-    if (value.length === 6) {
-      handleVerifyOtp(value)
-    }
-  }, [handleVerifyOtp])
+  const {
+    step,
+    identifier,
+    setIdentifier,
+    otpCode,
+    setOtpCode,
+    errorInfo,
+    setErrorInfo,
+    loading,
+    handleRequestOtp,
+    handleOtpChange,
+  } = useOtpAuth()
 
   return (
     <div className="flex min-h-screen w-full items-center justify-center bg-background p-4">

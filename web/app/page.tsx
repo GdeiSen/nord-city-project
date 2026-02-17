@@ -13,7 +13,7 @@ import { serviceTicketApi, feedbackApi, rentalObjectApi, rentalSpaceApi, userApi
 import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
 import { LoadingWrapper } from "@/components/ui/loading-wrapper"
-import { useLoading } from "@/hooks/use-loading"
+import { useLoading } from "@/hooks"
 import { PageHeader } from "@/components/page-header"
 
 export default function DashboardPage() {

@@ -14,6 +14,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../../../'))
 
 from shared.clients.database_client import db_client
 from shared.clients.bot_client import bot_client
+from shared.clients.media_client import media_client
 from config import get_config
 from api.routers import (
     users_router,
@@ -25,6 +26,7 @@ from api.routers import (
     service_ticket_logs_router,
     rental_spaces_router,
     space_views_router,
+    media_router,
 )
 
 # Configure logging
@@ -49,8 +51,14 @@ async def lifespan(app: FastAPI):
         logger.info("Bot client connected via HTTP.")
     except Exception as e:
         logger.warning(f"Failed to connect bot client during startup: {e}", exc_info=True)
+    try:
+        await media_client.connect()
+        logger.info("Media client connected.")
+    except Exception as e:
+        logger.warning(f"Failed to connect media client during startup: {e}", exc_info=True)
     yield
     logger.info("WebService shutting down...")
+    await media_client.disconnect()
     await bot_client.disconnect()
     await db_client.disconnect()
     logger.info("Clients disconnected.")
@@ -105,6 +113,7 @@ app.include_router(service_tickets_router, prefix=API_PREFIX)
 app.include_router(service_ticket_logs_router, prefix=API_PREFIX)
 app.include_router(rental_spaces_router, prefix=API_PREFIX)
 app.include_router(space_views_router, prefix=API_PREFIX)
+app.include_router(media_router, prefix=API_PREFIX)
 
 
 # --- Service-level endpoints (outside /api/v1) ---

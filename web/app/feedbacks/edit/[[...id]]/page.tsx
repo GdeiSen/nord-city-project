@@ -1,7 +1,5 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
@@ -20,6 +18,7 @@ import {
 } from "@/components/ui/breadcrumb"
 import { Feedback } from "@/types"
 import { feedbackApi } from "@/lib/api"
+import { EntityPicker } from "@/components/entity-picker"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,70 +30,58 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { useLoading } from "@/hooks/use-loading"
-import { toast } from "sonner"
+import { useRouteId, useEntityForm, useIsSuperAdmin } from "@/hooks"
 import { Toaster } from "@/components/ui/sonner"
 
 export default function FeedbackEditPage() {
-  const params = useParams<{ id?: string[] }>()
-  const router = useRouter()
-  const idParam = params?.id?.[0]
-  const feedbackId = idParam ? parseInt(idParam, 10) : null
-  const isEdit = feedbackId != null && !Number.isNaN(feedbackId)
+  const isSuperAdmin = useIsSuperAdmin()
+  const { id: feedbackId, isEdit } = useRouteId({ paramKey: "id", parseMode: "number" })
+  const entityId = typeof feedbackId === "number" ? feedbackId : null
 
-  const { loading, withLoading } = useLoading(true)
-  const [formData, setFormData] = useState<Partial<Feedback>>({})
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    if (!isEdit) {
-      setFormData({})
-      return
-    }
-    withLoading(async () => {
-      const data = await feedbackApi.getById(feedbackId!)
-      setFormData(data)
-    }).catch((err: any) => {
-      toast.error("Не удалось загрузить отзыв", { description: err?.message })
-      router.push(`/feedbacks/${feedbackId}`)
-    })
-  }, [feedbackId, isEdit])
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target
-    setFormData((prev) => ({ ...prev, [name]: value }))
-  }
-
-  const handleSave = async () => {
-    if (!isEdit) return
-    setSaving(true)
-    try {
-      const payload: any = { ...formData }
-      delete payload.id
-      delete payload.user
-      delete payload.created_at
-      delete payload.updated_at
-
-      await feedbackApi.update(feedbackId!, payload)
-      toast.success("Отзыв обновлён")
-      router.push(`/feedbacks/${feedbackId}`)
-    } catch (err: any) {
-      toast.error("Не удалось сохранить отзыв", { description: err?.message })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleDelete = async () => {
-    if (!isEdit) return
-    try {
-      await feedbackApi.delete(feedbackId!)
-      toast.success("Отзыв удалён")
-      router.push("/feedbacks")
-    } catch (err: any) {
-      toast.error("Не удалось удалить отзыв", { description: err?.message })
-    }
-  }
+  const {
+    loading,
+    formData,
+    saving,
+    handleInputChange,
+    handleSave,
+    handleDelete,
+  } = useEntityForm<Feedback>({
+    entityId,
+    isEdit,
+    fetchInitial: async () => {
+      if (!isEdit) return {}
+      return feedbackApi.getById(entityId!)
+    },
+    defaultValues: {},
+    preparePayload: (data) => {
+      const payload = { ...data }
+      delete (payload as Record<string, unknown>).id
+      delete (payload as Record<string, unknown>).user
+      delete (payload as Record<string, unknown>).created_at
+      delete (payload as Record<string, unknown>).updated_at
+      return payload as Record<string, unknown>
+    },
+    onCreate: async (payload) => {
+      const created = await feedbackApi.create(payload as Record<string, unknown>)
+      return { id: created.id }
+    },
+    onUpdate: (id, payload) => feedbackApi.update(id, payload as Partial<Feedback>),
+    onDelete: (id) => feedbackApi.delete(id),
+    createRedirect: () => "/feedbacks",
+    updateRedirect: (id) => `/feedbacks/${id}`,
+    deleteRedirect: "/feedbacks",
+    errorMessages: {
+      load: "Не удалось загрузить отзыв",
+      save: "Не удалось сохранить отзыв",
+      delete: "Не удалось удалить отзыв",
+    },
+    successMessages: {
+      save: "Отзыв обновлён",
+      create: "Отзыв создан",
+      delete: "Отзыв удалён",
+    },
+    onLoadErrorRedirect: () => `/feedbacks/${entityId}`,
+  })
 
   return (
     <>
@@ -117,6 +104,7 @@ export default function FeedbackEditPage() {
           </Breadcrumb>
 
           {isEdit && (
+            isSuperAdmin ? (
             <div className="max-w-2xl space-y-6">
               <div>
                 <h1 className="text-2xl font-semibold">Редактирование отзыва</h1>
@@ -174,15 +162,67 @@ export default function FeedbackEditPage() {
                 )}
               </div>
             </div>
+            ) : (
+              <div className="max-w-2xl space-y-4 py-8">
+                <p className="text-muted-foreground">Редактирование отзывов доступно только для Super Admin.</p>
+                <Link href="/feedbacks" className="text-sm text-primary hover:underline">
+                  К списку отзывов
+                </Link>
+              </div>
+            )
           )}
 
           {!isEdit && (
-            <div className="max-w-2xl space-y-4 py-8">
-              <p className="text-muted-foreground">Создание отзывов через эту панель не поддерживается.</p>
-              <Link href="/feedbacks" className="text-sm text-primary hover:underline">
-                К списку отзывов
-              </Link>
-            </div>
+            isSuperAdmin ? (
+              <div className="max-w-2xl space-y-6">
+                <div>
+                  <h1 className="text-2xl font-semibold">Создание отзыва</h1>
+                  <p className="text-sm text-muted-foreground mt-1">Добавление нового отзыва от имени пользователя.</p>
+                </div>
+                <div className="grid gap-6">
+                  <div className="space-y-2">
+                    <Label htmlFor="user_id">Пользователь</Label>
+                    <EntityPicker
+                      value={formData.user_id != null ? String(formData.user_id) : ""}
+                      onValueChange={(v) => handleSelectChange("user_id", v ? Number(v) : 0)}
+                      dataConfig={{ kind: "users" }}
+                      placeholder="Выберите пользователя"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="ddid">DDID (0000-0000-0000)</Label>
+                    <Input
+                      id="ddid"
+                      name="ddid"
+                      value={formData.ddid ?? ""}
+                      onChange={handleInputChange}
+                      placeholder="0000-0000-0000"
+                      maxLength={14}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="answer">Ответ</Label>
+                    <Input id="answer" name="answer" value={formData.answer ?? ""} onChange={handleInputChange} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="text">Текст (необязательно)</Label>
+                    <Textarea id="text" name="text" value={formData.text ?? ""} onChange={handleInputChange} rows={4} />
+                  </div>
+                  <div className="flex justify-end pt-4">
+                    <Button onClick={handleSave} disabled={saving}>
+                      {saving ? "Создание..." : "Создать"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="max-w-2xl space-y-4 py-8">
+                <p className="text-muted-foreground">Создание отзывов доступно только для Super Admin.</p>
+                <Link href="/feedbacks" className="text-sm text-primary hover:underline">
+                  К списку отзывов
+                </Link>
+              </div>
+            )
           )}
         </div>
       </SidebarInset>

@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/select"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
-import type { ColumnSort } from "./types"
+import type { ColumnSort } from "../types"
 
 export interface DataTableSortPanelProps {
   advancedSorts: ColumnSort[]

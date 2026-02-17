@@ -24,8 +24,8 @@ import {
   createTextFilterConfig,
 } from "./filter-config"
 import type { FilterColumnConfig } from "./filter-config"
-import type { ColumnFilter, FilterOperator } from "./types"
-import type { FilterPickerData } from "@/hooks/use-filter-picker-data"
+import type { ColumnFilter, FilterOperator } from "../types"
+import type { FilterPickerData } from "@/hooks"
 
 export interface AvailableFilterColumn {
   id: string

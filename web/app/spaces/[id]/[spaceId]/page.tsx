@@ -1,18 +1,20 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { AppSidebar } from "@/components/app-sidebar"
+import { MediaCarousel } from "@/components/media-carousel"
 import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { IconEdit, IconLink } from "@tabler/icons-react"
+import { IconEdit } from "@tabler/icons-react"
 import { RentalSpace } from "@/types"
 import { rentalSpaceApi, rentalObjectApi } from "@/lib/api"
-import { useLoading } from "@/hooks/use-loading"
-import { useCanEdit } from "@/hooks/use-can-edit"
+import { formatDate } from "@/lib/date-utils"
+import { useLoading, useSpaceRouteIds } from "@/hooks"
+import { useCanEdit } from "@/hooks"
 import { toast } from "sonner"
 import { Toaster } from "@/components/ui/sonner"
 import {
@@ -39,10 +41,8 @@ const SPACE_STATUS_VARIANTS: Record<string, "default" | "secondary" | "destructi
 }
 
 export default function SpaceDetailPage() {
-  const params = useParams<{ id: string; spaceId: string }>()
   const router = useRouter()
-  const objectId = Number(params?.id)
-  const spaceId = Number(params?.spaceId)
+  const { objectId, spaceId } = useSpaceRouteIds()
   const { loading, withLoading } = useLoading(true)
   const canEdit = useCanEdit()
   const [space, setSpace] = useState<RentalSpace | null>(null)
@@ -63,16 +63,12 @@ export default function SpaceDetailPage() {
     })
   }, [spaceId, objectId])
 
-  const formatDate = (dateString: string) =>
-    new Date(dateString).toLocaleString("ru-RU", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
-
-  if (Number.isNaN(spaceId) || Number.isNaN(objectId)) {
+  if (
+    objectId == null ||
+    spaceId == null ||
+    Number.isNaN(objectId) ||
+    Number.isNaN(spaceId)
+  ) {
     return (
       <div className="flex min-h-screen flex-col">
         <AppSidebar />
@@ -134,15 +130,15 @@ export default function SpaceDetailPage() {
           ) : space ? (
             <div className="space-y-6">
               <div>
-                <h1 className="text-2xl font-semibold">Помещение #{space.id}</h1>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Этаж {space.floor} · {space.size?.toLocaleString("ru-RU")} м² · Обновлено {formatDate(space.updated_at)}
-                </p>
-                <div className="mt-3">
+                <div className="flex flex-wrap items-center gap-4 mb-4">
+                  <h1 className="text-2xl font-semibold">Помещение #{space.id}</h1>
                   <Badge variant={SPACE_STATUS_VARIANTS[space.status] ?? "secondary"} className="text-sm px-3 py-1">
                     {SPACE_STATUS_LABELS[space.status] ?? space.status}
                   </Badge>
                 </div>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Создано {formatDate(space.updated_at, { includeTime: true })}
+                </p>
               </div>
               <div className="space-y-6">
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -161,25 +157,10 @@ export default function SpaceDetailPage() {
                     <p className="text-sm whitespace-pre-wrap">{space.description}</p>
                   </div>
                 )}
-                {space.photos && space.photos.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="text-sm font-medium text-muted-foreground">Фотографии</div>
-                    <div className="flex flex-wrap gap-2">
-                      {space.photos.map((url, i) => (
-                        <a
-                          key={i}
-                          href={url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
-                        >
-                          <IconLink className="h-4 w-4" />
-                          Фото {i + 1}
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <div className="space-y-2">
+                  <div className="text-sm font-medium text-muted-foreground">Фотографии</div>
+                  <MediaCarousel items={space.photos ?? []} />
+                </div>
               </div>
             </div>
           ) : null}

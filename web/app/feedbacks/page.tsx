@@ -12,14 +12,21 @@ import { toast } from "sonner"
 import { ColumnDef } from "@tanstack/react-table"
 import { DataTable, createSelectColumn } from "@/components/data-table"
 import { feedbackColumnMeta } from "@/lib/table-configs"
+import { formatDate } from "@/lib/date-utils"
 import { PageHeader } from "@/components/page-header"
-import { useServerPaginatedData } from "@/hooks/use-server-paginated-data"
-import { useFilterPickerData } from "@/hooks/use-filter-picker-data"
-import { useCanEdit } from "@/hooks/use-can-edit"
+import {
+  useServerPaginatedData,
+  useFilterPickerData,
+  useCanEdit,
+  useIsSuperAdmin,
+} from "@/hooks"
+import { truncate } from "@/lib/utils"
+import { IconPlus } from "@tabler/icons-react"
 
 export default function FeedbacksPage() {
   const router = useRouter()
   const filterPickerData = useFilterPickerData({ users: true })
+  const isSuperAdmin = useIsSuperAdmin()
   const {
     data: feedbacks,
     total,
@@ -32,15 +39,6 @@ export default function FeedbacksPage() {
     errorMessage: "Не удалось загрузить данные",
   })
   const canEdit = useCanEdit()
-
-  const formatDate = (dateString: string) =>
-    new Date(dateString).toLocaleDateString("ru-RU", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
 
   const columns: ColumnDef<Feedback>[] = [
     createSelectColumn<Feedback>(),
@@ -89,8 +87,14 @@ export default function FeedbacksPage() {
       meta: feedbackColumnMeta.feedback,
       cell: ({ row }) => (
         <div className="space-y-1 max-w-md">
-          <div className="text-sm font-medium line-clamp-2">{row.original.answer}</div>
-          {row.original.text && <div className="text-xs text-muted-foreground line-clamp-1">{row.original.text}</div>}
+          <div className="text-sm font-medium" title={row.original.answer ?? undefined}>
+            {truncate(row.original.answer, 80)}
+          </div>
+          {row.original.text && (
+            <div className="text-xs text-muted-foreground" title={row.original.text}>
+              {truncate(row.original.text, 80)}
+            </div>
+          )}
         </div>
       ),
     },
@@ -98,7 +102,7 @@ export default function FeedbacksPage() {
       accessorKey: "date",
       header: "Дата",
       meta: feedbackColumnMeta.date,
-      cell: ({ row }) => <div className="text-sm">{formatDate(row.original.created_at)}</div>,
+      cell: ({ row }) => <div className="text-sm">{formatDate(row.original.created_at, { includeTime: true })}</div>,
     },
   ]
 
@@ -108,7 +112,13 @@ export default function FeedbacksPage() {
       <SidebarInset>
         <SiteHeader />
         <div className="flex-1 min-w-0 space-y-4 p-4 md:p-8 pt-6">
-          <PageHeader title="Отзывы пользователей" description="Анализ и управление отзывами пользователей" />
+          <PageHeader
+            title="Отзывы пользователей"
+            description="Анализ и управление отзывами пользователей"
+            buttonText={isSuperAdmin ? "Добавить отзыв" : undefined}
+            buttonIcon={isSuperAdmin ? <IconPlus className="h-4 w-4 mr-2" /> : undefined}
+            onButtonClick={isSuperAdmin ? () => router.push("/feedbacks/edit") : undefined}
+          />
 
           <DataTable
             data={feedbacks}
@@ -118,7 +128,7 @@ export default function FeedbacksPage() {
             loadingMessage="Загрузка отзывов..."
             onRowClick={(row) => router.push(`/feedbacks/${row.original.id}`)}
             contextMenuActions={{
-              onEdit: (row) => router.push(`/feedbacks/edit/${row.original.id}`),
+              onEdit: isSuperAdmin ? (row) => router.push(`/feedbacks/edit/${row.original.id}`) : undefined,
               onDelete: canEdit
                 ? async (row) => {
                     try {

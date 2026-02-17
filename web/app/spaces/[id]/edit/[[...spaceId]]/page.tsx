@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/breadcrumb"
 import { RentalSpace } from "@/types"
 import { rentalSpaceApi, rentalObjectApi } from "@/lib/api"
-import { PhotoLinksEditor } from "@/components/photo-links-editor"
+import { MediaUploader } from "@/components/media-uploader"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,30 +33,27 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { useLoading } from "@/hooks/use-loading"
+import { useLoading, useSpaceRouteIds } from "@/hooks"
 import { toast } from "sonner"
 import { Toaster } from "@/components/ui/sonner"
 
 const DEFAULT_STATUS = "FREE"
 
 export default function SpaceEditPage() {
-  const params = useParams<{ id: string; spaceId?: string[] }>()
   const router = useRouter()
-  const objectId = Number(params?.id)
-  const spaceIdParam = params?.spaceId?.[0]
-  const spaceId = spaceIdParam ? parseInt(spaceIdParam, 10) : null
-  const isEdit = spaceId != null && !Number.isNaN(spaceId)
+  const { objectId, spaceId, isEdit } = useSpaceRouteIds()
 
   const { loading, withLoading } = useLoading(true)
   const [objectName, setObjectName] = useState<string>("")
   const [formData, setFormData] = useState<Partial<RentalSpace>>({
-    object_id: objectId,
+    object_id: objectId ?? undefined,
     status: DEFAULT_STATUS,
     photos: [],
   })
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
+    if (objectId == null || Number.isNaN(objectId)) return
     const load = async () => {
       const obj = await rentalObjectApi.getById(objectId)
       setObjectName(obj?.name ?? "")
@@ -236,12 +233,11 @@ export default function SpaceEditPage() {
                       rows={4}
                     />
                   </div>
-                  <PhotoLinksEditor
-                    label="Фотографии"
-                    description="Добавьте ссылки на фотографии помещения."
+                  <MediaUploader
+                    label="Фото и видео"
+                    description="Загрузите фотографии или короткие видео помещения."
                     value={formData.photos ?? []}
                     onChange={handlePhotosChange}
-                    addButtonLabel="Добавить фото"
                   />
 
                   <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end pt-4">

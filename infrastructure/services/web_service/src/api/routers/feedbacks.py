@@ -1,9 +1,11 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from shared.clients.database_client import db_client
+from shared.constants import Roles
+from api.dependencies import get_current_user
 from api.schemas.common import MessageResponse, PaginatedResponse
 from api.helpers.paginated_list import create_paginated_list_handler
 from api.helpers.enrichment import enrich_feedbacks_with_users
@@ -14,7 +16,15 @@ router = APIRouter(prefix="/feedbacks", tags=["Feedbacks"])
 
 
 @router.post("/", response_model=FeedbackResponse, status_code=status.HTTP_201_CREATED)
-async def create_feedback(body: CreateFeedbackRequest):
+async def create_feedback(
+    body: CreateFeedbackRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user.get("role") != Roles.SUPER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Только Super Admin может создавать отзывы.",
+        )
     response = await db_client.feedback.create(model_data=body.model_dump())
     if not response.get("success"):
         error = response.get("error", "Failed to create feedback")
@@ -43,7 +53,16 @@ async def get_feedback_by_id(entity_id: int):
 
 
 @router.put("/{entity_id}", response_model=MessageResponse)
-async def update_feedback(entity_id: int, body: UpdateFeedbackBody):
+async def update_feedback(
+    entity_id: int,
+    body: UpdateFeedbackBody,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user.get("role") != Roles.SUPER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Только Super Admin может редактировать отзывы.",
+        )
     update_data = body.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")

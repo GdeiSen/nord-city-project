@@ -14,14 +14,20 @@ import { toast } from "sonner"
 import { ColumnDef } from "@tanstack/react-table"
 import { DataTable, createSelectColumn } from "@/components/data-table"
 import { userColumnMeta } from "@/lib/table-configs"
+import { formatDate } from "@/lib/date-utils"
 import { PageHeader } from "@/components/page-header"
-import { useServerPaginatedData } from "@/hooks/use-server-paginated-data"
-import { useFilterPickerData } from "@/hooks/use-filter-picker-data"
-import { useCanEdit } from "@/hooks/use-can-edit"
+import {
+  useServerPaginatedData,
+  useFilterPickerData,
+  useCanEdit,
+  useIsSuperAdmin,
+} from "@/hooks"
 
 export default function UsersPage() {
   const router = useRouter()
   const filterPickerData = useFilterPickerData({ objects: true })
+  const canEdit = useCanEdit()
+  const canCreateUser = useIsSuperAdmin()
   const {
     data: users,
     total,
@@ -33,23 +39,12 @@ export default function UsersPage() {
     api: userApi,
     errorMessage: "Не удалось загрузить пользователей",
   })
-  const canEdit = useCanEdit()
 
   const getRoleBadge = (role: number | undefined) => {
     if (role === undefined) return <Badge variant="outline">Неопределен</Badge>
     const roleKey = Object.values(USER_ROLES).find((r) => r === role)
     if (!roleKey) return <Badge variant="outline">Неизвестная роль</Badge>
     return <Badge variant={ROLE_BADGE_VARIANTS[roleKey]}>{ROLE_LABELS[roleKey]}</Badge>
-  }
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("ru-RU", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
   }
 
   const columns: ColumnDef<User>[] = [
@@ -123,7 +118,7 @@ export default function UsersPage() {
       accessorFn: (row) => new Date(row.created_at).toISOString(),
       header: "Создан",
       meta: userColumnMeta.created,
-      cell: ({ row }) => <div className="text-sm">{formatDate(row.original.created_at)}</div>,
+      cell: ({ row }) => <div className="text-sm">{formatDate(row.original.created_at, { includeTime: true })}</div>,
     },
   ]
 
@@ -136,9 +131,9 @@ export default function UsersPage() {
           <PageHeader
             title="Пользователи"
             description="Управление пользователями системы"
-            buttonText={canEdit ? "Добавить пользователя" : undefined}
-            onButtonClick={canEdit ? () => router.push("/users/edit") : undefined}
-            buttonIcon={canEdit ? <IconUserPlus className="h-4 w-4 mr-2" /> : undefined}
+            buttonText={canCreateUser ? "Добавить пользователя" : undefined}
+            onButtonClick={canCreateUser ? () => router.push("/users/edit") : undefined}
+            buttonIcon={canCreateUser ? <IconUserPlus className="h-4 w-4 mr-2" /> : undefined}
           />
 
           <DataTable

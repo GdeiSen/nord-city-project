@@ -21,9 +21,10 @@ Usage
 
 Services
 --------
-    db   — Database Service   (FastAPI HTTP RPC, port 8001)
-    web  — Web Service        (FastAPI REST API, port 8003)
-    bot  — Bot Service        (Telegram bot, no HTTP port)
+    db    — Database Service   (FastAPI HTTP RPC, port 8001)
+    web   — Web Service        (FastAPI REST API, port 8003)
+    bot   — Bot Service        (Telegram bot, port 8002)
+    media — Media Service      (file storage & serving, port 8004)
 
 Notes
 -----
@@ -153,7 +154,7 @@ SERVICES: Dict[str, ServiceInfo] = {
         command=[sys.executable, "main.py"],
         port=8003,
         health_url="http://127.0.0.1:{port}/health",
-        depends_on=["db", "bot"],
+        depends_on=["db", "bot", "media"],
     ),
     "bot": ServiceInfo(
         name="Bot Service",
@@ -164,6 +165,15 @@ SERVICES: Dict[str, ServiceInfo] = {
         port=8002,
         health_url="http://127.0.0.1:{port}/health",
         depends_on=["db"],
+    ),
+    "media": ServiceInfo(
+        name="Media Service",
+        alias="media",
+        description="Media storage and serving",
+        working_dir=INFRASTRUCTURE_ROOT / "services" / "media_service" / "src",
+        command=[sys.executable, "main.py"],
+        port=8004,
+        health_url="http://127.0.0.1:{port}/health",
     ),
 }
 
@@ -231,6 +241,16 @@ def _update_ports_from_env():
     if web_port:
         SERVICES["web"].port = int(web_port)
         SERVICES["web"].health_url = f"http://127.0.0.1:{web_port}/health"
+
+    bot_port = os.getenv("BOT_SERVICE_PORT")
+    if bot_port:
+        SERVICES["bot"].port = int(bot_port)
+        SERVICES["bot"].health_url = f"http://127.0.0.1:{bot_port}/health"
+
+    media_port = os.getenv("MEDIA_SERVICE_PORT")
+    if media_port:
+        SERVICES["media"].port = int(media_port)
+        SERVICES["media"].health_url = f"http://127.0.0.1:{media_port}/health"
 
 
 # ---------------------------------------------------------------------------

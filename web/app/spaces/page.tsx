@@ -21,12 +21,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { SidebarInset } from "@/components/ui/sidebar"
 import { Toaster } from "@/components/ui/sonner"
 import { rentalObjectApi, rentalSpaceApi } from "@/lib/api"
+import { formatDate } from "@/lib/date-utils"
 import { RentalObject, RentalSpace } from "@/types"
 import { DataTable } from "@/components/data-table"
 import { ColumnDef } from "@tanstack/react-table"
-import { useCanEdit } from "@/hooks/use-can-edit"
-
-const PAGE_SIZE = 10
+import { useCanEdit } from "@/hooks"
 
 interface BusinessCenterWithStats extends RentalObject {
   totalSpaces: number
@@ -113,15 +112,6 @@ export default function SpacesPage() {
       default:
         return "secondary"
     }
-  }
-
-  const formatDate = (dateString: string) => {
-    if (!dateString) return "—"
-    return new Date(dateString).toLocaleDateString("ru-RU", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    })
   }
 
   return (
@@ -227,7 +217,7 @@ export default function SpacesPage() {
                       </div>
 
                       <div className="flex items-center justify-between text-sm text-muted-foreground">
-                        <span>Обновлено: {formatDate(center.updated_at)}</span>
+                        <span>Обновлено: {formatDate(center.updated_at ?? "", { includeTime: false })}</span>
                       </div>
 
                       <Button

@@ -8,6 +8,7 @@ from .service_tickets import router as service_tickets_router
 from .service_ticket_logs import router as service_ticket_logs_router
 from .rental_spaces import router as rental_spaces_router
 from .space_views import router as space_views_router
+from .media import router as media_router
 
 __all__ = [
     "users_router",
@@ -19,4 +20,5 @@ __all__ = [
     "service_ticket_logs_router",
     "rental_spaces_router",
     "space_views_router",
+    "media_router",
 ]

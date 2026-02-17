@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useCallback, useEffect } from "react"
-import { getOperators, getDefaultOperator } from "@/components/data-table/filter-config"
+import { getOperators, getDefaultOperator } from "@/components/data-table/filter"
 import type { ColumnFilter, ColumnSort } from "@/components/data-table/types"
 import type { ServerPaginationParams } from "@/types/filters"
 
@@ -9,7 +9,7 @@ export interface AvailableFilterColumn {
   id: string
   label: string
   canFilter: boolean
-  filterConfig: import("@/components/data-table/filter-config").FilterColumnConfig
+  filterConfig: import("@/components/data-table/filter").FilterColumnConfig
 }
 
 export interface UseDataTableFiltersAndSortsOptions {

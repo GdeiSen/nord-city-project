@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
@@ -9,7 +9,6 @@ import { SidebarInset } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -20,7 +19,8 @@ import {
 } from "@/components/ui/breadcrumb"
 import { User, USER_ROLES, ROLE_LABELS, RentalObject } from "@/types"
 import { userApi, rentalObjectApi } from "@/lib/api"
-import { DataPicker, DataPickerField } from "@/components/data-picker"
+import { getUser } from "@/lib/auth"
+import { EntityPicker } from "@/components/entity-picker"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,35 +32,42 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { useLoading } from "@/hooks/use-loading"
+import { useLoading, useRouteId } from "@/hooks"
 import { toast } from "sonner"
 import { Toaster } from "@/components/ui/sonner"
 
-const objectFields: DataPickerField[] = [
-  { key: "name", label: "Название", searchable: true },
-  { key: "address", label: "Адрес", searchable: true },
-  { key: "id", label: "ID", render: (value) => <span className="text-right">{value}</span> },
-]
-
 export default function UserEditPage() {
-  const params = useParams<{ id?: string[] }>()
   const router = useRouter()
-  const idParam = params?.id?.[0]
-  const userId = idParam ? parseInt(idParam, 10) : null
-  const isEdit = userId != null && !Number.isNaN(userId)
+  const { id: userId, isEdit } = useRouteId({ paramKey: "id", parseMode: "number" })
+  const currentUser = getUser()
+  const isEditingSelf =
+    isEdit &&
+    currentUser?.id != null &&
+    Number(userId) === currentUser.id
+
+  const roleOptions = Object.entries(USER_ROLES)
+    .filter(([_, roleValue]) => {
+      if (currentUser?.role === USER_ROLES.ADMIN && roleValue === USER_ROLES.SUPER_ADMIN) {
+        return false
+      }
+      return true
+    })
+    .map(([_, roleValue]) => ({
+      value: String(roleValue),
+      label: ROLE_LABELS[roleValue as keyof typeof ROLE_LABELS],
+    }))
 
   const { loading, withLoading } = useLoading(true)
   const [objects, setObjects] = useState<RentalObject[]>([])
   const [formData, setFormData] = useState<Partial<User>>({})
   const [saving, setSaving] = useState(false)
-  const [isObjectPickerOpen, setIsObjectPickerOpen] = useState(false)
 
   useEffect(() => {
     const load = async () => {
       const allObjects = await rentalObjectApi.getAll()
       setObjects(allObjects)
       if (isEdit) {
-        const userData = await userApi.getById(userId!)
+        const userData = await userApi.getById(Number(userId!))
         setFormData(userData)
       } else {
         setFormData({ language_code: "ru" })
@@ -68,7 +75,7 @@ export default function UserEditPage() {
     }
     withLoading(load).catch((err: any) => {
       toast.error("Не удалось загрузить данные", { description: err?.message })
-      if (isEdit) router.push(`/users/${userId}`)
+      if (isEdit) router.push(`/users/${Number(userId!)}`)
       else router.push("/users")
     })
   }, [userId, isEdit])
@@ -76,13 +83,6 @@ export default function UserEditPage() {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
     setFormData((prev) => ({ ...prev, [name]: value }))
-  }
-
-  const handleSelectChange = (name: string, value: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      [name]: name === "role" ? parseInt(value, 10) : value,
-    }))
   }
 
   const handleSave = async () => {
@@ -95,9 +95,9 @@ export default function UserEditPage() {
       delete payload.object
 
       if (isEdit) {
-        await userApi.update(userId!, payload)
+        await userApi.update(Number(userId!), payload)
         toast.success("Пользователь обновлён")
-        router.push(`/users/${userId}`)
+        router.push(`/users/${Number(userId!)}`)
       } else {
         const created = await userApi.create(payload)
         toast.success("Пользователь создан")
@@ -113,7 +113,7 @@ export default function UserEditPage() {
   const handleDelete = async () => {
     if (!isEdit) return
     try {
-      await userApi.delete(userId!)
+      await userApi.delete(Number(userId!))
       toast.success("Пользователь удалён")
       router.push("/users")
     } catch (err: any) {
@@ -172,6 +172,9 @@ export default function UserEditPage() {
                   <div className="space-y-2">
                     <Label htmlFor="username">Username</Label>
                     <Input id="username" name="username" value={formData.username ?? ""} onChange={handleInputChange} />
+                    <p className="text-sm text-muted-foreground">
+                      Изменение username может привести к рассинхронизации с Telegram-аккаунтом и потере возможности входа в систему. Редактируйте только при крайней необходимости.
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
@@ -181,57 +184,35 @@ export default function UserEditPage() {
                     <Label htmlFor="phone_number">Телефон</Label>
                     <Input id="phone_number" name="phone_number" value={formData.phone_number ?? ""} onChange={handleInputChange} />
                   </div>
-                  <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="role">Роль</Label>
-                      <Select value={formData.role?.toString() ?? ""} onValueChange={(v) => handleSelectChange("role", v)}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Выберите роль" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Object.entries(USER_ROLES).map(([key, value]) => (
-                            <SelectItem key={key} value={value.toString()}>
-                              {ROLE_LABELS[value]}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <EntityPicker
+                        options={roleOptions}
+                        value={formData.role ?? null}
+                        onSelect={(v) => setFormData((prev) => ({ ...prev, role: parseInt(v, 10) }))}
+                        placeholder="Выберите роль"
+                        disabled={isEditingSelf}
+                      />
+                      {isEditingSelf && (
+                        <p className="text-sm text-muted-foreground">
+                          Изменение своей роли недоступно во избежание потери доступа к системе.
+                        </p>
+                      )}
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="language_code">Язык</Label>
-                      <Select value={formData.language_code ?? "ru"} onValueChange={(v) => handleSelectChange("language_code", v)}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="ru">Русский</SelectItem>
-                          <SelectItem value="en">English</SelectItem>
-                          <SelectItem value="kz">Қазақша</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <Label>Объект</Label>
+                      <EntityPicker<RentalObject>
+                        dataConfig={{
+                          data: objects,
+                          getValue: (o) => o.id,
+                          getLabel: (o) => (o.name ? `${o.name} (БЦ-${o.id})` : `БЦ-${o.id}`),
+                        }}
+                        value={formData.object_id ?? null}
+                        onSelect={(obj) => setFormData((prev) => ({ ...prev, object_id: obj.id }))}
+                        placeholder="Не назначен"
+                      />
                     </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Объект</Label>
-                    <DataPicker
-                      title="Выбор объекта"
-                      description="Найдите объект по названию или адресу."
-                      data={objects}
-                      fields={objectFields}
-                      value={formData.object_id}
-                      displayValue={
-                        formData.object_id
-                          ? (() => {
-                              const obj = objects.find((o) => o.id === formData.object_id)
-                              return obj ? `${obj.name} (БЦ-${obj.id})` : `БЦ-${formData.object_id}`
-                            })()
-                          : undefined
-                      }
-                      placeholder="Не назначен"
-                      onSelect={(obj: RentalObject) => setFormData((prev) => ({ ...prev, object_id: obj.id }))}
-                      open={isObjectPickerOpen}
-                      onOpenChange={setIsObjectPickerOpen}
-                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="legal_entity">Юр. лицо</Label>

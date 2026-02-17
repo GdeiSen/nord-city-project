@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
@@ -10,8 +10,9 @@ import { Button } from "@/components/ui/button"
 import { IconEdit } from "@tabler/icons-react"
 import { Feedback } from "@/types"
 import { feedbackApi, userApi } from "@/lib/api"
-import { useLoading } from "@/hooks/use-loading"
-import { useCanEdit } from "@/hooks/use-can-edit"
+import { formatDate } from "@/lib/date-utils"
+import { useLoading, useRouteId } from "@/hooks"
+import { useCanEdit } from "@/hooks"
 import { toast } from "sonner"
 import { Toaster } from "@/components/ui/sonner"
 import {
@@ -23,20 +24,9 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 
-function formatDate(dateString: string) {
-  return new Date(dateString).toLocaleDateString("ru-RU", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}
-
 export default function FeedbackDetailPage() {
-  const params = useParams<{ id: string }>()
   const router = useRouter()
-  const feedbackId = Number(params?.id)
+  const { id: feedbackId } = useRouteId({ paramKey: "id", parseMode: "number" })
   const { loading, withLoading } = useLoading(true)
   const canEdit = useCanEdit()
   const [feedback, setFeedback] = useState<Feedback | null>(null)
@@ -45,7 +35,7 @@ export default function FeedbackDetailPage() {
     if (!feedbackId || Number.isNaN(feedbackId)) return
     withLoading(async () => {
       const [feedbackData, users] = await Promise.all([
-        feedbackApi.getById(feedbackId),
+        feedbackApi.getById(Number(feedbackId)),
         userApi.getAll(),
       ])
       const user = users.find((u) => u.id === feedbackData.user_id)
@@ -59,7 +49,7 @@ export default function FeedbackDetailPage() {
     })
   }, [feedbackId])
 
-  if (Number.isNaN(feedbackId)) {
+  if (feedbackId == null || (typeof feedbackId === "number" && Number.isNaN(feedbackId))) {
     return (
       <div className="flex min-h-screen flex-col">
         <AppSidebar />

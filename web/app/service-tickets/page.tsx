@@ -8,17 +8,20 @@ import { SidebarInset } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { IconPlus, IconClock, IconCheck, IconX, IconAlertTriangle } from "@tabler/icons-react"
-import { ServiceTicket, TICKET_STATUS, TICKET_STATUS_LABELS_RU, TICKET_PRIORITY, TICKET_PRIORITY_LABELS_RU } from "@/types"
+import { ServiceTicket, TICKET_STATUS, TICKET_STATUS_LABELS_RU } from "@/types"
 import { serviceTicketApi } from "@/lib/api"
 import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
 import { ColumnDef } from "@tanstack/react-table"
 import { DataTable, createSelectColumn } from "@/components/data-table"
 import { serviceTicketColumnMeta } from "@/lib/table-configs"
+import { formatDate } from "@/lib/date-utils"
 import { PageHeader } from "@/components/page-header"
-import { useServerPaginatedData } from "@/hooks/use-server-paginated-data"
-import { useFilterPickerData } from "@/hooks/use-filter-picker-data"
-import { useCanEdit } from "@/hooks/use-can-edit"
+import {
+  useServerPaginatedData,
+  useFilterPickerData,
+  useCanEdit,
+} from "@/hooks"
 
 export default function ServiceTicketsPage() {
   const router = useRouter()
@@ -39,41 +42,16 @@ export default function ServiceTicketsPage() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case TICKET_STATUS.NEW:
-        return <Badge variant="outline"><IconX className="h-3 w-3 mr-1" />{TICKET_STATUS_LABELS_RU[TICKET_STATUS.NEW]}</Badge>
+        return <Badge variant="destructive"><IconX className="h-3 w-3 mr-1" />{TICKET_STATUS_LABELS_RU[TICKET_STATUS.NEW]}</Badge>
       case TICKET_STATUS.ACCEPTED:
-        return <Badge variant="outline"><IconClock className="h-3 w-3 mr-1" />{TICKET_STATUS_LABELS_RU[TICKET_STATUS.ACCEPTED]}</Badge>
+        return <Badge variant="secondary"><IconClock className="h-3 w-3 mr-1" />{TICKET_STATUS_LABELS_RU[TICKET_STATUS.ACCEPTED]}</Badge>
       case TICKET_STATUS.ASSIGNED:
-        return <Badge variant="outline"><IconAlertTriangle className="h-3 w-3 mr-1" />{TICKET_STATUS_LABELS_RU[TICKET_STATUS.ASSIGNED]}</Badge>
+        return <Badge variant="default"><IconAlertTriangle className="h-3 w-3 mr-1" />{TICKET_STATUS_LABELS_RU[TICKET_STATUS.ASSIGNED]}</Badge>
       case TICKET_STATUS.COMPLETED:
         return <Badge variant="outline"><IconCheck className="h-3 w-3 mr-1" />{TICKET_STATUS_LABELS_RU[TICKET_STATUS.COMPLETED]}</Badge>
       default:
         return <Badge variant="outline">Неизвестно</Badge>
     }
-  }
-
-  const getPriorityBadge = (priority: number) => {
-    switch (priority) {
-      case TICKET_PRIORITY.LOW:
-        return <Badge variant="outline">{TICKET_PRIORITY_LABELS_RU[TICKET_PRIORITY.LOW]}</Badge>
-      case TICKET_PRIORITY.MEDIUM:
-        return <Badge variant="secondary">{TICKET_PRIORITY_LABELS_RU[TICKET_PRIORITY.MEDIUM]}</Badge>
-      case TICKET_PRIORITY.HIGH:
-        return <Badge variant="destructive">{TICKET_PRIORITY_LABELS_RU[TICKET_PRIORITY.HIGH]}</Badge>
-      case TICKET_PRIORITY.CRITICAL:
-        return <Badge className="bg-red-600 hover:bg-red-700">{TICKET_PRIORITY_LABELS_RU[TICKET_PRIORITY.CRITICAL]}</Badge>
-      default:
-        return <Badge variant="outline">Неопределен</Badge>
-    }
-  }
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("ru-RU", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
   }
 
   const columns: ColumnDef<ServiceTicket>[] = [
@@ -153,22 +131,10 @@ export default function ServiceTicketsPage() {
       cell: ({ row }) => getStatusBadge(row.original.status),
     },
     {
-      accessorKey: "priority",
-      header: "Приоритет",
-      meta: serviceTicketColumnMeta.priority,
-      cell: ({ row }) => getPriorityBadge(row.original.priority),
-    },
-    {
-      accessorKey: "category",
-      header: "Категория",
-      meta: serviceTicketColumnMeta.category,
-      cell: ({ row }) => <Badge variant="outline">{row.original.category || "No category"}</Badge>,
-    },
-    {
       accessorKey: "created",
       header: "Создана",
       meta: serviceTicketColumnMeta.created,
-      cell: ({ row }) => <div className="text-sm">{formatDate(row.original.created_at)}</div>,
+      cell: ({ row }) => <div className="text-sm">{formatDate(row.original.created_at, { includeTime: true })}</div>,
     },
   ]
 

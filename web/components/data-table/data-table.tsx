@@ -17,6 +17,7 @@ import {
   IconSearchOff,
   IconX,
 } from "@tabler/icons-react"
+import type { Column } from "@tanstack/react-table"
 import {
   ColumnDef,
   ColumnFiltersState,
@@ -97,15 +98,24 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { DataTableToolbar } from "./toolbar"
-import { DataTableSortPanel } from "./sort-panel"
-import { DataTableFilterPanel } from "./filter-panel"
+import { DataTableSortPanel } from "./sort"
+import { DataTableFilterPanel } from "./filter"
 import {
   getFilterConfigFromMeta,
   needsValue,
   createClientFilterFn,
-} from "./filter-config"
+} from "./filter"
 import type { FilterItem, ServerPaginationParams } from "@/types/filters"
 import type { ColumnFilter, ColumnSort, DataTableColumnMeta, DataTableContextMenuActions } from "./types"
+
+/** Returns human-readable column label for column selector (header string or meta.headerLabel or id) */
+function getColumnLabel(column: Column<unknown, unknown>): string {
+  const header = column.columnDef.header
+  if (typeof header === "string") return header
+  const meta = (column.columnDef as { meta?: DataTableColumnMeta })?.meta
+  if (meta?.headerLabel) return meta.headerLabel
+  return column.id
+}
 
 /**
  * Zod schema for data table row validation
@@ -188,6 +198,9 @@ export function DataTable<TData>({
   filterPickerData?: import("@/hooks/data/use-filter-picker-data").FilterPickerData
 }) {
   const pageSizeFromParams = serverParams?.pageSize ?? 10
+  const isCardsView = view === "cards"
+  const effectivePageSize =
+    isCardsView && !serverPagination ? 10000 : pageSizeFromParams
   const [rowSelection, setRowSelection] = React.useState({})
   const [columnVisibility, setColumnVisibility] =
     React.useState<VisibilityState>({})
@@ -197,7 +210,7 @@ export function DataTable<TData>({
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [pagination, setPagination] = React.useState({
     pageIndex: serverParams?.pageIndex ?? 0,
-    pageSize: pageSizeFromParams,
+    pageSize: effectivePageSize,
   })
   const [isSortFilterOpen, setIsSortFilterOpen] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState<'sort' | 'filter'>('sort')
@@ -345,8 +358,8 @@ export function DataTable<TData>({
     return false
   }, [columnSearchActive])
 
-  const pageCount = serverPagination && totalRowCount > 0
-    ? Math.ceil(totalRowCount / pagination.pageSize) || 1
+  const pageCount = serverPagination
+    ? (totalRowCount === 0 ? 1 : Math.ceil(totalRowCount / pagination.pageSize) || 1)
     : undefined
 
   const table = useReactTable({
@@ -503,16 +516,18 @@ export function DataTable<TData>({
 
   return (
     <div className="w-full min-w-0 flex flex-col gap-4">
-      <DataTableToolbar
-        globalQuery={globalQuery}
-        onGlobalQueryChange={setGlobalQuery}
-        isSortFilterOpen={isSortFilterOpen}
-        onSortFilterOpenChange={setIsSortFilterOpen}
-        activeSortsCount={advancedSorts.length}
-        activeFiltersCount={advancedFilters.length}
-        sortFilterContent={renderSortFilterContent()}
-        isMobile={isMobile}
-      />
+      {!isCardsView && (
+        <DataTableToolbar
+          globalQuery={globalQuery}
+          onGlobalQueryChange={setGlobalQuery}
+          isSortFilterOpen={isSortFilterOpen}
+          onSortFilterOpenChange={setIsSortFilterOpen}
+          activeSortsCount={advancedSorts.length}
+          activeFiltersCount={advancedFilters.length}
+          sortFilterContent={renderSortFilterContent()}
+          isMobile={isMobile}
+        />
+      )}
       {view === 'cards' ? (
         <div className={cn("grid gap-6 md:grid-cols-2 xl:grid-cols-3", cardsClassName)}>
           {loading ? (
@@ -821,85 +836,86 @@ export function DataTable<TData>({
           )}
         </div>
       )}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex-1 text-sm text-muted-foreground">
-          {serverPagination
-            ? `${table.getFilteredSelectedRowModel().rows.length} of ${totalRowCount} row(s) selected.`
-            : `${table.getFilteredSelectedRowModel().rows.length} of ${table.getFilteredRowModel().rows.length} row(s) selected.`}
-        </div>
-        <div className="flex items-center justify-end space-x-4 h-9">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-9">
-                <IconLayoutColumns className="h-4 w-4 mr-2" />
-                Columns
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              {table.getAllColumns().filter((column) => column.getCanHide()).map((column) => (
-                <DropdownMenuCheckboxItem
-                  key={column.id}
-                  className="capitalize"
-                  checked={column.getIsVisible()}
-                  onCheckedChange={(value) => column.toggleVisibility(!!value)}
-                >
-                  {column.id}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-        <div className="flex items-center space-x-2">
-          <Select
-            value={`${table.getState().pagination.pageSize}`}
-            onValueChange={(value) => table.setPageSize(Number(value))}
-          >
-            <SelectTrigger className="w-[70px]">
-              <SelectValue placeholder={table.getState().pagination.pageSize} />
-            </SelectTrigger>
-            <SelectContent>
-              {[10, 20, 30, 40, 50].map((size) => (
-                <SelectItem key={size} value={`${size}`}>{size}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <div className="text-sm text-muted-foreground">
-            Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()}
+      {!isCardsView && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex-1 text-sm text-muted-foreground">
+            {serverPagination
+              ? `${table.getFilteredSelectedRowModel().rows.length} of ${totalRowCount} row(s) selected.`
+              : `${table.getFilteredSelectedRowModel().rows.length} of ${table.getFilteredRowModel().rows.length} row(s) selected.`}
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.setPageIndex(0)}
-            disabled={!table.getCanPreviousPage()}
-          >
-            <IconChevronsLeft className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
-          >
-            <IconChevronLeft className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-          >
-            <IconChevronRight className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.setPageIndex(table.getPageCount() - 1)}
-            disabled={!table.getCanNextPage()}
-          >
-            <IconChevronsRight className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center justify-end space-x-4 h-9">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-9">
+                  <IconLayoutColumns className="h-4 w-4 mr-2" />
+                  Столбцы
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                {table.getAllColumns().filter((column) => column.getCanHide()).map((column) => (
+                  <DropdownMenuCheckboxItem
+                    key={column.id}
+                    checked={column.getIsVisible()}
+                    onCheckedChange={(value) => column.toggleVisibility(!!value)}
+                  >
+                    {getColumnLabel(column)}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Select
+              value={`${table.getState().pagination.pageSize}`}
+              onValueChange={(value) => table.setPageSize(Number(value))}
+            >
+              <SelectTrigger className="w-[70px]">
+                <SelectValue placeholder={table.getState().pagination.pageSize} />
+              </SelectTrigger>
+              <SelectContent>
+                {[10, 20, 30, 40, 50].map((size) => (
+                  <SelectItem key={size} value={`${size}`}>{size}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="text-sm text-muted-foreground">
+              Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => table.setPageIndex(0)}
+              disabled={!table.getCanPreviousPage()}
+            >
+              <IconChevronsLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => table.previousPage()}
+              disabled={!table.getCanPreviousPage()}
+            >
+              <IconChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => table.nextPage()}
+              disabled={!table.getCanNextPage()}
+            >
+              <IconChevronRight className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => table.setPageIndex(table.getPageCount() - 1)}
+              disabled={!table.getCanNextPage()}
+            >
+              <IconChevronsRight className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

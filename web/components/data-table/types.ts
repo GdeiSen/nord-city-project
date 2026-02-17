@@ -23,6 +23,8 @@ export interface DataTableColumnMeta {
   filterSelect?: { value: string; label: string }[]
   type?: "string" | "number" | "date"
   nullable?: boolean
+  /** Russian label for column selector when header is a custom component */
+  headerLabel?: string
 }
 
 export interface DataTableContextMenuActions<TData> {

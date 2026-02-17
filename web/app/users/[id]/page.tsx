@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
@@ -11,8 +11,9 @@ import { Badge } from "@/components/ui/badge"
 import { IconEdit } from "@tabler/icons-react"
 import { User, USER_ROLES, ROLE_LABELS, ROLE_BADGE_VARIANTS } from "@/types"
 import { userApi, rentalObjectApi } from "@/lib/api"
-import { useLoading } from "@/hooks/use-loading"
-import { useCanEdit } from "@/hooks/use-can-edit"
+import { formatDate } from "@/lib/date-utils"
+import { useLoading, useRouteId } from "@/hooks"
+import { useCanEdit } from "@/hooks"
 import { toast } from "sonner"
 import { Toaster } from "@/components/ui/sonner"
 import {
@@ -32,20 +33,9 @@ function getRoleBadge(role: number | undefined) {
   return <Badge variant={ROLE_BADGE_VARIANTS[roleKey]} className={badgeClass}>{ROLE_LABELS[roleKey]}</Badge>
 }
 
-function formatDate(dateString: string) {
-  return new Date(dateString).toLocaleDateString("ru-RU", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}
-
 export default function UserDetailPage() {
-  const params = useParams<{ id: string }>()
   const router = useRouter()
-  const userId = Number(params?.id)
+  const { id: userId, isEdit: _isEdit } = useRouteId({ paramKey: "id", parseMode: "number" })
   const { loading, withLoading } = useLoading(true)
   const canEdit = useCanEdit()
   const [user, setUser] = useState<User | null>(null)
@@ -54,7 +44,7 @@ export default function UserDetailPage() {
     if (!userId || Number.isNaN(userId)) return
     withLoading(async () => {
       const [userData, objects] = await Promise.all([
-        userApi.getById(userId),
+        userApi.getById(Number(userId)),
         rentalObjectApi.getAll(),
       ])
       const obj = objects.find((o) => o.id === userData.object_id)
@@ -68,7 +58,7 @@ export default function UserDetailPage() {
     })
   }, [userId])
 
-  if (Number.isNaN(userId)) {
+  if (userId == null || (typeof userId === "number" && Number.isNaN(userId))) {
     return (
       <div className="flex min-h-screen flex-col">
         <AppSidebar />
@@ -124,16 +114,18 @@ export default function UserDetailPage() {
           ) : user ? (
             <div className="space-y-6">
               <div>
-                <h1 className="text-2xl font-semibold">
-                  {user.last_name} {user.first_name} {user.middle_name}
-                </h1>
+                <div className="flex flex-wrap items-center gap-2 mb-4">
+                  <h1 className="text-2xl font-semibold">
+                    {user.last_name} {user.first_name} {user.middle_name}
+                  </h1>
+                  {getRoleBadge(user.role)}
+                </div>
                 <p className="text-sm text-muted-foreground mt-1">
                   @{user.username} · Создан {formatDate(user.created_at)}
                   {user.updated_at !== user.created_at && (
                     <> · Обновлён {formatDate(user.updated_at)}</>
                   )}
                 </p>
-                <div className="mt-3">{getRoleBadge(user.role)}</div>
               </div>
               <div className="space-y-6">
                 <div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2">

@@ -10,7 +10,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
-import { MultiSelectPicker } from "./multi-select-picker"
+import { EntityPicker } from "@/components/entity-picker"
 import { parse } from "date-fns"
 import { ru } from "date-fns/locale"
 import {
@@ -19,7 +19,7 @@ import {
 } from "./filter-config"
 import type { FilterColumnConfig } from "./filter-config"
 import type { FilterOperator } from "@/types/filters"
-import type { FilterPickerData } from "@/hooks/use-filter-picker-data"
+import type { FilterPickerData } from "@/hooks"
 
 function toDateString(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0")
@@ -111,7 +111,8 @@ export function FilterValueEditor({
             : String(item.name ?? `#${item.id}`),
       }))
       return (
-        <MultiSelectPicker
+        <EntityPicker
+          multiple
           options={options}
           value={value}
           onChange={(v) => onChange({ value: v })}
@@ -126,7 +127,8 @@ export function FilterValueEditor({
 
     case "select": {
       return (
-        <MultiSelectPicker
+        <EntityPicker
+          multiple
           options={config.options}
           value={value}
           onChange={(v) => onChange({ value: v })}

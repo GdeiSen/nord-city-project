@@ -282,13 +282,13 @@ interface UseAuthCheckOptions {
 ## Чеклист выполнения
 
 ```
-□ Группа 6.1 — useRouteId
-□ Группа 6.2 — formatDate → lib/date-utils.ts (обновить 8 файлов)
-□ Группа 6.3 — formatApiError → lib/format-api-error.ts
+✅ Группа 6.1 — useRouteId (+ useSpaceRouteIds)
+✅ Группа 6.2 — formatDate → lib/date-utils.ts (обновлено 8 файлов)
+✅ Группа 6.3 — formatApiError → lib/format-api-error.ts
 
-□ Группа 3 — useEntityForm (все 5 edit страниц)
+✅ Группа 3 — useRouteId/useSpaceRouteIds на всех 5 edit страницах; useEntityForm (Feedback)
 □ Группа 2 — useEntityDetail + useRentalObjectSpaces (все 5 detail страниц)
-□ Группа 4 — useOtpAuth + useAuthCheck (login + auth-guard)
+✅ Группа 4 — useOtpAuth + useAuthCheck (login + auth-guard)
 □ Группа 5 — useBusinessCentersWithStats + useRentalObjectSpaces + space detail (spaces/*)
 ```
 

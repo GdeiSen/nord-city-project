@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
@@ -19,9 +19,9 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { ServiceTicket, User, RentalObject, TICKET_STATUS, TICKET_PRIORITY } from "@/types"
+import { ServiceTicket, User, RentalObject, TICKET_STATUS } from "@/types"
 import { serviceTicketApi, userApi, rentalObjectApi } from "@/lib/api"
-import { DataPicker, DataPickerField } from "@/components/data-picker"
+import { EntityPicker } from "@/components/entity-picker"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,38 +33,19 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { useLoading } from "@/hooks/use-loading"
+import { useLoading, useRouteId } from "@/hooks"
 import { toast } from "sonner"
 import { Toaster } from "@/components/ui/sonner"
 
-const userFields: DataPickerField[] = [
-  { key: "first_name", label: "Имя", searchable: true },
-  { key: "last_name", label: "Фамилия", searchable: true },
-  { key: "username", label: "Username", searchable: true },
-  { key: "email", label: "Email", searchable: true },
-  { key: "id", label: "ID", render: (value) => <span className="text-right">#{value}</span> },
-]
-
-const objectFields: DataPickerField[] = [
-  { key: "name", label: "Название", searchable: true },
-  { key: "address", label: "Адрес", searchable: true },
-  { key: "id", label: "ID", render: (value) => <span className="text-right">{value}</span> },
-]
-
 export default function ServiceTicketEditPage() {
-  const params = useParams<{ id?: string[] }>()
   const router = useRouter()
-  const idParam = params?.id?.[0]
-  const ticketId = idParam ? parseInt(idParam, 10) : null
-  const isEdit = ticketId != null && !Number.isNaN(ticketId)
+  const { id: ticketId, isEdit } = useRouteId({ paramKey: "id", parseMode: "number" })
 
   const { loading, withLoading } = useLoading(true)
   const [users, setUsers] = useState<User[]>([])
   const [objects, setObjects] = useState<RentalObject[]>([])
   const [formData, setFormData] = useState<Partial<ServiceTicket>>({})
   const [saving, setSaving] = useState(false)
-  const [isUserPickerOpen, setIsUserPickerOpen] = useState(false)
-  const [isObjectPickerOpen, setIsObjectPickerOpen] = useState(false)
 
   useEffect(() => {
     const load = async () => {
@@ -72,19 +53,19 @@ export default function ServiceTicketEditPage() {
       setUsers(allUsers)
       setObjects(allObjects)
       if (isEdit) {
-        const ticket = await serviceTicketApi.getById(ticketId!)
+        const ticket = await serviceTicketApi.getById(Number(ticketId!))
         const user = allUsers.find((u) => u.id === ticket.user_id)
         setFormData({
           ...ticket,
           user: user || undefined,
         })
       } else {
-        setFormData({ priority: 1 })
+        setFormData({})
       }
     }
     withLoading(load).catch((err: any) => {
       toast.error("Не удалось загрузить данные", { description: err?.message })
-      if (isEdit) router.push(`/service-tickets/${ticketId}`)
+      if (isEdit) router.push(`/service-tickets/${Number(ticketId!)}`)
       else router.push("/service-tickets")
     })
   }, [ticketId, isEdit])
@@ -103,7 +84,7 @@ export default function ServiceTicketEditPage() {
     try {
       const allowedFields = [
         "user_id", "object_id", "description", "location", "image", "status", "ddid",
-        "answer", "header", "details", "priority", "category", "msid", "meta",
+        "answer", "header", "details", "msid", "meta",
       ] as const
       const payload: Record<string, unknown> = {}
       for (const key of allowedFields) {
@@ -111,17 +92,14 @@ export default function ServiceTicketEditPage() {
         if (key === "user_id" && (val === undefined || val === null)) {
           val = (formData as any).user?.id
         }
-        if (key === "priority") {
-          val = typeof val === "string" ? parseInt(String(val), 10) : (val ?? 1)
-        }
         if (val !== undefined && val !== null) {
           payload[key] = val
         }
       }
       if (isEdit) {
-        await serviceTicketApi.update(ticketId!, payload as any)
+        await serviceTicketApi.update(Number(ticketId!), payload as any)
         toast.success("Заявка обновлена")
-        router.push(`/service-tickets/${ticketId}`)
+        router.push(`/service-tickets/${Number(ticketId!)}`)
       } else {
         if (!payload.user_id) {
           toast.error("Выберите пользователя")
@@ -143,7 +121,7 @@ export default function ServiceTicketEditPage() {
   const handleDelete = async () => {
     if (!isEdit) return
     try {
-      await serviceTicketApi.delete(ticketId!)
+      await serviceTicketApi.delete(Number(ticketId!))
       toast.success("Заявка удалена")
       router.push("/service-tickets")
     } catch (err: any) {
@@ -199,81 +177,49 @@ export default function ServiceTicketEditPage() {
                     <Label htmlFor="location">Местоположение</Label>
                     <Input id="location" name="location" value={formData.location ?? ""} onChange={handleInputChange} />
                   </div>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="priority">Приоритет</Label>
-                      <Select
-                        value={String(formData.priority ?? "")}
-                        onValueChange={(v) => handleSelectChange("priority", v)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Выберите приоритет" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={String(TICKET_PRIORITY.LOW)}>Низкий</SelectItem>
-                          <SelectItem value={String(TICKET_PRIORITY.MEDIUM)}>Средний</SelectItem>
-                          <SelectItem value={String(TICKET_PRIORITY.HIGH)}>Высокий</SelectItem>
-                          <SelectItem value={String(TICKET_PRIORITY.CRITICAL)}>Критический</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="status">Статус</Label>
-                      <Select value={formData.status ?? ""} onValueChange={(v) => handleSelectChange("status", v)}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Выберите статус" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={TICKET_STATUS.NEW}>Новая</SelectItem>
-                          <SelectItem value={TICKET_STATUS.ACCEPTED}>Принята</SelectItem>
-                          <SelectItem value={TICKET_STATUS.ASSIGNED}>В работе</SelectItem>
-                          <SelectItem value={TICKET_STATUS.COMPLETED}>Завершена</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="status">Статус</Label>
+                    <Select value={formData.status ?? ""} onValueChange={(v) => handleSelectChange("status", v)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Выберите статус" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={TICKET_STATUS.NEW}>Новая</SelectItem>
+                        <SelectItem value={TICKET_STATUS.ACCEPTED}>Принята</SelectItem>
+                        <SelectItem value={TICKET_STATUS.ASSIGNED}>В работе</SelectItem>
+                        <SelectItem value={TICKET_STATUS.COMPLETED}>Завершена</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="user_id">Пользователь</Label>
-                    <DataPicker
-                      title="Выбор пользователя"
-                      description="Найдите пользователя по имени, email или username."
-                      data={users}
-                      fields={userFields}
-                      value={formData.user_id}
-                      displayValue={
-                        formData.user_id
-                          ? (() => {
-                              const user = users.find((u) => u.id === formData.user_id)
-                              return user ? `${user.last_name} ${user.first_name} (@${user.username})` : `User #${formData.user_id}`
-                            })()
-                          : undefined
-                      }
+                    <EntityPicker<User>
+                      dataConfig={{
+                        data: users,
+                        getValue: (u) => u.id,
+                        getLabel: (u) => {
+                          const name = `${u.last_name ?? ""} ${u.first_name ?? ""}`.trim()
+                          return name
+                            ? `${name}${u.username ? ` (@${u.username})` : ""}`
+                            : (u.username ? `@${u.username}` : `#${u.id}`)
+                        },
+                      }}
+                      value={formData.user_id ?? null}
+                      onSelect={(user) => setFormData((prev) => ({ ...prev, user_id: user.id }))}
                       placeholder="Не назначен"
-                      onSelect={(user: User) => setFormData((prev) => ({ ...prev, user_id: user.id }))}
-                      open={isUserPickerOpen}
-                      onOpenChange={setIsUserPickerOpen}
                     />
                   </div>
                   <div className="space-y-2">
                     <Label>Объект</Label>
-                    <DataPicker
-                      title="Выбор объекта"
-                      description="Найдите объект по названию или адресу."
-                      data={objects}
-                      fields={objectFields}
-                      value={formData.object_id}
-                      displayValue={
-                        formData.object_id
-                          ? (() => {
-                              const obj = objects.find((o) => o.id === formData.object_id)
-                              return obj ? `${obj.name} (БЦ-${obj.id})` : `БЦ-${formData.object_id}`
-                            })()
-                          : undefined
-                      }
+                    <EntityPicker<RentalObject>
+                      dataConfig={{
+                        data: objects,
+                        getValue: (o) => o.id,
+                        getLabel: (o) => (o.name ? `${o.name} (БЦ-${o.id})` : `БЦ-${o.id}`),
+                      }}
+                      value={formData.object_id ?? null}
+                      onSelect={(obj) => setFormData((prev) => ({ ...prev, object_id: obj.id }))}
                       placeholder="Не назначен"
-                      onSelect={(obj: RentalObject) => setFormData((prev) => ({ ...prev, object_id: obj.id }))}
-                      open={isObjectPickerOpen}
-                      onOpenChange={setIsObjectPickerOpen}
                     />
                   </div>
 

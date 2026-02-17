@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/breadcrumb"
 import { RentalObject } from "@/types"
 import { rentalObjectApi } from "@/lib/api"
-import { PhotoLinksEditor } from "@/components/photo-links-editor"
+import { MediaUploader } from "@/components/media-uploader"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,16 +33,13 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { useLoading } from "@/hooks/use-loading"
+import { useLoading, useRouteId } from "@/hooks"
 import { toast } from "sonner"
 import { Toaster } from "@/components/ui/sonner"
 
 export default function RentalObjectEditPage() {
-  const params = useParams<{ id?: string[] }>()
   const router = useRouter()
-  const idParam = params?.id?.[0]
-  const objectId = idParam ? parseInt(idParam, 10) : null
-  const isEdit = objectId != null && !Number.isNaN(objectId)
+  const { id: objectId, isEdit } = useRouteId({ paramKey: "id", parseMode: "number" })
 
   const { loading, withLoading } = useLoading(true)
   const [formData, setFormData] = useState<Partial<RentalObject>>({ status: "ACTIVE", photos: [] })
@@ -54,11 +51,11 @@ export default function RentalObjectEditPage() {
       return
     }
     withLoading(async () => {
-      const data = await rentalObjectApi.getById(objectId!)
+      const data = await rentalObjectApi.getById(Number(objectId!))
       setFormData({ ...data, photos: data.photos ?? [] })
     }).catch((err: any) => {
       toast.error("Не удалось загрузить объект", { description: err?.message })
-      router.push(`/spaces/${objectId}`)
+      router.push(`/spaces/${Number(objectId!)}`)
     })
   }, [objectId, isEdit])
 
@@ -96,9 +93,9 @@ export default function RentalObjectEditPage() {
       }
 
       if (isEdit) {
-        await rentalObjectApi.update(objectId!, payload)
+        await rentalObjectApi.update(Number(objectId!), payload)
         toast.success("Бизнес-центр обновлён")
-        router.push(`/spaces/${objectId}`)
+        router.push(`/spaces/${Number(objectId!)}`)
       } else {
         const created = await rentalObjectApi.create(payload)
         toast.success("Бизнес-центр создан")
@@ -114,7 +111,7 @@ export default function RentalObjectEditPage() {
   const handleDelete = async () => {
     if (!isEdit) return
     try {
-      await rentalObjectApi.delete(objectId!)
+      await rentalObjectApi.delete(Number(objectId!))
       toast.success("Бизнес-центр удалён")
       router.push("/spaces")
     } catch (err: any) {
@@ -200,12 +197,11 @@ export default function RentalObjectEditPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <PhotoLinksEditor
-                    label="Фотографии"
-                    description="Добавьте ссылки на изображения."
+                  <MediaUploader
+                    label="Фото и видео"
+                    description="Загрузите фотографии или короткие видео."
                     value={formData.photos ?? []}
                     onChange={handlePhotosChange}
-                    addButtonLabel="Добавить фото"
                   />
 
                   <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end pt-4">
