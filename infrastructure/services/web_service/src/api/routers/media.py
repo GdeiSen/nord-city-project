@@ -50,26 +50,20 @@ async def serve_media(file_path: str):
     media_url = f"{MEDIA_SERVICE_URL}/media/{path}"
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            async with client.stream("GET", media_url) as resp:
-                if resp.status_code == 404:
-                    raise HTTPException(status_code=404, detail="File not found")
-                if resp.status_code != 200:
-                    raise HTTPException(status_code=502, detail="Media service error")
-                content_type = resp.headers.get(
-                    "content-type", "application/octet-stream"
-                )
-                content_length = resp.headers.get("content-length")
-                headers = {}
-                if content_length:
-                    headers["Content-Length"] = content_length
-
-                async def gen():
-                    async for chunk in resp.aiter_bytes():
-                        yield chunk
-
-                return StreamingResponse(
-                    gen(), media_type=content_type, headers=headers
-                )
+            resp = await client.get(media_url)
+            if resp.status_code == 404:
+                raise HTTPException(status_code=404, detail="File not found")
+            if resp.status_code != 200:
+                raise HTTPException(status_code=502, detail="Media service error")
+            content = resp.content
+            content_type = resp.headers.get(
+                "content-type", "application/octet-stream"
+            )
+            return StreamingResponse(
+                iter([content]),
+                media_type=content_type,
+                headers={"Content-Length": str(len(content))},
+            )
     except httpx.RequestError as e:
         logger.error(f"Media proxy error for {path}: {e}")
         raise HTTPException(status_code=502, detail="Media service unavailable")
