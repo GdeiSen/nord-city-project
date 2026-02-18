@@ -32,6 +32,16 @@ class RentalObjectService(BaseService):
             return result["data"]
         return []
 
+    async def get_available_objects(self) -> List[Object]:
+        """Returns only objects with status='ACTIVE' (visible on site, shown in bot)."""
+        all_objs = await self.get_all_objects()
+        result = []
+        for obj in all_objs:
+            status = obj.get("status", "ACTIVE") if isinstance(obj, dict) else getattr(obj, "status", "ACTIVE")
+            if status == "ACTIVE":
+                result.append(obj)
+        return result
+
     async def update_object(self, object_id: int, update_data: Dict[str, Any]) -> Optional[Object]:
         result = await self.bot.managers.database.object.update(entity_id=object_id, update_data=update_data, model_class=Object)
         if result["success"]:

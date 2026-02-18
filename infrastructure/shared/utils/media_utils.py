@@ -1,5 +1,5 @@
 """
-Media URL utilities.
+Media utilities.
 Extraction, validation, and conversion of media URLs.
 """
 

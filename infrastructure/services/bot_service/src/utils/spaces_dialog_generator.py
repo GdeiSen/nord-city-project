@@ -51,8 +51,8 @@ class SpacesDialogGenerator:
         """
         try:
             
-            # Получаем все объекты недвижимости
-            objects = await self.rental_object_service.get_all_objects()
+            # Получаем только доступные объекты (status=ACTIVE)
+            objects = await self.rental_object_service.get_available_objects()
             if not objects:
                 logger.warning("Не найдено объектов недвижимости")
                 return None

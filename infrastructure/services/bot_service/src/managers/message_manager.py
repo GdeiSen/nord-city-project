@@ -2,7 +2,7 @@ from typing import List, Optional, TYPE_CHECKING
 from telegram import InlineKeyboardMarkup, Message
 from telegram.constants import ParseMode
 from shared.constants import Variables
-from shared.utils.media_urls import to_public_media_url
+from shared.utils.media_utils import to_public_media_url
 from .base_manager import BaseManager
 
 if TYPE_CHECKING:
