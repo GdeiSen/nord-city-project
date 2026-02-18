@@ -13,7 +13,8 @@ Usage
     python orchestrator.py --services site    # site + dependencies (web, db, bot, media)
     python orchestrator.py --service db       # start a SINGLE service in foreground
     python orchestrator.py --background       # run in background, logs → logs/
-    python orchestrator.py --kill            # stop all background processes
+    python orchestrator.py --kill             # stop (ports + state)
+    python orchestrator.py --kill-force      # aggressive stop (+ by name)
     python orchestrator.py --info             # show running processes
     python orchestrator.py --list             # list available services
 
@@ -36,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import os
 import signal
 import subprocess
@@ -473,37 +475,100 @@ def _load_state() -> Optional[Dict]:
         return None
 
 
-def kill_background_processes(console: Optional[Console] = None) -> bool:
-    """Terminate all background processes."""
-    c = console or Console()
-    state = _load_state()
-    if not state:
-        c.print("[yellow]No background orchestrator running.[/yellow]")
-        return False
+# Process name patterns for --kill-force (match project-related processes)
+FORCE_KILL_PATTERNS = [
+    "nord-city-project",  # project path
+    "orchestrator.py",
+    "next start",
+]
 
+
+def _kill_processes_by_name(console: Console) -> bool:
+    """Kill processes matching project-related names (force mode only)."""
+    my_pid = os.getpid()
     killed_any = False
-    orch_pid = state.get("orchestrator_pid")
-    services = state.get("services", {})
+    seen: set[int] = set()
 
-    for alias, pid in services.items():
-        if pid and _send_signal(pid, signal.SIGTERM):
-            c.print(f"  Stopped [bold]{alias}[/bold] (PID {pid})")
-            killed_any = True
-            time.sleep(0.5)
-
-    if orch_pid and _send_signal(orch_pid, signal.SIGTERM):
-        c.print(f"  Stopped [bold]orchestrator[/bold] (PID {orch_pid})")
-        killed_any = True
-
+    for pattern in FORCE_KILL_PATTERNS:
+        try:
+            result = subprocess.run(
+                ["pgrep", "-f", pattern],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0 and result.stdout:
+                for line in result.stdout.strip().split():
+                    if not line.isdigit():
+                        continue
+                    pid = int(line)
+                    if pid == my_pid or pid in seen:
+                        continue
+                    if not _process_exists(pid):
+                        continue
+                    seen.add(pid)
+                    console.print(f"  Killing process by name [bold]{pattern}[/bold]: PID {pid}")
+                    _send_signal(pid, signal.SIGTERM)
+                    killed_any = True
+        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+            continue
     if killed_any:
         time.sleep(1)
-        for alias, pid in services.items():
-            if pid and _process_exists(pid):
+        for pid in seen:
+            if _process_exists(pid):
                 _send_signal(pid, signal.SIGKILL)
-                c.print(f"  Force-killed [bold]{alias}[/bold] (PID {pid})")
-        if orch_pid and _process_exists(orch_pid):
-            _send_signal(orch_pid, signal.SIGKILL)
-            c.print(f"  Force-killed [bold]orchestrator[/bold] (PID {orch_pid})")
+                console.print(f"  Force-killed PID {pid}")
+    return killed_any
+
+
+def kill_background_processes(
+    console: Optional[Console] = None,
+    env_file: Optional[Path] = None,
+    force: bool = False,
+) -> bool:
+    """Terminate background processes. force=True also kills by process name."""
+    c = console or Console()
+    env_path = env_file or (PROJECT_ROOT / ".env")
+    state = _load_state()
+
+    killed_any = False
+
+    # Always kill by ports first (works even without state file)
+    c.print("[dim]Checking service ports for orphaned processes...[/dim]")
+    if _kill_processes_on_ports(c, env_path):
+        killed_any = True
+
+    orch_pid = state.get("orchestrator_pid") if state else None
+    services = state.get("services", {}) if state else {}
+
+    if state:
+        for alias, pid in services.items():
+            if pid and _process_exists(pid) and _send_signal(pid, signal.SIGTERM):
+                c.print(f"  Stopped [bold]{alias}[/bold] (PID {pid})")
+                killed_any = True
+                time.sleep(0.5)
+
+        if orch_pid and _process_exists(orch_pid) and _send_signal(orch_pid, signal.SIGTERM):
+            c.print(f"  Stopped [bold]orchestrator[/bold] (PID {orch_pid})")
+            killed_any = True
+
+        if killed_any:
+            time.sleep(1)
+            for alias, pid in services.items():
+                if pid and _process_exists(pid):
+                    _send_signal(pid, signal.SIGKILL)
+                    c.print(f"  Force-killed [bold]{alias}[/bold] (PID {pid})")
+            if orch_pid and _process_exists(orch_pid):
+                _send_signal(orch_pid, signal.SIGKILL)
+                c.print(f"  Force-killed [bold]orchestrator[/bold] (PID {orch_pid})")
+    else:
+        c.print("[dim]No background orchestrator state file.[/dim]")
+
+    # Force mode: also kill by process name patterns
+    if force:
+        c.print("[dim]Force mode: killing processes by name...[/dim]")
+        if _kill_processes_by_name(c):
+            killed_any = True
 
     try:
         if STATE_FILE.exists():
@@ -512,7 +577,9 @@ def kill_background_processes(console: Optional[Console] = None) -> bool:
         pass
 
     if killed_any:
-        c.print("[green]All background processes stopped.[/green]")
+        c.print("[green]All processes stopped.[/green]")
+    else:
+        c.print("[yellow]No processes to stop.[/yellow]")
     return killed_any
 
 
@@ -532,6 +599,138 @@ def _process_exists(pid: int) -> bool:
         return False
     except PermissionError:
         return True
+
+
+def _get_pids_on_port(port: int) -> List[int]:
+    """Return list of PIDs listening on the given port (Linux)."""
+    pids: List[int] = []
+
+    def _parse_pids(text: str) -> List[int]:
+        result = []
+        for token in text.replace("\n", " ").replace(":", " ").split():
+            if token.isdigit():
+                pid = int(token)
+                if pid != port:
+                    result.append(pid)
+        return result
+
+    def _parse_ss_line(line: str) -> Optional[int]:
+        # ss -tlpn: users:(("node",pid=12345,fd=21)) or pid=12345
+        m = re.search(r"pid=(\d+)", line)
+        return int(m.group(1)) if m else None
+
+    # 1. ss -tlpn (most common on Linux, incl. containers)
+    try:
+        result = subprocess.run(
+            ["ss", "-tlpn"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout:
+            port_suffix = re.compile(r":" + str(port) + r"(?:\s|\*|$|,)")
+            for line in result.stdout.splitlines():
+                if port_suffix.search(line):
+                    pid = _parse_ss_line(line)
+                    if pid:
+                        pids.append(pid)
+        if pids:
+            return list(dict.fromkeys(pids))
+    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+        pass
+
+    # 2. lsof -ti :PORT
+    try:
+        result = subprocess.run(
+            ["lsof", "-ti", f":{port}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        out = (result.stdout or "") + (result.stderr or "")
+        pids = _parse_pids(out)
+        if pids:
+            return list(dict.fromkeys(pids))
+    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+        pass
+
+    # 3. fuser PORT/tcp
+    try:
+        result = subprocess.run(
+            ["fuser", f"{port}/tcp"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        out = (result.stdout or "") + (result.stderr or "")
+        pids = _parse_pids(out)
+        if pids:
+            return list(dict.fromkeys(pids))
+    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+        pass
+
+    return []
+
+
+def _fuser_kill_port(port: int) -> bool:
+    """Use fuser -k to kill processes on port (last resort)."""
+    try:
+        result = subprocess.run(
+            ["fuser", "-k", f"{port}/tcp"],
+            capture_output=True,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def _kill_processes_on_ports(console: Console, env_file: Path) -> bool:
+    """Kill any processes still listening on service ports."""
+    if not env_file.exists():
+        return False
+    load_dotenv(env_file, override=True)
+    _update_ports_from_env()
+
+    killed_any = False
+    pids_to_kill: set[int] = set()
+
+    for alias, info in SERVICES.items():
+        if not info.port:
+            continue
+        port = info.port
+        pids = _get_pids_on_port(port)
+        for pid in pids:
+            if not _process_exists(pid):
+                continue
+            pids_to_kill.add(pid)
+            console.print(
+                f"  Killing process on port [bold]{port}[/bold] ({info.name}): PID {pid}"
+            )
+            _send_signal(pid, signal.SIGTERM)
+            killed_any = True
+        if pids:
+            time.sleep(0.3)
+
+    if killed_any:
+        time.sleep(1)
+        for pid in pids_to_kill:
+            if _process_exists(pid):
+                _send_signal(pid, signal.SIGKILL)
+                console.print(f"  Force-killed PID {pid}")
+
+    # Last resort: fuser -k for any port still in use
+    for alias, info in SERVICES.items():
+        if not info.port:
+            continue
+        if _get_pids_on_port(info.port):
+            if _fuser_kill_port(info.port):
+                console.print(
+                    f"  Killed remaining process on port [bold]{info.port}[/bold] via fuser -k"
+                )
+                killed_any = True
+
+    return killed_any
 
 
 def show_running_processes(console: Optional[Console] = None) -> None:
@@ -677,7 +876,8 @@ Examples:
   python orchestrator.py --services db,web,site
   python orchestrator.py --service db      # single service, foreground
   python orchestrator.py --background     # background, logs in logs/
-  python orchestrator.py --kill
+  python orchestrator.py --kill           # safe: ports + state
+  python orchestrator.py --kill-force    # aggressive: + by process name
   python orchestrator.py --info
   python orchestrator.py --list
 """,
@@ -709,7 +909,12 @@ Examples:
     parser.add_argument(
         "--kill", "-k",
         action="store_true",
-        help="Stop all background processes.",
+        help="Stop all background processes (ports + state file). Safe mode.",
+    )
+    parser.add_argument(
+        "--kill-force",
+        action="store_true",
+        help="Aggressive stop: ports, state file, and processes by name (next, orchestrator, etc).",
     )
     parser.add_argument(
         "--info", "-i",
@@ -736,9 +941,11 @@ def main():
     args = parser.parse_args()
     console = Console()
 
-    if args.kill:
-        console.print("[bold]Stopping background processes...[/bold]")
-        kill_background_processes(console)
+    if args.kill or args.kill_force:
+        env_file = Path(args.env_file) if args.env_file else (PROJECT_ROOT / ".env")
+        mode = "Force stopping" if args.kill_force else "Stopping"
+        console.print(f"[bold]{mode} background processes...[/bold]")
+        kill_background_processes(console, env_file, force=args.kill_force)
         return
 
     if args.info:
