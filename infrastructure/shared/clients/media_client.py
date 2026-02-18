@@ -137,10 +137,14 @@ class MediaClient:
     def get_media_url(self, path: str) -> str:
         """
         Construct full public URL for a stored media file.
+        Uses PUBLIC_API_BASE_URL when set (web proxy), otherwise internal media URL.
         """
         path = path.lstrip("/")
         if path.startswith("media/"):
             path = path[6:].lstrip("/")
+        base = os.getenv("PUBLIC_API_BASE_URL", "").rstrip("/")
+        if base:
+            return f"{base}/media/{path}"
         return f"{self._http.base_url}/media/{path}"
 
     # --- Convenience methods (delegate to proxy) ---
