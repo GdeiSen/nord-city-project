@@ -1,6 +1,13 @@
 # Nord City - Nginx reverse proxy with SSL
 # Generated from template. Configure via env: NGINX_DOMAIN, NGINX_SSL_CERT, NGINX_SSL_KEY
 
+# HTTP → HTTPS redirect
+server {
+    listen 80;
+    server_name {{ domain }};
+    return 301 https://$host$request_uri;
+}
+
 server {
     listen 443 ssl;
     server_name {{ domain }};
