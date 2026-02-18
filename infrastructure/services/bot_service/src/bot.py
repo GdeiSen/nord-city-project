@@ -18,10 +18,11 @@ if str(MICROSERVICES_DIR) not in sys.path:
     sys.path.append(str(MICROSERVICES_DIR))
 from shared.constants import Dialogs, Actions, Variables
 
-# Load environment variables from infrastructure .env (single source of truth)
-# Use same root as MICROSERVICES_DIR so we always read infrastructure/.env, not bot_service/.env
-ENV_PATH = MICROSERVICES_DIR / '.env'
-load_dotenv(dotenv_path=ENV_PATH, override=False)
+# Load environment variables from project root .env (single source of truth)
+PROJECT_ROOT = MICROSERVICES_DIR.parent
+ENV_PATH = PROJECT_ROOT / ".env"
+if ENV_PATH.exists():
+    load_dotenv(dotenv_path=ENV_PATH, override=False)
 from typing import Callable, Coroutine, Any
 from typing import TYPE_CHECKING
 

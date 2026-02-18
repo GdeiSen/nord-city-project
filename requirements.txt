@@ -1,12 +1,12 @@
 # =============================================================================
-# Nord City Infrastructure — Unified Dependencies
+# Nord City — Unified Python Dependencies
 # =============================================================================
-# Single requirements file for ALL Python services (database, web, bot)
-# and the orchestrator.  Install into one shared venv:
+# Single requirements file for orchestrator and all Python services
+# (database, web, bot, media). Install from project root:
 #
-#   cd infrastructure
 #   python3 -m venv venv && source venv/bin/activate
 #   pip install -r requirements.txt
+#   python orchestrator.py --list
 # =============================================================================
 
 # ---------------------------------------------------------------------------

@@ -16,10 +16,10 @@ import threading
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-# Load infrastructure .env first (single source of truth for ADMIN_CHAT_ID, BOT_TOKEN, etc.)
+# Load project root .env first (single source of truth for ADMIN_CHAT_ID, BOT_TOKEN, etc.)
 # So env is correct whether we're started by orchestrator or run standalone (e.g. python main.py)
-_infra_root = Path(__file__).resolve().parents[3]
-_env_path = _infra_root / ".env"
+_project_root = Path(__file__).resolve().parents[4]
+_env_path = _project_root / ".env"
 if _env_path.exists():
     from dotenv import load_dotenv
     load_dotenv(_env_path, override=False)
