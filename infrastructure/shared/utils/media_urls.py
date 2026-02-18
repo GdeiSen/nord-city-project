@@ -1,6 +1,6 @@
 """
-Media cleanup utilities.
-Extracts paths from media URLs and identifies URLs that belong to our media service.
+Media URL utilities.
+Extraction, validation, and conversion of media URLs.
 """
 
 import os
@@ -48,6 +48,28 @@ def extract_media_path(url: str) -> str | None:
     if not path or ".." in path:
         return None
     return path if MEDIA_PATH_PATTERN.match(path) else None
+
+
+def to_public_media_url(url: str) -> str | None:
+    """
+    Convert any media URL to a full public URL for external use (e.g. Telegram).
+    Handles relative (/api/v1/media/xxx), internal (127.0.0.1), plain path, or already-public URLs.
+    Returns None if URL cannot be converted.
+    """
+    if not url or not isinstance(url, str):
+        return None
+    url = url.strip()
+    path = extract_media_path(url)
+    if not path and MEDIA_PATH_PATTERN.match(url):
+        path = url.split("/")[-1]
+    if not path:
+        return None
+    base = os.getenv("PUBLIC_API_BASE_URL", "").rstrip("/")
+    if not base:
+        base = os.getenv("NEXT_PUBLIC_API_URL", "").rstrip("/")
+    if not base:
+        return None
+    return f"{base}/media/{path}"
 
 
 def get_removed_media_paths(old_urls: List[str], new_urls: List[str]) -> List[str]:

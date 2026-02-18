@@ -2,6 +2,7 @@ from typing import List, Optional, TYPE_CHECKING
 from telegram import InlineKeyboardMarkup, Message
 from telegram.constants import ParseMode
 from shared.constants import Variables
+from shared.utils.media_urls import to_public_media_url
 from .base_manager import BaseManager
 
 if TYPE_CHECKING:
@@ -89,7 +90,12 @@ class MessageManager(BaseManager):
             
             # Если не смогли отредактировать или у нас есть изображения, отправляем новые
             if not editable_message:
-                # Если есть изображения, отправляем их
+                # Если есть изображения, отправляем их (нормализуем URL для Telegram)
+                if images and len(images) > 0:
+                    images = [to_public_media_url(img) or img for img in images]
+                    images = [img for img in images if img and (img.startswith("http://") or img.startswith("https://"))]
+                    if not images:
+                        images = None
                 if images and len(images) > 0:
                     # Для одного изображения используем send_photo
                     if len(images) == 1:
