@@ -253,13 +253,13 @@ class TimeUtils:
         return system_dt
     
     @staticmethod
-    def format_time(dt: Optional[datetime] = None, format_str: str = "%d.%m.%Y %H:%M") -> str:
+    def format_time(dt: Optional[datetime | str] = None, format_str: str = "%d.%m.%Y %H:%M") -> str:
         """
         Formats time in system timezone with NTP correction.
         
         Args:
-            dt (datetime, optional): Datetime to format. If None, uses current time.
-                                   If timezone-naive, assumed to be UTC.
+            dt (datetime | str, optional): Datetime or ISO string to format. If None, uses current time.
+                                           If timezone-naive, assumed to be UTC.
             format_str (str): Format string for strftime. Defaults to "%d.%m.%Y %H:%M".
             
         Returns:
@@ -272,7 +272,12 @@ class TimeUtils:
         """
         if dt is None:
             dt = TimeUtils.now()
-        elif dt.tzinfo is None:
+        elif isinstance(dt, str):
+            try:
+                dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                return TimeUtils.now().strftime(format_str)
+        if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         
         system_time = dt.astimezone(SYSTEM_TIMEZONE)
