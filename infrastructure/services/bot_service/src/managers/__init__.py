@@ -4,7 +4,7 @@ from .storage_manager import StorageManager
 from .headers_manager import HeadersManager
 from .message_manager import MessageManager
 from .event_manager import EventManager
-from .router_manager import RouterManager
+from .navigator_manager import NavigatorManager
 from .database_manager import DatabaseManager
 
 __all__ = [
@@ -14,7 +14,7 @@ __all__ = [
     'HeadersManager',
     'MessageManager',
     'EventManager',
-    'RouterManager',
+    'NavigatorManager',
     'StatsManager',
     'NotificationManager',
     'DatabaseManager'

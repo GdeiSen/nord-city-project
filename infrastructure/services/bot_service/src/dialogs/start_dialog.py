@@ -1,5 +1,5 @@
 from typing import TYPE_CHECKING
-from shared.models.user import User
+from shared.schemas import UserSchema
 from shared.constants import Dialogs, Actions, Variables, Roles
 
 if TYPE_CHECKING:
@@ -37,7 +37,7 @@ async def start_app_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYPE
         if user is None:
             telegram_user = update.effective_user
 
-            new_user = User(
+            new_user = UserSchema(
                 id=user_id,
                 username=telegram_user.username or "",
                 first_name=telegram_user.first_name or "",
@@ -53,9 +53,7 @@ async def start_app_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYPE
         
         if user:
             bot.managers.storage.set(context, Variables.USER_NAME, (
-                (user.last_name or "") + " " +
-                (user.first_name or "") + " " +
-                (user.middle_name or "")
+                (user.last_name or "") + " " + (user.first_name or "") + " " + (user.middle_name or "")
             ).strip())
             bot.managers.storage.set(context, Variables.USER_LEGAL_ENTITY, user.legal_entity or "")
     else:

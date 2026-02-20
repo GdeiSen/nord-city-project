@@ -1,7 +1,7 @@
 from typing import List
 from sqlalchemy import select, func
 from database.database_manager import DatabaseManager
-from shared.models.user import User
+from models.user import User
 from .base_service import BaseService, db_session_manager
 
 

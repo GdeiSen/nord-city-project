@@ -4,6 +4,7 @@ import { configToMeta } from "./types"
 
 const AUDIT_ENTITY_TYPES = [
   { value: "ServiceTicket", label: "Заявка" },
+  { value: "GuestParkingRequest", label: "Гостевая парковка" },
   { value: "User", label: "Пользователь" },
   { value: "Feedback", label: "Отзыв" },
   { value: "Object", label: "Объект" },

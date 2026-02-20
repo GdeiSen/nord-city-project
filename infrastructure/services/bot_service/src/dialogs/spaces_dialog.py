@@ -25,11 +25,11 @@ async def start_spaces_dialog(update: "Update", context: "ContextTypes.DEFAULT_T
     if update.effective_chat.type != "private":
         return
     
-    bot.managers.router.set_entry_point_item(context, Dialogs.MENU)
+    bot.managers.navigator.set_entry_point(context, Dialogs.MENU)
 
     rental_spaces_service: RentalSpaceService = bot.services.rental_space
     rental_object_service: RentalObjectService = bot.services.rental_object
-    rental_dialog_generator = SpacesDialogGenerator(rental_spaces_service, rental_object_service)
+    rental_dialog_generator = SpacesDialogGenerator(bot, rental_spaces_service, rental_object_service)
     dialog = await rental_dialog_generator.generate_dialog()
     
     if dialog:
@@ -37,7 +37,7 @@ async def start_spaces_dialog(update: "Update", context: "ContextTypes.DEFAULT_T
         bot.managers.storage.set(context, Variables.ACTIVE_DYN_DIALOG, dialog)
         bot.managers.storage.set(context, Variables.ACTIVE_DIALOG_SEQUENCE_ID, 0)
         bot.managers.storage.set(context, Variables.ACTIVE_DIALOG_SEQUENCE_ITEM_INDEX, 0)
-        return await bot.managers.router.execute(Dialogs.DYN_DIALOG_ITEM, update, context)
+        return await bot.managers.navigator.execute(Dialogs.DYN_DIALOG_ITEM, update, context)
     else:
         await bot.send_message(
             update,

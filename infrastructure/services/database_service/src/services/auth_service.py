@@ -1,5 +1,5 @@
 from database.database_manager import DatabaseManager
-from shared.models.user_auth import UserAuth
+from models.user_auth import UserAuth
 from .base_service import BaseService
 
 class AuthService(BaseService):

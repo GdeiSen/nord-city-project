@@ -25,7 +25,8 @@ class DialogConverter:
                 id=qst_data['id'],
                 text=qst_data.get('text'),
                 options_ids=qst_data.get('options_ids'),
-                type=qst_data.get('type')
+                type=qst_data.get('type'),
+                images=qst_data.get('images')
             )
             items[question.id] = question
         for opt_data in data['options']:

@@ -38,6 +38,7 @@ export default function UsersPage() {
   } = useServerPaginatedData<User>({
     api: userApi,
     errorMessage: "Не удалось загрузить пользователей",
+    initialParams: { sort: "created:desc" },
   })
 
   const getRoleBadge = (role: number | undefined) => {

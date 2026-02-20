@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from shared.clients.database_client import db_client
 from shared.clients.bot_client import bot_client
 from shared.constants import Roles
+from shared.schemas.user import UserSchema
 from api.schemas.auth import (
     RequestOtpBody,
     RequestOtpResponse,
@@ -56,22 +57,19 @@ async def _resolve_user_id(body: RequestOtpBody) -> int:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Укажите Telegram ID или имя пользователя (@username).",
         )
-    result = await db_client.user.get_by_username(username=username)
+    result = await db_client.user.get_by_username(username=username, model_class=UserSchema)
     if not result.get("success"):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Ошибка при поиске пользователя.",
         )
-    user_data = result.get("data")
-    if not user_data:
+    user_schema = result.get("data")
+    if not user_schema:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Пользователь @{username} не найден.",
         )
-    user_id = user_data.get("id") if isinstance(user_data, dict) else getattr(user_data, "id", None)
-    if user_id is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь не найден.")
-    return int(user_id)
+    return int(user_schema.id)
 
 
 @router.post("/request-otp", response_model=RequestOtpResponse)
@@ -116,34 +114,33 @@ async def verify_otp(body: VerifyOtpBody):
                 detail="Неверный или истекший код."
             )
 
-        user_result = await db_client.user.get_by_id(entity_id=body.user_id)
+        user_result = await db_client.user.get_by_id(entity_id=body.user_id, model_class=UserSchema)
         if not user_result.get("success") or user_result.get("data") is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Пользователь не найден."
             )
 
-        user_data = user_result["data"]
-        user_role = user_data.get("role")
+        user_schema = user_result["data"]
 
-        if user_role not in (Roles.ADMIN, Roles.SUPER_ADMIN):
+        if user_schema.role not in (Roles.ADMIN, Roles.SUPER_ADMIN):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Нет прав для доступа к панели управления."
             )
 
-        access_token = _create_access_token(body.user_id, user_role)
+        access_token = _create_access_token(body.user_id, user_schema.role)
 
         return VerifyOtpResponse(
             success=True,
             message="Авторизация успешна.",
             access_token=access_token,
             user={
-                "id": user_data.get("id"),
-                "username": user_data.get("username"),
-                "first_name": user_data.get("first_name"),
-                "last_name": user_data.get("last_name"),
-                "role": user_role,
+                "id": user_schema.id,
+                "username": user_schema.username,
+                "first_name": user_schema.first_name,
+                "last_name": user_schema.last_name,
+                "role": user_schema.role,
             }
         )
     except HTTPException:

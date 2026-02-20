@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, List, Optional, Dict, Any
 from .base_service import BaseService
-from shared.models.poll_answer import PollAnswer
+from shared.schemas import PollAnswerSchema
 
 if TYPE_CHECKING:
     from bot import Bot
@@ -14,26 +14,26 @@ class PollService(BaseService):
     async def initialize(self) -> None:
         pass
 
-    async def create_poll(self, poll: PollAnswer) -> Optional[PollAnswer]:
-        result = await self.bot.managers.database.poll.create(model_instance=poll, model_class=PollAnswer)
+    async def create_poll(self, poll: PollAnswerSchema) -> Optional[PollAnswerSchema]:
+        result = await self.bot.managers.database.poll.create(model_instance=poll, model_class=PollAnswerSchema)
         if result["success"]:
             return result["data"]
         return None
 
-    async def get_poll_by_id(self, poll_id: int) -> Optional[PollAnswer]:
-        result = await self.bot.managers.database.poll.get_by_id(entity_id=poll_id, model_class=PollAnswer)
+    async def get_poll_by_id(self, poll_id: int) -> Optional[PollAnswerSchema]:
+        result = await self.bot.managers.database.poll.get_by_id(entity_id=poll_id, model_class=PollAnswerSchema)
         if result["success"]:
             return result["data"]
         return None
 
-    async def get_all_polls(self) -> List[PollAnswer]:
-        result = await self.bot.managers.database.poll.get_all(model_class=PollAnswer)
+    async def get_all_polls(self) -> List[PollAnswerSchema]:
+        result = await self.bot.managers.database.poll.get_all(model_class=PollAnswerSchema)
         if result["success"]:
             return result["data"]
         return []
 
-    async def update_poll(self, poll_id: int, update_data: Dict[str, Any]) -> Optional[PollAnswer]:
-        result = await self.bot.managers.database.poll.update(entity_id=poll_id, update_data=update_data, model_class=PollAnswer)
+    async def update_poll(self, poll_id: int, update_data: Dict[str, Any]) -> Optional[PollAnswerSchema]:
+        result = await self.bot.managers.database.poll.update(entity_id=poll_id, update_data=update_data, model_class=PollAnswerSchema)
         if result["success"]:
             return result["data"]
         return None
@@ -44,7 +44,7 @@ class PollService(BaseService):
             return result["data"]
         return False
 
-    async def find_poll_answers(self, user_id: int, ddid: str) -> List[PollAnswer]:
+    async def find_poll_answers(self, user_id: int, ddid: str) -> List[PollAnswerSchema]:
         """
         Finds poll answers by user_id and ddid.
         
@@ -53,11 +53,11 @@ class PollService(BaseService):
             ddid: Dialog ID in format "0000-0000-0000" (dialog_id-sequence_id-item_id)
             
         Returns:
-            List of matching PollAnswer instances
+            List of matching PollAnswerSchema instances
         """
         result = await self.bot.managers.database.poll.find(
             filters={'user_id': user_id, 'ddid': ddid},
-            model_class=PollAnswer
+            model_class=PollAnswerSchema
         )
         if result["success"]:
             return result["data"] if result["data"] else []

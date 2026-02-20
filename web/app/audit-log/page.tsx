@@ -18,6 +18,7 @@ import { toast } from "sonner"
 
 const ENTITY_TYPE_LABELS: Record<string, string> = {
   ServiceTicket: "Заявка",
+  GuestParkingRequest: "Гостевая парковка",
   User: "Пользователь",
   Feedback: "Отзыв",
   Object: "Объект",
@@ -37,6 +38,8 @@ function getEntityListUrl(entityType: string): string | null {
   switch (entityType) {
     case "ServiceTicket":
       return "/service-tickets"
+    case "GuestParkingRequest":
+      return "/guest-parking"
     case "User":
       return "/users"
     case "Feedback":
@@ -56,6 +59,8 @@ function getEntityDetailUrl(entityType: string, entityId: number): string | null
   switch (entityType) {
     case "ServiceTicket":
       return `/service-tickets/${entityId}`
+    case "GuestParkingRequest":
+      return `/guest-parking/${entityId}`
     case "User":
       return `/users/${entityId}`
     case "Feedback":
@@ -82,6 +87,7 @@ export default function AuditLogPage() {
   } = useServerPaginatedData<any>({
     api: auditLogApi,
     errorMessage: "Не удалось загрузить журнал аудита",
+    initialParams: { sort: "created:desc" },
   })
 
   const columns: ColumnDef<any>[] = [

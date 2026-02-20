@@ -7,4 +7,6 @@ from .poll_answer import PollAnswer
 from .object import Object
 from .space import Space
 from .space_view import SpaceView
+from .guest_parking_request import GuestParkingRequest
+from .audit_log import AuditLog
 from .otp_code import OtpCode

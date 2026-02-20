@@ -17,18 +17,20 @@ sys.path.append(project_root)
 from config import get_config
 from database.database_manager import DatabaseManager
 from shared.utils.converter import Converter
+from shared.schemas.rpc import get_rpc_schema
 
 # --- Model Imports for Registration ---
-from shared.models.user import User
-from shared.models.user_auth import UserAuth
-from shared.models.feedback import Feedback
-from shared.models.object import Object
-from shared.models.poll_answer import PollAnswer
-from shared.models.service_ticket import ServiceTicket
-from shared.models.audit_log import AuditLog
-from shared.models.space import Space
-from shared.models.space_view import SpaceView
-from shared.models.otp_code import OtpCode
+from models.user import User
+from models.user_auth import UserAuth
+from models.feedback import Feedback
+from models.object import Object
+from models.poll_answer import PollAnswer
+from models.service_ticket import ServiceTicket
+from models.guest_parking_request import GuestParkingRequest
+from models.audit_log import AuditLog
+from models.space import Space
+from models.space_view import SpaceView
+from models.otp_code import OtpCode
 
 # --- Service Imports for Registration ---
 from services.user_service import UserService
@@ -39,6 +41,7 @@ from services.object_service import ObjectService
 from services.poll_service import PollService
 from services.space_service import SpaceService
 from services.service_ticket_service import ServiceTicketService
+from services.guest_parking_service import GuestParkingService
 from services.audit_log_service import AuditLogService
 from services.space_view_service import SpaceViewService
 
@@ -73,7 +76,7 @@ def _register_resources():
 
     models_to_register = [
         User, UserAuth, Feedback, Object, PollAnswer,
-        ServiceTicket, AuditLog, Space, SpaceView, OtpCode,
+        ServiceTicket, GuestParkingRequest, AuditLog, Space, SpaceView, OtpCode,
     ]
     for model in models_to_register:
         db_manager.repositories.register(model)
@@ -86,6 +89,7 @@ def _register_resources():
         "poll": PollService,
         "space": SpaceService,
         "service_ticket": ServiceTicketService,
+        "guest_parking": GuestParkingService,
         "audit_log": AuditLogService,
         "space_view": SpaceViewService,
         "otp": OtpService,
@@ -145,12 +149,19 @@ async def _rpc_handler(request: dict) -> dict:
         if not method_to_call or not asyncio.iscoroutinefunction(method_to_call):
             return {"success": False, "error": f"Method '{method_name}' not found in service '{service_name}'."}
 
-        # If model_data is present, convert dict to model instance
-        if 'model_data' in params:
+        # Валидация model_data / update_data через Pydantic-схемы (если зарегистрированы)
+        for param_name in ("model_data", "update_data"):
+            if param_name not in params:
+                continue
+            schema_cls = get_rpc_schema(service_name, method_name, param_name)
+            if schema_cls is not None:
+                validated = schema_cls.model_validate(params[param_name])
+                params[param_name] = validated.model_dump(exclude_none=(param_name == "update_data"))
+
+        # model_data → model_instance (RPC-схема или Converter)
+        if "model_data" in params:
             model_class = service_instance.model_class
-            model_dict = params['model_data']
-            params['model_instance'] = Converter.from_dict(model_class, model_dict)
-            del params['model_data']
+            params["model_instance"] = Converter.from_dict(model_class, params.pop("model_data"))
 
         result = await method_to_call(**params)
 

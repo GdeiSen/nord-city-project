@@ -2,11 +2,7 @@ from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from datetime import datetime
 
-
-class ObjectSummary(BaseModel):
-    """Minimal object info for embedding in list responses."""
-    id: int
-    name: str
+from api.schemas.enrichment import ObjectSummary, UserSummary
 
 
 class UserResponse(BaseModel):
@@ -20,7 +16,7 @@ class UserResponse(BaseModel):
     language_code: str = "ru"
     data_processing_consent: bool = False
     object_id: Optional[int] = None
-    object: Optional[ObjectSummary] = None  # Enriched from object_id
+    object: Optional[ObjectSummary] = None  # Enriched from object_id (via UserSummary or direct)
     legal_entity: Optional[str] = None
     phone_number: Optional[str] = None
     email: Optional[str] = None

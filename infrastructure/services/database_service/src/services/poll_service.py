@@ -1,5 +1,5 @@
 from database.database_manager import DatabaseManager
-from shared.models.poll_answer import PollAnswer
+from models.poll_answer import PollAnswer
 from .base_service import BaseService
 
 class PollService(BaseService):

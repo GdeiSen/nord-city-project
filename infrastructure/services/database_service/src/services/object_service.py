@@ -2,7 +2,7 @@ import logging
 from typing import List
 
 from database.database_manager import DatabaseManager
-from shared.models.object import Object
+from models.object import Object
 from shared.utils.media_utils import get_removed_media_paths, extract_media_path
 from shared.clients.media_client import media_client
 from .base_service import BaseService, db_session_manager

@@ -17,8 +17,8 @@ export interface UseServerParamsSyncOptions {
 }
 
 /**
- * Syncs internal table state (search, filters, sorts) to parent via onServerParamsChange.
- * Skips the initial sync (when mounting with server params).
+ * Syncs internal table state (search, filters, sorts, pagination) to parent via onServerParamsChange.
+ * Always syncs so pagination clicks work on first interaction after load.
  */
 export function useServerParamsSync({
   serverPagination,
@@ -31,18 +31,12 @@ export function useServerParamsSync({
   pageIndex,
   pageSize,
 }: UseServerParamsSyncOptions): void {
-  const isFirstSync = useRef(true)
   const prevSearchRef = useRef(debouncedSearch)
   const prevFiltersRef = useRef("")
+  const mountedRef = useRef(false)
 
   useEffect(() => {
     if (!serverPagination || !onServerParamsChange) return
-
-    if (isFirstSync.current) {
-      isFirstSync.current = false
-      prevSearchRef.current = debouncedSearch
-      return
-    }
 
     const searchChanged = prevSearchRef.current !== debouncedSearch
     prevSearchRef.current = debouncedSearch
@@ -51,9 +45,10 @@ export function useServerParamsSync({
     const filtersChanged = prevFiltersRef.current !== filtersStr
     prevFiltersRef.current = filtersStr
 
-    if (searchChanged || filtersChanged) {
+    if (mountedRef.current && (searchChanged || filtersChanged)) {
       onSearchOrFiltersChange?.()
     }
+    mountedRef.current = true
 
     const sortStr = advancedSorts
       .filter((s) => s.columnId)

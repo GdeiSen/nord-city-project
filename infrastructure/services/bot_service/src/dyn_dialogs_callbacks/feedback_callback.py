@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 from datetime import datetime
-from shared.models import Feedback
-from shared.constants import Dialogs
+from shared.schemas import FeedbackSchema
+from shared.constants import Dialogs, CallbackResult
 
 if TYPE_CHECKING:
     from telegram import Update
@@ -44,11 +44,10 @@ async def feedback_callback(
             # Create DDID in format "0000-0000-0000" (dialog_id-sequence_id-item_id)
             ddid = f"{dialog.id:04d}-{sequence_id:04d}-{item_id:04d}"
             
-            from shared.models.feedback import Feedback
-            feedback = Feedback(user_id=user_id, ddid=ddid, answer=answer or "")
+            feedback = FeedbackSchema(user_id=user_id, ddid=ddid, answer=answer or "")
             await bot.services.feedback.create_feedback(feedback)
             
     if state == 1:
         await bot.send_message(update, context, "feedback_completed", dynamic=False)
-        return await bot.managers.router.execute(Dialogs.MENU, update, context)
-    return True
+        return await bot.managers.navigator.execute(Dialogs.MENU, update, context)
+    return CallbackResult.continue_()

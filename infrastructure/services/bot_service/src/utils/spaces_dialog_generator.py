@@ -3,13 +3,10 @@ from shared.entities.dialog import Dialog
 from utils.dialog_generator import DialogGenerator
 from shared.constants import Dialogs
 import logging
-import json
-import os
-from shared.models import Object, Space
+from shared.schemas import ObjectSchema, SpaceSchema
 
 if TYPE_CHECKING:
-    # from services.spaces_service import SpacesService  # Removed: using DatabaseManager instead
-    pass
+    from bot import Bot
 
 # Настраиваем логирование
 logging.basicConfig(
@@ -25,13 +22,16 @@ class SpacesDialogGenerator:
     структуры диалога на основе данных из базы данных.
     """
     
-    def __init__(self, rental_spaces_service: "RentalSpaceService", rental_object_service: "RentalObjectService"):
+    def __init__(self, bot: "Bot", rental_spaces_service: "RentalSpaceService", rental_object_service: "RentalObjectService"):
         """
         Инициализация генератора диалога для работы с помещениями.
         
         Args:
-            spaces_service: Сервис для работы с объектами недвижимости и помещениями
+            bot: Экземпляр бота для доступа к get_text
+            rental_spaces_service: Сервис для работы с помещениями
+            rental_object_service: Сервис для работы с объектами недвижимости
         """
+        self.bot = bot
         self.rental_spaces_service = rental_spaces_service
         self.rental_object_service = rental_object_service
         self.dialog_id = 30  # ID для диалога о помещениях
@@ -64,7 +64,7 @@ class SpacesDialogGenerator:
             logger.debug(f"Создана корневая последовательность с ID={root_seq_id}")
             
             # Текст для корневого сообщения
-            root_text = "В этом разделе вы можете ознакомиться с вакантными помещениями в объектах недвижимости ООО \"Фард Сити\""
+            root_text = self.bot.get_text("spaces_intro")
             
             # Создаем корневой элемент выбора для главного меню
             root_item_id = self.generator.create_item(
@@ -106,7 +106,7 @@ class SpacesDialogGenerator:
             return None
 
     
-    async def _create_object_sequence(self, obj: "Object", sequence_id: int) -> None:
+    async def _create_object_sequence(self, obj: ObjectSchema, sequence_id: int) -> None:
         """
         Создает последовательность для отображения информации об объекте и его помещениях.
         
@@ -126,7 +126,7 @@ class SpacesDialogGenerator:
             logger.debug(f"Нет доступных помещений для объекта {obj.name}")
             
             # Если нет помещений, создаем сообщение "Нет доступных помещений"
-            no_spaces_text = f"{object_description}\n\nНа данный момент нет свободных помещений."
+            no_spaces_text = f"{object_description}\n\n{self.bot.get_text('spaces_no_rooms')}"
             
             # Создаем элемент с сообщением
             item_id = self.generator.create_item(
@@ -141,7 +141,7 @@ class SpacesDialogGenerator:
             return
         
         # Дополняем описание информацией о количестве помещений
-        object_description += f"\n\nНа данный момент свободны {len(spaces)} помещений:"
+        object_description += f"\n\n{self.bot.get_text('spaces_rooms_count', [len(spaces)])}"
         
         # Группируем помещения по 6 штук (для постраничного отображения)
         space_groups = []
@@ -190,7 +190,7 @@ class SpacesDialogGenerator:
                 space_seq_id = self.generator.create_sequence()
                 
                 # Создаем опцию для перехода к помещению
-                button_text = f"{space.floor} этаж - {space.size} м²"
+                button_text = self.bot.get_text("spaces_room_button", [space.floor, space.size])
                 space_option_id = self.generator.create_option(
                     text=button_text,
                     target_sequence_id=space_seq_id,
@@ -210,13 +210,13 @@ class SpacesDialogGenerator:
                 next_sequence_id = page_sequences[next_page]
                 
                 next_option_id = self.generator.create_option(
-                    text="Далее",
+                    text=self.bot.get_text("spaces_next"),
                     target_sequence_id=next_sequence_id,  # Переход к следующей странице
                     row=3
                 )
                 self.generator.add_option_to_item(page_item_id, next_option_id)
     
-    def _create_space_sequence(self, space: "Space", sequence_id: int, parent_sequence_id: int) -> None:
+    def _create_space_sequence(self, space: SpaceSchema, sequence_id: int, parent_sequence_id: int) -> None:
         """
         Создает последовательность для отображения информации о помещении.
         
@@ -228,10 +228,10 @@ class SpacesDialogGenerator:
         logger.debug(f"Создание последовательности для помещения {space.floor} этаж, {space.size} м² (ID={sequence_id})")
         
         # Создаем текст описания помещения
-        space_description = f"Помещение {space.floor} этаж, {space.size} м²\n\n{space.description}"
+        space_description = self.bot.get_text("spaces_room_description", [space.floor, space.size, space.description or ""])
 
         back_option_id = self.generator.create_custom_button(
-            text="обратно в меню",
+            text=self.bot.get_text("spaces_back_to_menu"),
             callback_data=Dialogs.MENU,
             row=4
         )

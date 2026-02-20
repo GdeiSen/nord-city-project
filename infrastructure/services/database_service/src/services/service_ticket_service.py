@@ -1,8 +1,8 @@
 from sqlalchemy import select, func
 from database.database_manager import DatabaseManager
-from shared.models.service_ticket import ServiceTicket
+from models.service_ticket import ServiceTicket
 from .base_service import BaseService, db_session_manager
-from shared.entities.service_tickets_stats import ServiceTicketsStats
+from shared.schemas.service_tickets_stats import ServiceTicketsStatsSchema
 from shared.constants import ServiceTicketStatus
 
 IN_PROGRESS_STATUSES = (
@@ -48,7 +48,7 @@ class ServiceTicketService(BaseService):
         ).select_from(ServiceTicket)
         result = await session.execute(stmt)
         row = result.one()
-        return ServiceTicketsStats(
+        return ServiceTicketsStatsSchema(
             total_count=row.total or 0,
             new_count=row.new_count or 0,
             in_progress_count=row.in_progress_count or 0,
@@ -56,4 +56,4 @@ class ServiceTicketService(BaseService):
             new_tickets=list(row.new_ids or []),
             in_progress_tickets=list(row.in_progress_ids or []),
             completed_tickets=list(row.completed_ids or []),
-        ).model_dump()
+        )

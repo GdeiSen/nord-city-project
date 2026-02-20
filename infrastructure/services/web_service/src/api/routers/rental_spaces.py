@@ -4,6 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
 from shared.clients.database_client import db_client
+from shared.schemas.space import SpaceSchema
 from api.dependencies import get_audit_context, get_optional_current_user
 from api.schemas.common import MessageResponse, PaginatedResponse, parse_sort_param
 from api.schemas.rental_spaces import SpaceResponse, CreateSpaceRequest, UpdateSpaceBody
@@ -16,6 +17,7 @@ router = APIRouter(prefix="/rental-spaces", tags=["Rental Spaces"])
 async def create_space(body: CreateSpaceRequest, request: Request):
     response = await db_client.space.create(
         model_data=body.model_dump(),
+        model_class=SpaceSchema,
         _audit_context=get_audit_context(request, get_optional_current_user(request)),
     )
     if not response.get("success"):
@@ -40,6 +42,7 @@ async def get_spaces(
         filters=filters if filters else None,
         search=search or "",
         search_columns=["floor", "description", "status"],
+        model_class=SpaceSchema,
     )
     if not response.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -51,7 +54,10 @@ async def get_spaces(
 @router.get("/rental-objects/{object_id}", response_model=List[SpaceResponse])
 async def get_spaces_by_object_id(object_id: int):
     """Must be registered BEFORE /{entity_id} to avoid path conflict."""
-    response = await db_client.space.find(filters={"object_id": object_id})
+    response = await db_client.space.find(
+        filters={"object_id": object_id},
+        model_class=SpaceSchema,
+    )
     if not response.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail=response.get("error", "Failed to find rental spaces"))
@@ -60,7 +66,10 @@ async def get_spaces_by_object_id(object_id: int):
 
 @router.get("/{entity_id}", response_model=SpaceResponse)
 async def get_space_by_id(entity_id: int):
-    response = await db_client.space.get_by_id(entity_id=entity_id)
+    response = await db_client.space.get_by_id(
+        entity_id=entity_id,
+        model_class=SpaceSchema,
+    )
     if not response.get("success"):
         error = response.get("error", "Rental space not found")
         code = status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_400_BAD_REQUEST

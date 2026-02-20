@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from shared.clients.database_client import db_client
 from shared.clients.bot_client import bot_client
 from shared.constants import ServiceTicketStatus
+from shared.schemas.service_ticket import ServiceTicketSchema
 from api.dependencies import get_audit_context, get_optional_current_user
 from api.schemas.common import MessageResponse, PaginatedResponse, parse_sort_param
 from api.schemas.list_params import parse_list_params_from_query
@@ -65,25 +66,31 @@ async def create_service_ticket(body: CreateServiceTicketRequest, request: Reque
     data["status"] = ServiceTicketStatus.NEW  # Always NEW for new tickets
     response = await db_client.service_ticket.create(
         model_data=data,
+        model_class=ServiceTicketSchema,
         _audit_context=get_audit_context(request, get_optional_current_user(request)),
     )
     if not response.get("success"):
         error = response.get("error", "Failed to create service ticket")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error)
-    ticket_data = response["data"]
-    ticket_id = ticket_data.get("id") if isinstance(ticket_data, dict) else getattr(ticket_data, "id", None)
+    ticket_schema = response["data"]
+    if not ticket_schema:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create ticket")
+    ticket_id = ticket_schema.id if ticket_schema else None
     if ticket_id is not None:
         try:
             await bot_client.notification.notify_new_ticket(ticket_id=ticket_id)
         except Exception as e:
             logger.warning("Bot notification for new ticket failed: %s", e)
-    return ticket_data
+    items = await enrich_service_tickets_with_users_and_objects([ticket_schema])
+    return items[0] if items else ServiceTicketResponse(**ticket_schema.model_dump())
 
 
 @router.get("/stats", response_model=ServiceTicketsStatsResponse)
 async def get_service_tickets_stats():
     """Must be registered BEFORE /{entity_id} to avoid path conflict."""
-    response = await db_client.service_ticket.get_stats()
+    from shared.schemas.service_tickets_stats import ServiceTicketsStatsSchema
+
+    response = await db_client.service_ticket.get_stats(model_class=ServiceTicketsStatsSchema)
     if not response.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail=response.get("error", "Failed to get stats"))
@@ -92,6 +99,7 @@ async def get_service_tickets_stats():
 
 get_service_tickets = create_paginated_list_handler(
     db_client.service_ticket,
+    model_class=ServiceTicketSchema,
     enricher=enrich_service_tickets_with_users_and_objects,
     entity_label="service tickets",
 )
@@ -126,14 +134,16 @@ async def export_service_tickets(
         search=search_val,
         search_columns=cols,
         filters=filter_list,
+        model_class=ServiceTicketSchema,
     )
     if not response.get("success"):
         raise HTTPException(status_code=500, detail=response.get("error", "Export failed"))
     data = response.get("data", {})
     items = data.get("items", [])
-    await enrich_service_tickets_with_users_and_objects(items)
+    items = await enrich_service_tickets_with_users_and_objects(items)
+    items_dicts = [m.model_dump() for m in items]
     value_getters = {c: _get_ticket_export_value(c) for c in column_ids}
-    csv_content = build_csv(items, column_ids, value_getters, SERVICE_TICKET_EXPORT_HEADERS)
+    csv_content = build_csv(items_dicts, column_ids, value_getters, SERVICE_TICKET_EXPORT_HEADERS)
     utf8_bom = "\ufeff"
     body = (utf8_bom + csv_content).encode("utf-8")
     return Response(
@@ -146,23 +156,34 @@ async def export_service_tickets(
 @router.get("/msid/{msid}", response_model=List[ServiceTicketResponse])
 async def get_service_tickets_by_msid(msid: int):
     """Must be registered BEFORE /{entity_id} to avoid path conflict."""
-    response = await db_client.service_ticket.find(filters={"msid": msid})
+    response = await db_client.service_ticket.find(
+        filters={"msid": msid},
+        model_class=ServiceTicketSchema,
+    )
     if not response.get("success"):
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail=response.get("error", "Failed to find service tickets"))
-    return response.get("data", [])
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=response.get("error", "Failed to find service tickets"),
+        )
+    items = response.get("data", [])
+    return await enrich_service_tickets_with_users_and_objects(items)
 
 
 @router.get("/{entity_id}", response_model=ServiceTicketResponse)
 async def get_service_ticket_by_id(entity_id: int):
-    response = await db_client.service_ticket.get_by_id(entity_id=entity_id)
+    response = await db_client.service_ticket.get_by_id(
+        entity_id=entity_id,
+        model_class=ServiceTicketSchema,
+    )
     if not response.get("success"):
         error = response.get("error", "Service ticket not found")
         code = status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=code, detail=error)
     if response.get("data") is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service ticket not found")
-    return response["data"]
+    ticket_schema = response["data"]
+    items = await enrich_service_tickets_with_users_and_objects([ticket_schema])
+    return items[0] if items else ServiceTicketResponse(**ticket_schema.model_dump())
 
 
 @router.put("/{entity_id}", response_model=MessageResponse)
@@ -172,14 +193,17 @@ async def update_service_ticket(entity_id: int, body: UpdateServiceTicketBody, r
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
     # Получаем старый статус до обновления — уведомление "заявка выполнена" только при смене на COMPLETED
-    old_resp = await db_client.service_ticket.get_by_id(entity_id=entity_id)
-    old_ticket = old_resp.get("data") if old_resp.get("success") else None
-    old_status = old_ticket.get("status") if isinstance(old_ticket, dict) else (getattr(old_ticket, "status", None) if old_ticket else None)
+    old_resp = await db_client.service_ticket.get_by_id(
+        entity_id=entity_id,
+        model_class=ServiceTicketSchema,
+    )
+    old_ticket_schema = old_resp.get("data") if old_resp.get("success") else None
+    old_status = old_ticket_schema.status if old_ticket_schema else None
     new_status = update_data.get("status")
     # Уведомление "заявка выполнена" — только когда статус реально сменился на COMPLETED
     status_changed_to_completed = (
         new_status == ServiceTicketStatus.COMPLETED
-        and old_ticket is not None
+        and old_ticket_schema is not None
         and old_status != ServiceTicketStatus.COMPLETED
     )
     audit_ctx = get_audit_context(request, get_optional_current_user(request))

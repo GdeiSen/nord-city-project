@@ -10,8 +10,9 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy import select
 
 from database.database_manager import DatabaseManager
-from shared.models.audit_log import AuditLog
+from models.audit_log import AuditLog
 from shared.utils.converter import Converter
+from shared.constants import AUDIT_FIND_BY_ENTITY_DEFAULT_LIMIT
 from shared.utils.audit_diff import compute_smart_diff
 from .base_service import BaseService, db_session_manager
 
@@ -25,6 +26,7 @@ AUDITED_SERVICES = {
     "object",
     "poll",
     "service_ticket",
+    "guest_parking",
     "space",
     "space_view",
 }
@@ -36,6 +38,7 @@ SERVICE_TO_ENTITY_TYPE = {
     "object": "Object",
     "poll": "PollAnswer",
     "service_ticket": "ServiceTicket",
+    "guest_parking": "GuestParkingRequest",
     "space": "Space",
     "space_view": "SpaceView",
 }
@@ -89,13 +92,20 @@ class AuditLogService(BaseService):
         entity_id: int,
         limit: Optional[int] = None,
     ) -> List[AuditLog]:
-        """Get audit entries for an entity, ordered by created_at ascending."""
+        """Get audit entries for an entity, ordered by created_at ascending.
+        limit=None: use default. limit=0: no limit. limit>0: cap at that value."""
+        if limit == 0:
+            effective_limit = None
+        elif limit is not None:
+            effective_limit = limit
+        else:
+            effective_limit = AUDIT_FIND_BY_ENTITY_DEFAULT_LIMIT
         stmt = (
             select(AuditLog)
             .where(AuditLog.entity_type == entity_type, AuditLog.entity_id == entity_id)
             .order_by(AuditLog.created_at.asc())
         )
-        if limit is not None:
-            stmt = stmt.limit(limit)
+        if effective_limit is not None:
+            stmt = stmt.limit(effective_limit)
         result = await session.execute(stmt)
         return list(result.scalars().all())

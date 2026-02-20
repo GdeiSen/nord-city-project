@@ -1,3 +1,4 @@
+import json
 import logging
 from functools import wraps
 from typing import Type, TypeVar, Any, Optional, List, Dict
@@ -13,6 +14,8 @@ from shared.constants import (
     AUDIT_MODE_FAST,
     AUDIT_MODE_SMART,
     AUDIT_MODE_HEAVY,
+    AUDIT_SKIP_UPDATE_FIELDS,
+    AUDIT_HEAVY_MAX_JSON_BYTES,
 )
 
 ModelType = TypeVar('ModelType', bound=DeclarativeBase)
@@ -67,6 +70,18 @@ class BaseService:
         """Extract and remove _audit_context from kwargs (assignee_id, source, meta, ...)."""
         return kwargs.pop("_audit_context", None)
 
+    def _limit_audit_json_size(self, data: Optional[dict]) -> Optional[dict]:
+        """Limit JSON size for heavy audit; replace with placeholder if exceeded."""
+        if data is None:
+            return None
+        try:
+            encoded = json.dumps(data, ensure_ascii=False, default=str)
+            if len(encoded.encode("utf-8")) <= AUDIT_HEAVY_MAX_JSON_BYTES:
+                return data
+            return {"_truncated": True, "_reason": "size_exceeded", "_bytes": len(encoded.encode("utf-8"))}
+        except (TypeError, ValueError):
+            return {"_truncated": True, "_reason": "serialization_error"}
+
     def _resolve_audit_data(
         self,
         action: str,
@@ -78,16 +93,16 @@ class BaseService:
         if mode == AUDIT_MODE_FAST:
             return None, None
         if mode == AUDIT_MODE_HEAVY:
-            return old_data, new_data
+            return self._limit_audit_json_size(old_data), self._limit_audit_json_size(new_data)
         if mode == AUDIT_MODE_SMART:
             if action == "create":
-                return None, new_data
+                return None, self._limit_audit_json_size(new_data)
             if action == "delete":
-                return old_data, None
+                return self._limit_audit_json_size(old_data), None
             if action == "update" and old_data is not None and new_data is not None:
                 diff = compute_smart_diff(old_data, new_data)
-                return None, diff if diff else None
-            return old_data, new_data
+                return None, self._limit_audit_json_size(diff) if diff else None
+            return self._limit_audit_json_size(old_data), self._limit_audit_json_size(new_data)
         return None, None
 
     async def _write_audit(
@@ -197,6 +212,7 @@ class BaseService:
         if not existing_model:
             return None
 
+        update_data = Converter.normalize_for_model(self.model_class, update_data)
         old_data = Converter.to_dict(existing_model)
 
         # Apply updates from the dictionary to the model instance
@@ -209,11 +225,18 @@ class BaseService:
         updated_instance = await self.repository.update(session=session, obj_in=existing_model)
         if updated_instance:
             logger.info(f"{self.model_class.__name__} with ID {entity_id} was updated.")
-            await self._write_audit(
-                session, entity_id, "update",
-                old_data=old_data, new_data=Converter.to_dict(updated_instance),
-                audit_context=audit_context,
+            # Пропускаем аудит для технических update от бота (только msid)
+            skip_audit = (
+                audit_context
+                and audit_context.get("source") == "bot_service"
+                and set(update_data.keys()) <= AUDIT_SKIP_UPDATE_FIELDS
             )
+            if not skip_audit:
+                await self._write_audit(
+                    session, entity_id, "update",
+                    old_data=old_data, new_data=Converter.to_dict(updated_instance),
+                    audit_context=audit_context,
+                )
         return updated_instance
 
     @db_session_manager

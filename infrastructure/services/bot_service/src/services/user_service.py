@@ -1,9 +1,10 @@
 from typing import TYPE_CHECKING, List, Optional, Dict, Any
 from .base_service import BaseService
-from shared.models.user import User
+from shared.schemas import UserSchema
 
 if TYPE_CHECKING:
     from bot import Bot
+
 
 class UserService(BaseService):
     """Service for managing users."""
@@ -14,26 +15,28 @@ class UserService(BaseService):
     async def initialize(self) -> None:
         pass
 
-    async def create_user(self, user: User) -> Optional[User]:
-        result = await self.bot.managers.database.user.create(model_instance=user, model_class=User)
+    async def create_user(self, user: UserSchema) -> Optional[UserSchema]:
+        result = await self.bot.managers.database.user.create(model_instance=user, model_class=UserSchema)
         if result["success"]:
             return result["data"]
         return None
 
-    async def get_user_by_id(self, user_id: int) -> Optional[User]:
-        result = await self.bot.managers.database.user.get_by_id(entity_id=user_id, model_class=User)
+    async def get_user_by_id(self, user_id: int) -> Optional[UserSchema]:
+        result = await self.bot.managers.database.user.get_by_id(entity_id=user_id, model_class=UserSchema)
         if result["success"]:
             return result["data"]
         return None
 
-    async def get_all_users(self) -> List[User]:
-        result = await self.bot.managers.database.user.get_all(model_class=User)
+    async def get_all_users(self) -> List[UserSchema]:
+        result = await self.bot.managers.database.user.get_all(model_class=UserSchema)
         if result["success"]:
-            return result["data"]
+            return result["data"] or []
         return []
 
-    async def update_user(self, user_id: int, update_data: Dict[str, Any]) -> Optional[User]:
-        result = await self.bot.managers.database.user.update(entity_id=user_id, update_data=update_data, model_class=User)
+    async def update_user(self, user_id: int, update_data: Dict[str, Any]) -> Optional[UserSchema]:
+        result = await self.bot.managers.database.user.update(
+            entity_id=user_id, update_data=update_data, model_class=UserSchema
+        )
         if result["success"]:
             return result["data"]
         return None

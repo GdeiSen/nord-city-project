@@ -1,5 +1,5 @@
 from typing import TYPE_CHECKING
-from shared.constants import Dialogs, Variables
+from shared.constants import Dialogs, Variables, CallbackResult
 import json
 from datetime import datetime
 
@@ -53,7 +53,7 @@ async def service_feedback_callback(
         if option_id == 100 and state == True:
             # При положительной оценке завершаем диалог
             await bot.send_message(update, context, "service_feedback_thanks", dynamic=False)
-            return await bot.managers.router.execute(Dialogs.MENU, update, context)
+            return await bot.managers.navigator.execute(Dialogs.MENU, update, context)
         elif option_id == 101:
             # При отрицательной оценке очищаем предыдущее сообщение
             bot.managers.storage.set(context, "feedback_message", "")
@@ -74,7 +74,7 @@ async def service_feedback_callback(
                     "service_feedback_sent_to_engineer", 
                     dynamic=False,
                 )
-            return await bot.managers.router.execute(Dialogs.MENU, update, context)
+            return await bot.managers.navigator.execute(Dialogs.MENU, update, context)
         elif option_id == 202 and state == True:
             # Сохраняем сообщение о проблемах скорости
             bot.managers.storage.set(context, "feedback_message", bot.get_text('service_feedback_speed_problems'))
@@ -89,7 +89,7 @@ async def service_feedback_callback(
                 "service_feedback_sent_to_engineer", 
                 dynamic=False,
             )
-            return await bot.managers.router.execute(Dialogs.MENU, update, context)
+            return await bot.managers.navigator.execute(Dialogs.MENU, update, context)
         
     # Обработка этапа сбора дополнительных комментариев
     elif sequence_id == 4 and item_id == 4:
@@ -107,4 +107,4 @@ async def service_feedback_callback(
                 dynamic=False,
             )
 
- 
+    return CallbackResult.continue_()

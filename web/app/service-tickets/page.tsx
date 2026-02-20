@@ -36,6 +36,7 @@ export default function ServiceTicketsPage() {
   } = useServerPaginatedData<ServiceTicket>({
     api: serviceTicketApi,
     errorMessage: "Не удалось загрузить данные",
+    initialParams: { sort: "created:desc" },
   })
   const canEdit = useCanEdit()
 

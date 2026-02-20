@@ -2,6 +2,7 @@
 # Request/Response models matching frontend contract (web/types/index.ts, web/lib/api.ts)
 
 from .common import MessageResponse
+from .enrichment import ObjectSummary, UserSummary
 
 from .users import UserResponse, CreateUserRequest, UpdateUserBody
 from .auth import UserAuthResponse, CreateAuthRequest, UpdateAuthBody

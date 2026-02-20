@@ -11,7 +11,7 @@ import {
   IconBuildingSkyscraper,
   IconLayoutGrid,
 } from "@tabler/icons-react"
-import { format, parse, parseISO, addWeeks, addMonths, addYears, subWeeks, subMonths, subYears } from "date-fns"
+import { format, parse, parseISO, addDays, addWeeks, addMonths, addYears, subDays, subWeeks, subMonths, subYears } from "date-fns"
 import { ru } from "date-fns/locale"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -74,6 +74,9 @@ export interface ChartToolbarProps {
 
 function shiftAnchor(anchor: string, period: ChartPeriod, direction: 1 | -1): string {
   const d = parseISO(anchor)
+  if (period === "day") {
+    return toDateString(direction > 0 ? addDays(d, 1) : subDays(d, 1))
+  }
   if (period === "week") {
     return toDateString(direction > 0 ? addWeeks(d, 1) : subWeeks(d, 1))
   }

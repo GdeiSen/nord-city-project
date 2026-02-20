@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 
 from shared.clients.database_client import db_client
 from shared.constants import Roles
+from shared.schemas.user import UserSchema
 from api.dependencies import get_current_user, get_audit_context
 from api.schemas.common import MessageResponse, PaginatedResponse, parse_sort_param
 from api.schemas.list_params import parse_list_params_from_query
@@ -87,16 +88,20 @@ async def create_user(
             )
     response = await db_client.user.create(
         model_data=create_data,
+        model_class=UserSchema,
         _audit_context=get_audit_context(request, current_user),
     )
     if not response.get("success"):
         error = response.get("error", "Failed to create user")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error)
-    return response["data"]
+    user_schema = response["data"]
+    items = await enrich_users_with_objects([user_schema])
+    return items[0] if items else UserResponse(**user_schema.model_dump())
 
 
 get_users = create_paginated_list_handler(
     db_client.user,
+    model_class=UserSchema,
     enricher=enrich_users_with_objects,
     entity_label="users",
 )
@@ -131,14 +136,16 @@ async def export_users(
         search=search_val,
         search_columns=cols,
         filters=filter_list,
+        model_class=UserSchema,
     )
     if not response.get("success"):
         raise HTTPException(status_code=500, detail=response.get("error", "Export failed"))
     data = response.get("data", {})
     items = data.get("items", [])
-    await enrich_users_with_objects(items)
+    items = await enrich_users_with_objects(items)
+    items_dicts = [m.model_dump() for m in items]
     value_getters = {c: _get_user_export_value(c) for c in column_ids}
-    csv_content = build_csv(items, column_ids, value_getters, USER_EXPORT_HEADERS)
+    csv_content = build_csv(items_dicts, column_ids, value_getters, USER_EXPORT_HEADERS)
     utf8_bom = "\ufeff"
     body = (utf8_bom + csv_content).encode("utf-8")
     return Response(
@@ -150,14 +157,16 @@ async def export_users(
 
 @router.get("/{entity_id}", response_model=UserResponse)
 async def get_user_by_id(entity_id: int):
-    response = await db_client.user.get_by_id(entity_id=entity_id)
+    response = await db_client.user.get_by_id(entity_id=entity_id, model_class=UserSchema)
     if not response.get("success"):
         error = response.get("error", "User not found")
         code = status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=code, detail=error)
     if response.get("data") is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    return response["data"]
+    user_schema = response["data"]
+    items = await enrich_users_with_objects([user_schema])
+    return items[0] if items else UserResponse(**user_schema.model_dump())
 
 
 @router.put("/{entity_id}", response_model=MessageResponse)

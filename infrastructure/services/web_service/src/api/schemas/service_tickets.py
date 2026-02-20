@@ -2,7 +2,7 @@ from pydantic import BaseModel, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 
-from api.schemas.users import UserResponse, ObjectSummary
+from api.schemas.enrichment import ObjectSummary, UserSummary
 
 
 class ServiceTicketResponse(BaseModel):
@@ -10,8 +10,8 @@ class ServiceTicketResponse(BaseModel):
     id: Optional[int] = None
     user_id: int
     object_id: Optional[int] = None
-    user: Optional[UserResponse] = None  # Enriched from user_id
-    object: Optional[ObjectSummary] = None  # Enriched from object_id (or user's object_id as fallback)
+    user: Optional[UserSummary] = None  # Enriched from user_id
+    object: Optional[ObjectSummary] = None  # Enriched from object_id (or user's object_id)
     description: Optional[str] = None
     location: Optional[str] = None
     image: Optional[str] = None

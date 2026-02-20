@@ -4,6 +4,7 @@ from typing import List
 from fastapi import APIRouter, HTTPException, Request, Response, status
 
 from shared.clients.database_client import db_client
+from shared.schemas.space_view import SpaceViewSchema
 from api.dependencies import get_audit_context, get_optional_current_user
 from api.schemas.common import MessageResponse
 from api.schemas.space_views import SpaceViewResponse, CreateSpaceViewRequest, UpdateSpaceViewBody
@@ -16,6 +17,7 @@ router = APIRouter(prefix="/space-views", tags=["Space Views"])
 async def create_space_view(body: CreateSpaceViewRequest, request: Request):
     response = await db_client.space_view.create(
         model_data=body.model_dump(),
+        model_class=SpaceViewSchema,
         _audit_context=get_audit_context(request, get_optional_current_user(request)),
     )
     if not response.get("success"):
@@ -26,7 +28,7 @@ async def create_space_view(body: CreateSpaceViewRequest, request: Request):
 
 @router.get("/", response_model=List[SpaceViewResponse])
 async def get_all_space_views():
-    response = await db_client.space_view.get_all()
+    response = await db_client.space_view.get_all(model_class=SpaceViewSchema)
     if not response.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail=response.get("error", "Failed to fetch space views"))
@@ -35,7 +37,10 @@ async def get_all_space_views():
 
 @router.get("/{entity_id}", response_model=SpaceViewResponse)
 async def get_space_view_by_id(entity_id: int):
-    response = await db_client.space_view.get_by_id(entity_id=entity_id)
+    response = await db_client.space_view.get_by_id(
+        entity_id=entity_id,
+        model_class=SpaceViewSchema,
+    )
     if not response.get("success"):
         error = response.get("error", "Space view not found")
         code = status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_400_BAD_REQUEST

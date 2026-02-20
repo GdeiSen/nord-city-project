@@ -33,6 +33,7 @@ from dyn_dialogs_callbacks.service_callback import service_callback
 from dyn_dialogs_callbacks.feedback_callback import feedback_callback
 from dyn_dialogs_callbacks.service_feedback_callback import service_feedback_callback
 from dyn_dialogs_callbacks.spaces_callback import spaces_callback
+from dyn_dialogs_callbacks.guest_parking_callback import guest_parking_callback
 from dialogs import (
     start_app_dialog,
     start_dyn_dialog,
@@ -43,15 +44,16 @@ from dialogs import (
     start_poll_dialog,
     start_service_feedback_dialog,
     start_spaces_dialog,
-    start_test_dialog
+    start_guest_parking_dialog,
+    start_test_dialog,
 )
 from dialogs.stats_dialog import start_stats_dialog
 
 # --- Refactoring Changes: Imports ---
 # Import Manager and Service registries
 from managers import (
-    ManagerRegistry, StorageManager, HeadersManager, MessageManager, 
-    EventManager, RouterManager, DatabaseManager
+    ManagerRegistry, StorageManager, HeadersManager, MessageManager,
+    EventManager, NavigatorManager, DatabaseManager
 )
 from managers.service_manager import ServiceManager
 
@@ -106,10 +108,10 @@ class DynDialogHandlersManager:
 
     async def handle(self, key, bot, update: Update, context: ContextTypes.DEFAULT_TYPE, dialog: Dialog, sequence_id: int, item_id: int, option_id: int | None, answer: str | None, state: int):
         if key in self.handlers:
-            await self.handlers[key](bot, update, context, dialog, sequence_id, item_id, option_id, answer, state)
-        else:
-            if self.default_handler:
-                await self.default_handler(bot, update, context, dialog, sequence_id, item_id, option_id, answer, state)
+            return await self.handlers[key](bot, update, context, dialog, sequence_id, item_id, option_id, answer, state)
+        elif self.default_handler:
+            return await self.default_handler(bot, update, context, dialog, sequence_id, item_id, option_id, answer, state)
+        return None
 
 class Bot:
     def __init__(self, application: Application, headers_data: dict = None):
@@ -117,7 +119,7 @@ class Bot:
         
         # Initialize utilities
         from utils import DictExtractor, DialogConverter
-        from locales.localisation_uni import Data as LocalisationData
+        from locales.localisation import Data as LocalisationData
         self.utils = Utils()
         self.utils.dialog_converter = DialogConverter()
         self.utils.locales_extractor = DictExtractor(LocalisationData)
@@ -143,7 +145,7 @@ class Bot:
         self.managers.register_manager(HeadersManager(self))
         self.managers.register_manager(EventManager(self))
         self.managers.register_manager(MessageManager(self))
-        self.managers.register_manager(RouterManager(self))
+        self.managers.register_manager(NavigatorManager(self))
         self.managers.register_manager(DatabaseManager(self)) # Database is a core manager
     
         # --- Refactoring Changes: StatsManager and NotificationManager removed ---
@@ -214,31 +216,33 @@ class Bot:
 
     async def start_async(self):
         """Async method to start the bot with proper event loop handling"""
-        # --- This initialization logic remains the same ---
         self.dyn_dialog_handlers_manager.add_handler(Dialogs.SERVICE, service_callback)
         self.dyn_dialog_handlers_manager.add_handler(Dialogs.PROFILE, profile_callback)
         self.dyn_dialog_handlers_manager.add_handler(Dialogs.POLL, poll_callback)
         self.dyn_dialog_handlers_manager.add_handler(Dialogs.FEEDBACK, feedback_callback)
         self.dyn_dialog_handlers_manager.add_handler(Dialogs.SERVICE_FEEDBACK, service_feedback_callback)
         self.dyn_dialog_handlers_manager.add_handler(Dialogs.SPACES, spaces_callback)
+        self.dyn_dialog_handlers_manager.add_handler(Dialogs.GUEST_PARKING, guest_parking_callback)
         self.dyn_dialogs = {
             Dialogs.SERVICE: self.utils.dialog_converter.convert("./assets/service_dialog.json"),
             Dialogs.PROFILE: self.utils.dialog_converter.convert("./assets/profile_dialog.json"),
             Dialogs.POLL: self.utils.dialog_converter.convert("./assets/poll_dialog.json"),
             Dialogs.FEEDBACK: self.utils.dialog_converter.convert("./assets/feedback_dialog.json"),
-            Dialogs.SERVICE_FEEDBACK: self.utils.dialog_converter.convert("./assets/service_feedback_dialog.json")
+            Dialogs.SERVICE_FEEDBACK: self.utils.dialog_converter.convert("./assets/service_feedback_dialog.json"),
+            Dialogs.GUEST_PARKING: self.utils.dialog_converter.convert("./assets/guest_parking_dialog.json"),
         }
-        self.managers.router.add_handler(Dialogs.START, start_app_dialog)
-        self.managers.router.add_handler(Dialogs.DYN_DIALOG_ITEM, start_dyn_dialog)
-        self.managers.router.add_handler(Dialogs.FEEDBACK, start_feedback_dialog)
-        self.managers.router.add_handler(Dialogs.MENU, start_menu_dialog)
-        self.managers.router.add_handler(Dialogs.PROFILE, start_profile_dialog)
-        self.managers.router.add_handler(Dialogs.SERVICE, start_service_dialog)
-        self.managers.router.add_handler(Dialogs.POLL, start_poll_dialog)
-        self.managers.router.add_handler(Dialogs.SERVICE_FEEDBACK, start_service_feedback_dialog)
-        self.managers.router.add_handler(Dialogs.SPACES, start_spaces_dialog)
-        self.managers.router.add_handler(Dialogs.STATS, start_stats_dialog)
-        self.managers.router.add_handler(Dialogs.TEST, start_test_dialog)
+        self.managers.navigator.add_handler(Dialogs.START, start_app_dialog)
+        self.managers.navigator.add_handler(Dialogs.DYN_DIALOG_ITEM, start_dyn_dialog)
+        self.managers.navigator.add_handler(Dialogs.FEEDBACK, start_feedback_dialog)
+        self.managers.navigator.add_handler(Dialogs.MENU, start_menu_dialog)
+        self.managers.navigator.add_handler(Dialogs.PROFILE, start_profile_dialog)
+        self.managers.navigator.add_handler(Dialogs.SERVICE, start_service_dialog)
+        self.managers.navigator.add_handler(Dialogs.POLL, start_poll_dialog)
+        self.managers.navigator.add_handler(Dialogs.SERVICE_FEEDBACK, start_service_feedback_dialog)
+        self.managers.navigator.add_handler(Dialogs.SPACES, start_spaces_dialog)
+        self.managers.navigator.add_handler(Dialogs.GUEST_PARKING, start_guest_parking_dialog)
+        self.managers.navigator.add_handler(Dialogs.STATS, start_stats_dialog)
+        self.managers.navigator.add_handler(Dialogs.TEST, start_test_dialog)
         self.application.add_handler(CommandHandler("start", self.handle_command))
         self.application.add_handler(CommandHandler("menu", self.handle_command))
         self.application.add_handler(CommandHandler("service", self.handle_command))
@@ -247,6 +251,7 @@ class Bot:
         self.application.add_handler(CommandHandler("feedback", self.handle_command))
         self.application.add_handler(CommandHandler("service_feedback", self.handle_command))
         self.application.add_handler(CommandHandler("spaces", self.handle_command))
+        self.application.add_handler(CommandHandler("guest_parking", self.handle_command))
         self.application.add_handler(CommandHandler("stats", self.handle_command))
         self.application.add_handler(CommandHandler("test", self.handle_command))
         self.application.add_handler(CallbackQueryHandler(self.handle_callback))
@@ -278,24 +283,27 @@ class Bot:
         self.dyn_dialog_handlers_manager.add_handler(Dialogs.FEEDBACK, feedback_callback)
         self.dyn_dialog_handlers_manager.add_handler(Dialogs.SERVICE_FEEDBACK, service_feedback_callback)
         self.dyn_dialog_handlers_manager.add_handler(Dialogs.SPACES, spaces_callback)
+        self.dyn_dialog_handlers_manager.add_handler(Dialogs.GUEST_PARKING, guest_parking_callback)
         self.dyn_dialogs = {
             Dialogs.SERVICE: self.utils.dialog_converter.convert("./assets/service_dialog.json"),
             Dialogs.PROFILE: self.utils.dialog_converter.convert("./assets/profile_dialog.json"),
             Dialogs.POLL: self.utils.dialog_converter.convert("./assets/poll_dialog.json"),
             Dialogs.FEEDBACK: self.utils.dialog_converter.convert("./assets/feedback_dialog.json"),
-            Dialogs.SERVICE_FEEDBACK: self.utils.dialog_converter.convert("./assets/service_feedback_dialog.json")
+            Dialogs.SERVICE_FEEDBACK: self.utils.dialog_converter.convert("./assets/service_feedback_dialog.json"),
+            Dialogs.GUEST_PARKING: self.utils.dialog_converter.convert("./assets/guest_parking_dialog.json"),
         }
-        self.managers.router.add_handler(Dialogs.START, start_app_dialog)
-        self.managers.router.add_handler(Dialogs.DYN_DIALOG_ITEM, start_dyn_dialog)
-        self.managers.router.add_handler(Dialogs.FEEDBACK, start_feedback_dialog)
-        self.managers.router.add_handler(Dialogs.MENU, start_menu_dialog)
-        self.managers.router.add_handler(Dialogs.PROFILE, start_profile_dialog)
-        self.managers.router.add_handler(Dialogs.SERVICE, start_service_dialog)
-        self.managers.router.add_handler(Dialogs.POLL, start_poll_dialog)
-        self.managers.router.add_handler(Dialogs.SERVICE_FEEDBACK, start_service_feedback_dialog)
-        self.managers.router.add_handler(Dialogs.SPACES, start_spaces_dialog)
-        self.managers.router.add_handler(Dialogs.STATS, start_stats_dialog)
-        self.managers.router.add_handler(Dialogs.TEST, start_test_dialog)
+        self.managers.navigator.add_handler(Dialogs.START, start_app_dialog)
+        self.managers.navigator.add_handler(Dialogs.DYN_DIALOG_ITEM, start_dyn_dialog)
+        self.managers.navigator.add_handler(Dialogs.FEEDBACK, start_feedback_dialog)
+        self.managers.navigator.add_handler(Dialogs.MENU, start_menu_dialog)
+        self.managers.navigator.add_handler(Dialogs.PROFILE, start_profile_dialog)
+        self.managers.navigator.add_handler(Dialogs.SERVICE, start_service_dialog)
+        self.managers.navigator.add_handler(Dialogs.POLL, start_poll_dialog)
+        self.managers.navigator.add_handler(Dialogs.SERVICE_FEEDBACK, start_service_feedback_dialog)
+        self.managers.navigator.add_handler(Dialogs.SPACES, start_spaces_dialog)
+        self.managers.navigator.add_handler(Dialogs.GUEST_PARKING, start_guest_parking_dialog)
+        self.managers.navigator.add_handler(Dialogs.STATS, start_stats_dialog)
+        self.managers.navigator.add_handler(Dialogs.TEST, start_test_dialog)
         self.application.add_handler(CommandHandler("start", self.handle_command))
         self.application.add_handler(CommandHandler("menu", self.handle_command))
         self.application.add_handler(CommandHandler("service", self.handle_command))
@@ -304,6 +312,7 @@ class Bot:
         self.application.add_handler(CommandHandler("feedback", self.handle_command))
         self.application.add_handler(CommandHandler("service_feedback", self.handle_command))
         self.application.add_handler(CommandHandler("spaces", self.handle_command))
+        self.application.add_handler(CommandHandler("guest_parking", self.handle_command))
         self.application.add_handler(CommandHandler("stats", self.handle_command))
         self.application.add_handler(CommandHandler("test", self.handle_command))
         self.application.add_handler(CallbackQueryHandler(self.handle_callback))
@@ -315,6 +324,7 @@ class Bot:
 
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
+            await update.callback_query.answer()
             callback_data = update.callback_query.data
             user_id = self.get_user_id(update)
             handler, dialog_type = self.managers.event.get_input_handler(user_id)
@@ -330,8 +340,13 @@ class Bot:
                     action = callback_data
                     params = []
                 
-                if action == str(Dialogs.DYN_DIALOG_ITEM) and params and params[0] == "-1":
-                    action_id = action
+                is_back = action == str(Dialogs.DYN_DIALOG_ITEM) and params and params[0] == "-1"
+                if is_back:
+                    # Back: navigator.pop() — один pop + запуск handler предыдущего экрана
+                    context.user_data['_dyn_back_from_pop'] = True
+                    await self.managers.navigator.pop(update, context)
+                    context.user_data.pop('_dyn_back_from_pop', None)
+                    return
                 else:
                     try:
                         action_id = int(action)
@@ -340,11 +355,11 @@ class Bot:
                 
                 if params:
                     context.user_data['callback_params'] = params
-                await self.managers.router.execute(action_id, update, context)
+                await self.managers.navigator.execute(action_id, update, context)
         except Exception as e:
             print(f"Error handling callback: {e}")
-            await self.send_message(update, context, "Произошла ошибка при обработке запроса. Разработчик уже уведомлен о проблеме.")
-            await self.managers.router.execute(Dialogs.MENU, update, context)
+            await self.send_message(update, context, self.get_text("error_processing_request"))
+            await self.managers.navigator.execute(Dialogs.MENU, update, context)
             raise e
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -385,17 +400,18 @@ class Bot:
                 "feedback": Dialogs.FEEDBACK,
                 "service_feedback": Dialogs.SERVICE_FEEDBACK,
                 "spaces": Dialogs.SPACES,
+                "guest_parking": Dialogs.GUEST_PARKING,
                 "stats": Dialogs.STATS,
                 "test": Dialogs.TEST
             }
             if command in dialog_map:
                 dialog_id = dialog_map[command]
-                self.managers.router.remove_trace_items(context, 0, 0)
-                self.managers.router.set_entry_point_item(context, dialog_id)
-                await self.managers.router.execute(dialog_id, update, context)
+                self.managers.navigator.clear(context)
+                self.managers.navigator.set_entry_point(context, dialog_id)
+                await self.managers.navigator.execute(dialog_id, update, context)
         except Exception as e:
             print(f"Error handling command: {e}")
-            await self.managers.router.execute(Dialogs.MENU, update, context)
+            await self.managers.navigator.execute(Dialogs.MENU, update, context)
 
     def register_input_handler(self, user_id: int, dialog_type: int, handler: Callable[..., Coroutine[Any, Any, Any]]) -> None:
         self.managers.event.register_input_handler(user_id, dialog_type, handler)

@@ -2,8 +2,8 @@
 
 import * as React from "react"
 import {
-  BarChart,
-  Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -15,12 +15,18 @@ import {
   startOfWeek,
   startOfMonth,
   startOfYear,
+  startOfDay,
   endOfWeek,
   endOfMonth,
   endOfYear,
+  endOfDay,
   subWeeks,
   subMonths,
   subYears,
+  addDays,
+  addWeeks,
+  addMonths,
+  addYears,
   parseISO,
   isBefore,
   isAfter,
@@ -58,6 +64,8 @@ const DEFAULT_CONFIG: ChartConfig = {
 
 function getDateKey(date: Date, period: ChartPeriod): string {
   switch (period) {
+    case "day":
+      return format(startOfDay(date), "yyyy-MM-dd")
     case "week":
       return format(startOfWeek(date, { weekStartsOn: 1 }), "yyyy-MM-dd")
     case "month":
@@ -72,6 +80,8 @@ function getDateKey(date: Date, period: ChartPeriod): string {
 function formatLabel(dateStr: string, period: ChartPeriod): string {
   const d = parseISO(dateStr)
   switch (period) {
+    case "day":
+      return format(d, "d MMM", { locale: ru })
     case "week":
       return format(d, "d MMM", { locale: ru })
     case "month":
@@ -89,6 +99,10 @@ function getDateRange(anchorDate: string, period: ChartPeriod): [Date, Date] {
   let rangeEnd: Date
   let rangeStart: Date
   switch (period) {
+    case "day":
+      rangeStart = startOfDay(subWeeks(anchor, 3))
+      rangeEnd = endOfDay(anchor)
+      break
     case "week":
       rangeEnd = endOfWeek(anchor, { weekStartsOn: 1 })
       rangeStart = subWeeks(startOfWeek(anchor, { weekStartsOn: 1 }), 11)
@@ -106,6 +120,37 @@ function getDateRange(anchorDate: string, period: ChartPeriod): [Date, Date] {
       rangeStart = subWeeks(startOfWeek(anchor, { weekStartsOn: 1 }), 11)
   }
   return [rangeStart, rangeEnd]
+}
+
+/** Generate all bucket keys in the date range for full timeline (including empty periods) */
+function getAllBucketKeys(rangeStart: Date, rangeEnd: Date, period: ChartPeriod): string[] {
+  const keys: string[] = []
+  const rangeEndStr = format(rangeEnd, "yyyy-MM-dd")
+  let current = rangeStart
+
+  while (true) {
+    const currentStr = format(current, "yyyy-MM-dd")
+    // Break when we've passed rangeEnd (strictly after; rangeEnd is inclusive)
+    if (period === "day" ? currentStr > rangeEndStr : isAfter(current, rangeEnd)) break
+    keys.push(getDateKey(current, period))
+    switch (period) {
+      case "day":
+        current = addDays(current, 1)
+        break
+      case "week":
+        current = addWeeks(current, 1)
+        break
+      case "month":
+        current = addMonths(current, 1)
+        break
+      case "year":
+        current = addYears(current, 1)
+        break
+      default:
+        current = addWeeks(current, 1)
+    }
+  }
+  return keys
 }
 
 async function fetchEntityData(
@@ -154,9 +199,11 @@ function aggregateData(
     buckets.set(key, current)
   }
 
-  const sortedKeys = Array.from(buckets.keys()).sort()
-  return sortedKeys.map((key) => {
-    const { count, sum } = buckets.get(key)!
+  // Use full timeline (all periods in range) so line chart shows continuous data
+  const allKeys = getAllBucketKeys(rangeStart, rangeEnd, period)
+  return allKeys.map((key) => {
+    const bucket = buckets.get(key) ?? { count: 0, sum: 0 }
+    const { count, sum } = bucket
     let value: number
     if (metric === "size") {
       value = aggregation === "avg" ? (count > 0 ? sum / count : 0) : sum
@@ -234,6 +281,7 @@ export function DashboardChart({
       rental_objects: "Бизнес-центры",
     }
     const periodLabels: Record<ChartPeriod, string> = {
+      day: "по дням",
       week: "по неделям",
       month: "по месяцам",
       year: "по годам",
@@ -261,19 +309,21 @@ export function DashboardChart({
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
               <XAxis
                 dataKey="label"
                 tick={{ fontSize: 12 }}
                 tickLine={false}
                 axisLine={false}
+                interval={config.period === "day" ? 0 : "preserveStartEnd"}
               />
               <YAxis
                 tick={{ fontSize: 12 }}
                 tickLine={false}
                 axisLine={false}
                 width={40}
+                domain={[0, "auto"]}
               />
               <Tooltip
                 contentStyle={{
@@ -283,12 +333,17 @@ export function DashboardChart({
                 formatter={(value: number | undefined) => [value ?? 0, "Значение"]}
                 labelFormatter={(label) => `Период: ${label}`}
               />
-              <Bar
+              <Line
+                type="monotone"
                 dataKey="value"
-                fill="hsl(var(--primary))"
-                radius={[4, 4, 0, 0]}
+                stroke="var(--foreground)"
+                strokeWidth={2}
+                dot={{ fill: "var(--foreground)", strokeWidth: 0, r: 3 }}
+                activeDot={{ r: 4 }}
+                connectNulls
+                isAnimationActive={false}
               />
-            </BarChart>
+            </LineChart>
           </ResponsiveContainer>
         )}
       </CardContent>

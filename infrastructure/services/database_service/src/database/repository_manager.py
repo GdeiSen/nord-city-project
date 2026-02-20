@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from typing import Type, TypeVar, Dict, Optional, List, Any
+from typing import Type, TypeVar, Dict, Optional, List, Any, Tuple
 
 from sqlalchemy import or_
 from sqlalchemy.orm import DeclarativeBase
@@ -25,6 +25,38 @@ FILTER_OPS = {
     "isEmpty": lambda col, _: col.is_(None),
     "isNotEmpty": lambda col, _: col.isnot(None),
 }
+
+# Maps (model_name, frontend_column_id) -> actual DB column name for sorting.
+# Frontend column ids may differ from DB (created->created_at, user->user_id, etc.).
+SORT_COLUMN_MAP: Dict[Tuple[str, str], str] = {
+    # ServiceTicket
+    ("ServiceTicket", "created"): "created_at",
+    ("ServiceTicket", "user"): "user_id",
+    ("ServiceTicket", "object"): "object_id",
+    ("ServiceTicket", "ticket"): "description",
+    # User
+    ("User", "created"): "created_at",
+    ("User", "object"): "object_id",
+    ("User", "user"): "last_name",
+    ("User", "contacts"): "email",
+    # Feedback
+    ("Feedback", "created"): "created_at",
+    ("Feedback", "date"): "created_at",
+    ("Feedback", "user"): "user_id",
+    ("Feedback", "feedback"): "answer",
+    # AuditLog
+    ("AuditLog", "created"): "created_at",
+    ("AuditLog", "assignee_display"): "assignee_id",
+    # GuestParkingRequest
+    ("GuestParkingRequest", "arrival"): "arrival_date",
+    ("GuestParkingRequest", "user"): "user_id",
+    # Object (rental-objects)
+    ("Object", "created"): "created_at",
+    # Space (rental-spaces)
+    ("Space", "object"): "object_id",
+    ("Space", "created"): "created_at",
+}
+
 
 class GenericRepository:
     """
@@ -239,13 +271,20 @@ class GenericRepository:
         return query
 
     def _apply_sort(self, query, sort: List[Dict[str, Any]]):
-        """Apply ORDER BY from sort spec."""
+        """Apply ORDER BY from sort spec. Resolves frontend column ids to DB columns."""
         for s in sort or []:
             col_id = s.get("columnId") or s.get("column_id")
             direction = (s.get("direction") or "asc").lower()
-            if not col_id or not hasattr(self.model, col_id):
+            if not col_id:
                 continue
-            col = getattr(self.model, col_id)
+            # Resolve to actual DB column (created->created_at, user->user_id, etc.)
+            sort_col = SORT_COLUMN_MAP.get((self.model.__name__, col_id), col_id)
+            if not hasattr(self.model, sort_col):
+                continue
+            col = getattr(self.model, sort_col)
+            # Only sort by real columns (relationship attrs don't support .asc()/.desc())
+            if sort_col not in self.model.__table__.columns:
+                continue
             query = query.order_by(col.desc() if direction == "desc" else col.asc())
         return query
 

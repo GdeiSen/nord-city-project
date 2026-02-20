@@ -12,7 +12,7 @@ async def start_poll_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYP
     if update.effective_chat.type != "private":
         return
     
-    bot.managers.router.set_entry_point_item(context, Dialogs.POLL)
+    bot.managers.navigator.set_entry_point(context, Dialogs.POLL)
     bot.managers.storage.set(context, Variables.ACTIVE_DYN_DIALOG, bot.dyn_dialogs[Dialogs.POLL])
     bot.managers.storage.set(context, Variables.ACTIVE_DIALOG_SEQUENCE_ID, 0)
     bot.managers.storage.set(context, Variables.ACTIVE_DIALOG_SEQUENCE_ITEM_INDEX, 0)

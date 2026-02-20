@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 from datetime import datetime
-from shared.constants import Dialogs, Variables
+from shared.constants import Dialogs, Variables, CallbackResult
 
 if TYPE_CHECKING:
     from telegram import Update
@@ -65,12 +65,13 @@ async def poll_callback(
                 }
                 await bot.services.poll.update_poll(answer_id, update_data)
             else:
-                from shared.models.poll_answer import PollAnswer
-                answer_obj = PollAnswer(user_id=user_id, ddid=ddid, answer=answer_value)
+                from shared.schemas import PollAnswerSchema
+                answer_obj = PollAnswerSchema(user_id=user_id, ddid=ddid, answer=answer_value)
                 await bot.services.poll.create_poll(answer_obj)
             
     if state == 1:
         await bot.send_message(update, context, "poll_completed", dynamic=False)
         # Clear trace before transitioning to menu to avoid element access errors
-        bot.managers.storage.set(context, Variables.ACTIVE_DIALOG_TRACE, [])
-        return await bot.managers.router.execute(Dialogs.MENU, update, context)
+        bot.managers.navigator.clear(context)
+        return await bot.managers.navigator.execute(Dialogs.MENU, update, context)
+    return CallbackResult.continue_()

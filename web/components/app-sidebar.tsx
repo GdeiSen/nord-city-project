@@ -5,6 +5,7 @@ import {
   IconDashboard,
   IconUsers,
   IconTicket,
+  IconCar,
   IconMessageCircle,
   IconBuildingSkyscraper,
   IconHistory,
@@ -77,6 +78,11 @@ const data = {
       title: "Заявки на обслуживание",
       url: "/service-tickets", 
       icon: IconTicket,
+    },
+    {
+      title: "Гостевая парковка",
+      url: "/guest-parking",
+      icon: IconCar,
     },
     {
       title: "Отзывы",

@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING, Optional, Dict, Any
 from telegram.constants import ParseMode
 
 from shared.constants import Roles
-from shared.models.otp_code import OtpCode
 from .base_service import BaseService
 
 if TYPE_CHECKING:
@@ -66,7 +65,7 @@ class TelegramAuthService(BaseService):
                 logger.warning(f"OTP request for non-existent user: {user_id}")
                 return {"success": False, "error": "user_not_found"}
 
-            user_role = getattr(user, 'role', None)
+            user_role = user.role
             if user_role not in (Roles.ADMIN, Roles.SUPER_ADMIN):
                 logger.warning(f"OTP request for user without admin role: {user_id} (role={user_role})")
                 return {"success": False, "error": "insufficient_permissions"}
@@ -76,8 +75,7 @@ class TelegramAuthService(BaseService):
 
             # 3. Generate a 6-digit OTP code
             code = self._generate_otp_code()
-            # Use naive UTC datetime because the column is TIMESTAMP WITHOUT TIME ZONE
-            expires_at = datetime.utcnow() + timedelta(minutes=OTP_CODE_TTL_MINUTES)
+            expires_at = datetime.now(timezone.utc) + timedelta(minutes=OTP_CODE_TTL_MINUTES)
 
             # 4. Store the code in database
             otp_data = {
@@ -92,13 +90,7 @@ class TelegramAuthService(BaseService):
                 return {"success": False, "error": "failed_to_create_code"}
 
             # 5. Send the code to the user via Telegram
-            message_text = (
-                f"🔐 <b>Код подтверждения</b>\n\n"
-                f"Ваш код для входа в панель управления:\n\n"
-                f"<code>{code}</code>\n\n"
-                f"Код действителен {OTP_CODE_TTL_MINUTES} минут.\n"
-                f"Если вы не запрашивали код, проигнорируйте это сообщение."
-            )
+            message_text = self.bot.get_text("otp_code_message", [code, OTP_CODE_TTL_MINUTES])
 
             await self.bot.application.bot.send_message(
                 chat_id=user_id,

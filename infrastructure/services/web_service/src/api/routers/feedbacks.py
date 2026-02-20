@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 
 from shared.clients.database_client import db_client
 from shared.constants import Roles
+from shared.schemas.feedback import FeedbackSchema
 from api.dependencies import get_current_user, get_audit_context, get_optional_current_user
 from api.schemas.common import MessageResponse, PaginatedResponse, parse_sort_param
 from api.schemas.list_params import parse_list_params_from_query
@@ -59,16 +60,20 @@ async def create_feedback(
         )
     response = await db_client.feedback.create(
         model_data=body.model_dump(),
+        model_class=FeedbackSchema,
         _audit_context=get_audit_context(request, current_user),
     )
     if not response.get("success"):
         error = response.get("error", "Failed to create feedback")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error)
-    return response["data"]
+    feedback_schema = response["data"]
+    items = await enrich_feedbacks_with_users([feedback_schema])
+    return items[0] if items else FeedbackResponse(**feedback_schema.model_dump())
 
 
 get_feedbacks = create_paginated_list_handler(
     db_client.feedback,
+    model_class=FeedbackSchema,
     enricher=enrich_feedbacks_with_users,
     entity_label="feedbacks",
 )
@@ -103,14 +108,16 @@ async def export_feedbacks(
         search=search_val,
         search_columns=cols,
         filters=filter_list,
+        model_class=FeedbackSchema,
     )
     if not response.get("success"):
         raise HTTPException(status_code=500, detail=response.get("error", "Export failed"))
     data = response.get("data", {})
     items = data.get("items", [])
-    await enrich_feedbacks_with_users(items)
+    items = await enrich_feedbacks_with_users(items)
+    items_dicts = [m.model_dump() for m in items]
     value_getters = {c: _get_feedback_export_value(c) for c in column_ids}
-    csv_content = build_csv(items, column_ids, value_getters, FEEDBACK_EXPORT_HEADERS)
+    csv_content = build_csv(items_dicts, column_ids, value_getters, FEEDBACK_EXPORT_HEADERS)
     utf8_bom = "\ufeff"
     body = (utf8_bom + csv_content).encode("utf-8")
     return Response(
@@ -122,14 +129,16 @@ async def export_feedbacks(
 
 @router.get("/{entity_id}", response_model=FeedbackResponse)
 async def get_feedback_by_id(entity_id: int):
-    response = await db_client.feedback.get_by_id(entity_id=entity_id)
+    response = await db_client.feedback.get_by_id(entity_id=entity_id, model_class=FeedbackSchema)
     if not response.get("success"):
         error = response.get("error", "Feedback not found")
         code = status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=code, detail=error)
     if response.get("data") is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found")
-    return response["data"]
+    feedback_schema = response["data"]
+    items = await enrich_feedbacks_with_users([feedback_schema])
+    return items[0] if items else FeedbackResponse(**feedback_schema.model_dump())
 
 
 @router.put("/{entity_id}", response_model=MessageResponse)

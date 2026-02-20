@@ -1,5 +1,5 @@
 from database.database_manager import DatabaseManager
-from shared.models.feedback import Feedback
+from models.feedback import Feedback
 from .base_service import BaseService
 
 class FeedbackService(BaseService):

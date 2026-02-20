@@ -1,5 +1,5 @@
 from typing import TYPE_CHECKING
-from shared.constants import Dialogs, Variables
+from shared.constants import Dialogs, Variables, CallbackResult
 
 if TYPE_CHECKING:
     from telegram import Update
@@ -38,3 +38,4 @@ async def spaces_callback(
     # В данной реализации не требуется специальная логика обработки,
     # так как все переходы обрабатываются самим диалогом,
     # но функция должна быть определена для совместимости с интерфейсом
+    return CallbackResult.continue_()

@@ -17,6 +17,7 @@ class AuditLogEntryResponse(BaseModel):
     new_data: Optional[Dict[str, Any]] = None
     meta: Optional[Dict[str, Any]] = None
     assignee_id: Optional[int] = None
+    assignee_display: Optional[str] = None  # Enriched from assignee_id
     audit_type: Optional[str] = None  # fast, smart, heavy
     created_at: Optional[datetime] = None
 

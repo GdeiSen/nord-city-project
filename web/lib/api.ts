@@ -292,6 +292,9 @@ export const auditLogApi = {
     return { items: res?.items ?? [], total: res?.total ?? 0 }
   },
 }
+const guestParkingBase = createCrudApi<any>("/guest-parking")
+export const guestParkingApi = { ...guestParkingBase }
+
 const feedbackBase = createCrudApi<any>("/feedbacks")
 export const feedbackApi = {
   ...feedbackBase,

@@ -1,15 +1,17 @@
 # ./services/notification_service.py
-from typing import TYPE_CHECKING, Optional, Dict, Any
+import asyncio
 import json
+from typing import TYPE_CHECKING, Optional, Dict, Any
 import re
 from telegram.constants import ParseMode
 from shared.constants import Dialogs, ServiceTicketStatus, Roles
 from .base_service import BaseService
+from datetime import datetime
 from utils.time_utils import now, TimeUtils
 
 from telegram import Update, Message
 from telegram.ext import ContextTypes
-from shared.models.user import User
+from shared.schemas import UserSchema, AuditLogSchema
 
 if TYPE_CHECKING:
     from bot import Bot
@@ -30,11 +32,13 @@ class NotificationService(BaseService):
         super().__init__(bot)
         self._admin_chat_id: Optional[str] = None
         self._chief_engineer_chat_id: Optional[str] = None
+        self._reminder_scheduler_task = None
 
     async def initialize(self) -> None:
         """Initializes the notification service by loading chat IDs from headers."""
         self._admin_chat_id = self.bot.managers.headers.get("ADMIN_CHAT_ID")
         self._chief_engineer_chat_id = self.bot.managers.headers.get("CHIEF_ENGINEER_CHAT_ID")
+        self._reminder_scheduler_task = asyncio.create_task(self._run_reminder_scheduler())
         print("NotificationService initialized")
 
     async def notify_new_ticket(
@@ -67,20 +71,18 @@ class NotificationService(BaseService):
 
             # Extract phone number from ticket meta
             phone_number = self.bot.get_text("phone_not_specified")
-            meta = getattr(ticket, 'meta', None)
-            if meta:
-                meta_dict = json.loads(meta)
+            if ticket.meta:
+                meta_dict = json.loads(ticket.meta)
                 phone_number = meta_dict.get("phone_number", self.bot.get_text("phone_not_specified"))
 
-            created_at = getattr(ticket, "created_at", None)
-            created_date = TimeUtils.format_time(created_at, "%d.%m.%Y %H:%M") if created_at else now().strftime("%d.%m.%Y %H:%M")
+            created_date = TimeUtils.format_time(ticket.created_at, "%d.%m.%Y %H:%M") if ticket.created_at else now().strftime("%d.%m.%Y %H:%M")
 
             # Format the notification text
             message_text = self.bot.get_text("ticket_to_admin_chat", [
                 ticket.id,
                 created_date,
-                getattr(ticket, 'description', None) or self.bot.get_text("description_not_specified"),
-                getattr(ticket, 'location', None) or self.bot.get_text("location_not_specified"),
+                ticket.description or self.bot.get_text("description_not_specified"),
+                ticket.location or self.bot.get_text("location_not_specified"),
                 user_name,
                 phone_number
             ])
@@ -91,9 +93,9 @@ class NotificationService(BaseService):
                 parse_mode=ParseMode.HTML
             )
 
-            # Link the message ID to the ticket (одним update с meta для Telegram cleanup)
+            # Link the message ID to the ticket (для последующего edit/delete через сайт)
             if message and message.message_id:
-                await self.bot.services.service_ticket.update_service_ticket(
+                updated = await self.bot.services.service_ticket.update_service_ticket(
                     ticket.id,
                     {"msid": message.message_id},
                     _audit_context={
@@ -102,6 +104,9 @@ class NotificationService(BaseService):
                         "meta": {"msid": message.message_id, "user_id": ticket.user_id},
                     },
                 )
+                if updated is None:
+                    print(f"Failed to save msid for service_ticket {ticket.id}")
+                    return {"success": False, "error": "msid_update_failed"}
             return {"success": True, "error": None}
         except Exception as e:
             print(f"Error sending ticket notification to admin chat: {e}")
@@ -125,8 +130,7 @@ class NotificationService(BaseService):
                 return {"success": False, "error": "ticket_not_found"}
             if not self._admin_chat_id:
                 return {"success": True, "error": None}
-            msid = getattr(ticket, "msid", None)
-            if not msid:
+            if not ticket.msid:
                 return {"success": True, "error": None}
 
             user = await self.bot.services.user.get_user_by_id(ticket.user_id)
@@ -135,35 +139,33 @@ class NotificationService(BaseService):
                 user_name = f"{user.last_name or ''} {user.first_name or ''} {user.middle_name or ''}".strip()
 
             phone_number = self.bot.get_text("phone_not_specified")
-            meta = getattr(ticket, "meta", None)
-            if meta:
-                meta_dict = json.loads(meta) if isinstance(meta, str) else (meta or {})
+            if ticket.meta:
+                meta_dict = json.loads(ticket.meta) if isinstance(ticket.meta, str) else (ticket.meta or {})
                 phone_number = meta_dict.get("phone_number", self.bot.get_text("phone_not_specified"))
 
-            created_at = getattr(ticket, "created_at", None) or (ticket.get("created_at") if hasattr(ticket, "get") else None)
-            if not created_at:
+            if not ticket.created_at:
                 created_date = now().strftime("%d.%m.%Y %H:%M")
-            elif isinstance(created_at, str):
+            elif isinstance(ticket.created_at, str):
                 try:
                     from datetime import datetime as dt
-                    parsed = dt.fromisoformat(created_at.replace("Z", "+00:00"))
+                    parsed = dt.fromisoformat(ticket.created_at.replace("Z", "+00:00"))
                     created_date = TimeUtils.format_time(parsed, "%d.%m.%Y %H:%M")
                 except (ValueError, TypeError):
                     created_date = now().strftime("%d.%m.%Y %H:%M")
             else:
-                created_date = TimeUtils.format_time(created_at, "%d.%m.%Y %H:%M")
+                created_date = TimeUtils.format_time(ticket.created_at, "%d.%m.%Y %H:%M")
 
             payload = [
                 ticket.id,
                 created_date,
-                getattr(ticket, "description", None) or self.bot.get_text("description_not_specified"),
-                getattr(ticket, "location", None) or self.bot.get_text("location_not_specified"),
+                ticket.description or self.bot.get_text("description_not_specified"),
+                ticket.location or self.bot.get_text("location_not_specified"),
                 user_name,
                 phone_number,
             ]
             await self.bot.managers.message.edit_message(
                 chat_id=self._admin_chat_id,
-                message_id=msid,
+                message_id=ticket.msid,
                 text="ticket_to_admin_chat",
                 payload=payload,
             )
@@ -224,7 +226,7 @@ class NotificationService(BaseService):
     async def ensure_user_exists(self, user_id: int):
         user = await self.bot.services.user.get_user_by_id(user_id)
         if not user:
-            user = User(id=user_id, object_id=1, role=Roles.GUEST)
+            user = UserSchema(id=user_id, object_id=1, role=Roles.GUEST)
             await self.bot.services.user.create_user(user)
 
     async def _process_ticket_accepted(self, update: "Update", context: "ContextTypes.DEFAULT_TYPE", ticket, user_id: int):
@@ -280,16 +282,14 @@ class NotificationService(BaseService):
             )
             await self.bot.services.stats.force_update_stats()
             await self._delete_all_ticket_replies(ticket)
-            if self._admin_chat_id:
-                msid = getattr(ticket, "msid", None)
-                if msid:
-                    try:
-                        await self.bot.managers.message.delete_message(
-                            chat_id=self._admin_chat_id,
-                            message_id=msid,
-                        )
-                    except Exception as e:
-                        print(f"Error deleting ticket message (msid={msid}): {e}")
+            if self._admin_chat_id and ticket.msid:
+                try:
+                    await self.bot.managers.message.delete_message(
+                        chat_id=self._admin_chat_id,
+                        message_id=ticket.msid,
+                    )
+                except Exception as e:
+                    print(f"Error deleting ticket message (msid={ticket.msid}): {e}")
                 admin_text = self.bot.get_text("ticket_completed_admin", [ticket_id])
                 await self.bot.application.bot.send_message(
                     chat_id=self._admin_chat_id,
@@ -321,18 +321,16 @@ class NotificationService(BaseService):
                 user_name = f"{user.last_name or ''} {user.first_name or ''} {user.middle_name or ''}".strip()
 
             phone_number = self.bot.get_text('service_feedback_phone_not_specified')
-            meta = getattr(ticket, 'meta', None)
-            if meta:
-                meta_dict = json.loads(meta)
+            if ticket.meta:
+                meta_dict = json.loads(ticket.meta)
                 phone_number = meta_dict.get("phone_number", self.bot.get_text('service_feedback_phone_not_specified'))
 
-            created_at = getattr(ticket, "created_at", None)
-            created_date = TimeUtils.format_time(created_at, "%d.%m.%Y %H:%M") if created_at else now().strftime("%d.%m.%Y %H:%M")
+            created_date = TimeUtils.format_time(ticket.created_at, "%d.%m.%Y %H:%M") if ticket.created_at else now().strftime("%d.%m.%Y %H:%M")
 
             message_text = self.bot.get_text('service_feedback_to_chief_engineer', [
                 created_date,
-                getattr(ticket, 'description', None) or 'Не указана',
-                getattr(ticket, 'location', None) or 'Не указано',
+                ticket.description or self.bot.get_text("service_feedback_description_fallback"),
+                ticket.location or self.bot.get_text("service_feedback_location_fallback"),
                 user_name,
                 phone_number,
                 feedback_message
@@ -366,18 +364,18 @@ class NotificationService(BaseService):
                 return {"success": True, "error": None}
 
             message_ids_to_delete = set()
-            original_msid = getattr(ticket, "msid", None)
-            if original_msid:
-                message_ids_to_delete.add(original_msid)
+            if ticket.msid:
+                message_ids_to_delete.add(ticket.msid)
 
             result = await self.bot.managers.database.audit_log.find_by_entity(
                 entity_type="ServiceTicket",
                 entity_id=ticket.id,
+                model_class=AuditLogSchema,
             )
             ticket_logs = result.get("data", []) if result.get("success") else []
             for log in ticket_logs:
-                meta = log.get("meta", {}) if isinstance(log, dict) else getattr(log, "meta", None) or {}
-                log_msid = meta.get("msid") if isinstance(meta, dict) else None
+                meta = log.meta or {}
+                log_msid = meta.get("msid")
                 if log_msid:
                     message_ids_to_delete.add(log_msid)
 
@@ -420,6 +418,7 @@ class NotificationService(BaseService):
             result = await self.bot.managers.database.audit_log.find_by_entity(
                 entity_type="ServiceTicket",
                 entity_id=ticket.id,
+                model_class=AuditLogSchema,
             )
             ticket_logs = result.get("data", []) if result.get("success") else []
 
@@ -427,12 +426,12 @@ class NotificationService(BaseService):
                 return
 
             # Собираем все message_id из meta.msid (кроме исходного сообщения тикета)
-            original_msid = getattr(ticket, "msid", None)
+            original_msid = ticket.msid
             message_ids_to_delete = set()
 
             for log in ticket_logs:
-                meta = log.get("meta", {}) if isinstance(log, dict) else getattr(log, "meta", None) or {}
-                log_msid = meta.get("msid") if isinstance(meta, dict) else None
+                meta = log.meta or {}
+                log_msid = meta.get("msid")
                 # Исключаем исходное сообщение тикета и None значения
                 if log_msid and log_msid != original_msid:
                     message_ids_to_delete.add(log_msid)
@@ -459,6 +458,289 @@ class NotificationService(BaseService):
             print(f"Error deleting ticket reply messages: {e}")
             import traceback
             traceback.print_exc()
+
+    async def notify_guest_parking_request(
+        self, req_id: int, data: dict, user_id: int
+    ) -> None:
+        """Отправляет заявку на гостевую парковку в канал администраторов."""
+        try:
+            if not self._admin_chat_id:
+                return
+            user = await self.bot.services.user.get_user_by_id(user_id)
+            user_name = self.bot.get_text("unknown_user")
+            legal_entity = ""
+            if user:
+                user_name = f"{user.last_name or ''} {user.first_name or ''} {user.middle_name or ''}".strip()
+                legal_entity = user.legal_entity or ""
+
+            arrival_date = data.get("arrival_date")
+            date_str = (
+                arrival_date.strftime("%d.%m.%Y")
+                if isinstance(arrival_date, datetime)
+                else str(arrival_date)[:10]
+            )
+            time_str = data.get("arrival_time", "")
+            tenant_contact = data.get("tenant_phone", "")
+            if user_name or legal_entity:
+                tenant_contact = f"{tenant_contact} ({user_name}, {legal_entity})".strip()
+            text = self.bot.get_text("guest_parking_to_admin", [
+                date_str,
+                time_str,
+                data.get("license_plate", ""),
+                data.get("car_make_color", ""),
+                data.get("driver_phone", ""),
+                tenant_contact,
+            ])
+            message = await self.bot.application.bot.send_message(
+                chat_id=self._admin_chat_id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+            )
+            if message and message.message_id:
+                try:
+                    await self.bot.managers.database.guest_parking.update(
+                        entity_id=req_id,
+                        update_data={"msid": message.message_id},
+                        _audit_context={"source": "bot_service", "assignee_id": 1},
+                    )
+                except Exception as upd_e:
+                    print(f"Error saving msid for guest parking {req_id}: {upd_e}")
+        except Exception as e:
+            print(f"Error notifying admin about guest parking request: {e}")
+
+    async def schedule_guest_parking_reminder(
+        self, req_id: int, data: dict
+    ) -> None:
+        """Заглушка: напоминания обрабатываются планировщиком check_guest_parking_reminders (каждую минуту)."""
+        pass
+
+    async def _run_reminder_scheduler(self) -> None:
+        """Фоновый планировщик: каждую минуту проверяет заявки, по которым нужно отправить напоминание."""
+        try:
+            while True:
+                try:
+                    await self.check_guest_parking_reminders()
+                except Exception as e:
+                    print(f"Error in guest parking reminder scheduler: {e}")
+                await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            pass
+
+    async def check_guest_parking_reminders(self) -> None:
+        """
+        Проверяет наличие заявок, по которым за 15 минут нужно отправить напоминание.
+        Отправляет напоминания в канал администраторов.
+        Использует TimeUtils.now() для согласованного часового пояса с сохранением заявок.
+        """
+        try:
+            if not self._admin_chat_id:
+                return
+            reference_time = now()
+            result = await self.bot.managers.database.guest_parking.find_due_for_reminder(
+                reference_time_iso=reference_time.isoformat(),
+            )
+            if not result.get("success"):
+                if result.get("error"):
+                    print(f"Guest parking reminder check failed: {result['error']}")
+                return
+            items = result.get("data") or []
+            if not items:
+                return
+            for item in items:
+                req_id = item.get("id") if isinstance(item, dict) else getattr(item, "id", None)
+                if req_id is None:
+                    continue
+                data = {
+                    "license_plate": item.get("license_plate", "") if isinstance(item, dict) else (getattr(item, "license_plate", "") or ""),
+                    "car_make_color": item.get("car_make_color", "") if isinstance(item, dict) else (getattr(item, "car_make_color", "") or ""),
+                    "driver_phone": item.get("driver_phone", "") if isinstance(item, dict) else (getattr(item, "driver_phone", "") or ""),
+                }
+                try:
+                    await self._send_guest_parking_reminder(req_id, data)
+                    print(f"Guest parking reminder sent for request {req_id}")
+                except Exception as e:
+                    print(f"Error sending guest parking reminder for request {req_id}: {e}")
+        except Exception as e:
+            print(f"Error checking guest parking reminders: {e}")
+
+    async def _send_guest_parking_reminder(self, req_id: int, data: dict) -> None:
+        """Отправляет напоминание о гостевой парковке администраторам."""
+        if not self._admin_chat_id:
+            return
+        text = self.bot.get_text("guest_parking_reminder", [
+            data.get("license_plate", ""),
+            data.get("car_make_color", ""),
+            data.get("driver_phone", ""),
+        ])
+        await self.bot.application.bot.send_message(
+            chat_id=self._admin_chat_id,
+            text=text,
+            parse_mode=ParseMode.HTML,
+        )
+
+    async def notify_new_guest_parking(self, req_id: int) -> Dict[str, Any]:
+        """
+        Отправляет заявку на гостевую парковку в чат администраторов (при создании с сайта).
+        Сохраняет msid для последующего редактирования/удаления.
+        """
+        try:
+            resp = await self.bot.managers.database.guest_parking.get_by_id(
+                entity_id=req_id,
+            )
+            if not resp.get("success") or not resp.get("data"):
+                return {"success": False, "error": "request_not_found"}
+            req = resp["data"]
+            if isinstance(req, dict):
+                req_id_val = req.get("id")
+                user_id = req.get("user_id")
+                arrival_date = req.get("arrival_date")
+                license_plate = req.get("license_plate", "")
+                car_make_color = req.get("car_make_color", "")
+                driver_phone = req.get("driver_phone", "")
+                tenant_phone = req.get("tenant_phone", "")
+            else:
+                req_id_val = getattr(req, "id", None)
+                user_id = getattr(req, "user_id", None)
+                arrival_date = getattr(req, "arrival_date", None)
+                license_plate = getattr(req, "license_plate", "") or ""
+                car_make_color = getattr(req, "car_make_color", "") or ""
+                driver_phone = getattr(req, "driver_phone", "") or ""
+                tenant_phone = getattr(req, "tenant_phone", "") or ""
+
+            user = await self.bot.services.user.get_user_by_id(user_id) if user_id else None
+            user_name = self.bot.get_text("unknown_user")
+            legal_entity = ""
+            if user:
+                user_name = f"{user.last_name or ''} {user.first_name or ''} {user.middle_name or ''}".strip()
+                legal_entity = user.legal_entity or ""
+            tenant_contact = tenant_phone or ""
+            if user_name or legal_entity:
+                tenant_contact = f"{tenant_contact} ({user_name}, {legal_entity})".strip()
+
+            if arrival_date and hasattr(arrival_date, "strftime"):
+                date_str = arrival_date.strftime("%d.%m.%Y")
+                time_str = arrival_date.strftime("%H:%M")
+            elif isinstance(arrival_date, str):
+                parts = arrival_date.replace("Z", "").split("T")
+                date_str = parts[0][:10] if parts else ""
+                time_str = parts[1][:5] if len(parts) > 1 else ""
+            else:
+                date_str = str(arrival_date)[:10] if arrival_date else ""
+                time_str = ""
+
+            text = self.bot.get_text("guest_parking_to_admin", [
+                date_str, time_str, license_plate, car_make_color, driver_phone, tenant_contact,
+            ])
+            message = await self.bot.application.bot.send_message(
+                chat_id=self._admin_chat_id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+            )
+            if message and message.message_id:
+                upd = await self.bot.managers.database.guest_parking.update(
+                    entity_id=req_id_val,
+                    update_data={"msid": message.message_id},
+                    _audit_context={"source": "bot_service", "assignee_id": 1},
+                )
+                if not upd.get("success"):
+                    print(f"Failed to save msid for guest_parking {req_id_val}: {upd.get('error')}")
+                    return {"success": False, "error": upd.get("error", "msid_update_failed")}
+            return {"success": True, "error": None}
+        except Exception as e:
+            print(f"Error notifying new guest parking {req_id}: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def edit_guest_parking_message(self, req_id: int) -> Dict[str, Any]:
+        """Редактирует сообщение заявки в чате администраторов. Вызывать при изменении с сайта."""
+        try:
+            resp = await self.bot.managers.database.guest_parking.get_by_id(entity_id=req_id)
+            if not resp.get("success") or not resp.get("data"):
+                return {"success": False, "error": "request_not_found"}
+            req = resp["data"]
+            msid = req.get("msid") if isinstance(req, dict) else getattr(req, "msid", None)
+            if not msid:
+                return {"success": True, "error": None}
+            if not self._admin_chat_id:
+                return {"success": True, "error": None}
+
+            if isinstance(req, dict):
+                user_id = req.get("user_id")
+                arrival_date = req.get("arrival_date")
+                license_plate = req.get("license_plate", "")
+                car_make_color = req.get("car_make_color", "")
+                driver_phone = req.get("driver_phone", "")
+                tenant_phone = req.get("tenant_phone", "")
+            else:
+                user_id = getattr(req, "user_id", None)
+                arrival_date = getattr(req, "arrival_date", None)
+                license_plate = getattr(req, "license_plate", "") or ""
+                car_make_color = getattr(req, "car_make_color", "") or ""
+                driver_phone = getattr(req, "driver_phone", "") or ""
+                tenant_phone = getattr(req, "tenant_phone", "") or ""
+
+            user = await self.bot.services.user.get_user_by_id(user_id) if user_id else None
+            user_name = self.bot.get_text("unknown_user")
+            legal_entity = ""
+            if user:
+                user_name = f"{user.last_name or ''} {user.first_name or ''} {user.middle_name or ''}".strip()
+                legal_entity = user.legal_entity or ""
+            tenant_contact = tenant_phone or ""
+            if user_name or legal_entity:
+                tenant_contact = f"{tenant_contact} ({user_name}, {legal_entity})".strip()
+
+            if arrival_date and hasattr(arrival_date, "strftime"):
+                date_str = arrival_date.strftime("%d.%m.%Y")
+                time_str = arrival_date.strftime("%H:%M")
+            elif isinstance(arrival_date, str):
+                parts = arrival_date.replace("Z", "").split("T")
+                date_str = parts[0][:10] if parts else ""
+                time_str = parts[1][:5] if len(parts) > 1 else ""
+            else:
+                date_str = str(arrival_date)[:10] if arrival_date else ""
+                time_str = ""
+
+            payload = [date_str, time_str, license_plate, car_make_color, driver_phone, tenant_contact]
+            await self.bot.managers.message.edit_message(
+                chat_id=self._admin_chat_id,
+                message_id=msid,
+                text="guest_parking_to_admin",
+                payload=payload,
+            )
+            admin_text = self.bot.get_text("guest_parking_updated_admin", [req_id])
+            await self.bot.application.bot.send_message(
+                chat_id=self._admin_chat_id,
+                text=admin_text,
+                parse_mode=ParseMode.HTML,
+            )
+            return {"success": True, "error": None}
+        except Exception as e:
+            print(f"Error editing guest parking message {req_id}: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def delete_guest_parking_messages(self, req_id: int) -> Dict[str, Any]:
+        """Удаляет сообщение заявки из чата администраторов. Вызывать перед удалением из БД."""
+        try:
+            resp = await self.bot.managers.database.guest_parking.get_by_id(entity_id=req_id)
+            if not resp.get("success") or not resp.get("data"):
+                return {"success": True, "error": None}
+            req = resp["data"]
+            msid = req.get("msid") if isinstance(req, dict) else getattr(req, "msid", None)
+            if not msid or not self._admin_chat_id:
+                return {"success": True, "error": None}
+            await self.bot.managers.message.delete_message(
+                chat_id=self._admin_chat_id,
+                message_id=msid,
+            )
+            admin_text = self.bot.get_text("guest_parking_deleted_admin", [req_id])
+            await self.bot.application.bot.send_message(
+                chat_id=self._admin_chat_id,
+                text=admin_text,
+                parse_mode=ParseMode.HTML,
+            )
+            return {"success": True, "error": None}
+        except Exception as e:
+            print(f"Error deleting guest parking message {req_id}: {e}")
+            return {"success": False, "error": str(e)}
 
     def is_admin_chat(self, chat_id: int) -> bool:
         """

@@ -1,5 +1,5 @@
 from database.database_manager import DatabaseManager
-from shared.models.space_view import SpaceView
+from models.space_view import SpaceView
 from .base_service import BaseService
 
 class SpaceViewService(BaseService):

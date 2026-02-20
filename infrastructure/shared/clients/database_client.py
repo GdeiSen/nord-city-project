@@ -73,7 +73,17 @@ class _CRUDProxy:
                     for item in data
                 ]
             elif isinstance(data, dict):
-                result["data"] = Converter.from_dict(_model_class, data)
+                # Paginated format: {items: [...], total: int}
+                if "items" in data and "total" in data:
+                    result["data"] = {
+                        "items": [
+                            Converter.from_dict(_model_class, item) if isinstance(item, dict) else item
+                            for item in data.get("items", [])
+                        ],
+                        "total": data.get("total", 0),
+                    }
+                else:
+                    result["data"] = Converter.from_dict(_model_class, data)
 
         return result
 
@@ -119,6 +129,7 @@ class _CRUDProxy:
         """Returns {success, data: {items: [...], total: int}}."""
         return await self._call(
             "get_paginated",
+            _model_class=model_class,
             page=page,
             page_size=page_size,
             sort=sort or [],
@@ -185,6 +196,7 @@ class _AuditLogProxy(_CRUDProxy):
         *,
         entity_type: str,
         entity_id: int,
+        limit: Optional[int] = None,
         model_class: Any = None,
     ) -> Dict[str, Any]:
         return await self._call(
@@ -192,6 +204,7 @@ class _AuditLogProxy(_CRUDProxy):
             _model_class=model_class,
             entity_type=entity_type,
             entity_id=entity_id,
+            limit=limit,
         )
 
 
@@ -231,6 +244,19 @@ class _OtpProxy(_CRUDProxy):
         return await self._call("invalidate_user_codes", _model_class=model_class, user_id=user_id)
 
 
+class _GuestParkingProxy(_CRUDProxy):
+    """Guest parking proxy with find_due_for_reminder."""
+
+    async def find_due_for_reminder(
+        self, *, reference_time_iso: str | None = None, model_class: Any = None
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "find_due_for_reminder",
+            _model_class=model_class,
+            reference_time_iso=reference_time_iso,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Main client
 # ---------------------------------------------------------------------------
@@ -266,6 +292,7 @@ class DatabaseClient:
         self.object = _ObjectProxy(self._http, "object")
         self.poll = _CRUDProxy(self._http, "poll")
         self.service_ticket = _ServiceTicketProxy(self._http, "service_ticket")
+        self.guest_parking = _GuestParkingProxy(self._http, "guest_parking")
         self.audit_log = _AuditLogProxy(self._http, "audit_log")
         self.space = _SpaceProxy(self._http, "space")
         self.space_view = _CRUDProxy(self._http, "space_view")

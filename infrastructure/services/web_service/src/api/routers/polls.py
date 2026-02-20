@@ -4,6 +4,7 @@ from typing import List
 from fastapi import APIRouter, HTTPException, Request, Response, status
 
 from shared.clients.database_client import db_client
+from shared.schemas.poll_answer import PollAnswerSchema
 from api.dependencies import get_audit_context, get_optional_current_user
 from api.schemas.common import MessageResponse
 from api.schemas.polls import PollAnswerResponse, CreatePollRequest, UpdatePollBody
@@ -16,6 +17,7 @@ router = APIRouter(prefix="/polls", tags=["Polls"])
 async def create_poll(body: CreatePollRequest, request: Request):
     response = await db_client.poll.create(
         model_data=body.model_dump(),
+        model_class=PollAnswerSchema,
         _audit_context=get_audit_context(request, get_optional_current_user(request)),
     )
     if not response.get("success"):
@@ -26,7 +28,7 @@ async def create_poll(body: CreatePollRequest, request: Request):
 
 @router.get("/", response_model=List[PollAnswerResponse])
 async def get_all_polls():
-    response = await db_client.poll.get_all()
+    response = await db_client.poll.get_all(model_class=PollAnswerSchema)
     if not response.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail=response.get("error", "Failed to fetch poll answers"))
@@ -35,7 +37,10 @@ async def get_all_polls():
 
 @router.get("/{entity_id}", response_model=PollAnswerResponse)
 async def get_poll_by_id(entity_id: int):
-    response = await db_client.poll.get_by_id(entity_id=entity_id)
+    response = await db_client.poll.get_by_id(
+        entity_id=entity_id,
+        model_class=PollAnswerSchema,
+    )
     if not response.get("success"):
         error = response.get("error", "Poll answer not found")
         code = status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_400_BAD_REQUEST

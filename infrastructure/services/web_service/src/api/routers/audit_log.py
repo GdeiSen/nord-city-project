@@ -10,6 +10,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from shared.clients.database_client import db_client
+from shared.schemas.audit_log import AuditLogSchema
 from api.schemas.audit_log import AuditLogEntryResponse
 from api.schemas.common import PaginatedResponse, parse_sort_param
 from api.schemas.list_params import parse_list_params_from_query
@@ -24,6 +25,7 @@ router = APIRouter(prefix="/audit-log", tags=["Audit Log"])
 async def get_audit_log_by_entity(
     entity_type: str = Query(..., description="Entity type, e.g. ServiceTicket, User"),
     entity_id: int = Query(..., description="Entity ID"),
+    limit: Optional[int] = Query(None, ge=1, le=2000, description="Max entries (default 500)"),
 ):
     """Get audit entries for an entity, ordered by created_at ascending."""
     if not entity_type:
@@ -31,17 +33,21 @@ async def get_audit_log_by_entity(
     response = await db_client.audit_log.find_by_entity(
         entity_type=entity_type,
         entity_id=entity_id,
+        limit=limit,
+        model_class=AuditLogSchema,
     )
     if not response.get("success"):
         raise HTTPException(
             status_code=500,
             detail=response.get("error", "Failed to fetch audit log"),
         )
-    return response.get("data", [])
+    items = response.get("data", [])
+    return await enrich_audit_log_with_assignees(items)
 
 
 get_audit_log_list = create_paginated_list_handler(
     db_client.audit_log,
+    model_class=AuditLogSchema,
     enricher=enrich_audit_log_with_assignees,
     entity_label="audit log",
 )

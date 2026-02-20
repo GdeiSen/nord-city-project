@@ -27,7 +27,7 @@ async def start_profile_dialog(update: "Update", context: "ContextTypes.DEFAULT_
     if update.effective_chat.type != "private":
         return
     
-    bot.managers.router.set_entry_point_item(context, Dialogs.PROFILE)
+    bot.managers.navigator.set_entry_point(context, Dialogs.PROFILE)
 
     user_id = bot.get_user_id(update)
 
@@ -47,10 +47,14 @@ async def start_profile_dialog(update: "Update", context: "ContextTypes.DEFAULT_
     user_name = user_name.replace("  ", " ")
     user_name = user_name.strip()
     user_legal_entity = user.legal_entity or ""
-    user_object = user.object or ""
+    user_object = ""
+    if user.object_id:
+        obj = await bot.services.rental_object.get_object_by_id(user.object_id)
+        user_object = obj.name if obj else ""
+    user_phone = user.phone_number or bot.get_text("phone_not_specified")
 
     bot.managers.storage.set(context, Variables.USER_NAME, user_name)
-    bot.managers.storage.set(context, Variables.USER_OBJECT, user.object or "")
+    bot.managers.storage.set(context, Variables.USER_OBJECT, user_object)
     bot.managers.storage.set(context, Variables.USER_LEGAL_ENTITY, user.legal_entity or "")
 
     bot.managers.storage.set(context, Variables.ACTIVE_DYN_DIALOG, bot.dyn_dialogs[Dialogs.PROFILE])
@@ -67,7 +71,7 @@ async def start_profile_dialog(update: "Update", context: "ContextTypes.DEFAULT_
                 [("back", Dialogs.MENU)],
             ]
         ),
-        payload=[user_name, user_legal_entity, user_object],
+        payload=[user_name, user_legal_entity, user_object or bot.get_text("location_not_specified"), user_phone],
         refresh=True
     )
     return Dialogs.PROFILE

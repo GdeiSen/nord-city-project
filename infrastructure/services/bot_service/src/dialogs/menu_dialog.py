@@ -27,7 +27,7 @@ async def start_menu_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYP
     if update.effective_chat.type != "private":
         return
     
-    bot.managers.router.set_entry_point_item(context, Dialogs.MENU)
+    bot.managers.navigator.set_entry_point(context, Dialogs.MENU)
     user_id = bot.get_user_id(update)
 
     if user_id is None:
@@ -40,9 +40,7 @@ async def start_menu_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYP
 
     # Store user information in context
     bot.managers.storage.set(context, Variables.USER_NAME, (
-        (user.last_name or "") + " " +
-        (user.first_name or "") + " " +
-        (user.middle_name or "")
+        (user.last_name or "") + " " + (user.first_name or "") + " " + (user.middle_name or "")
     ).strip())
     bot.managers.storage.set(context, Variables.USER_LEGAL_ENTITY, user.legal_entity or "")
 
@@ -50,14 +48,16 @@ async def start_menu_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYP
         [
             [
                 ("profile", Dialogs.PROFILE),
-                ("service", Dialogs.SERVICE)],
+                ("service", Dialogs.SERVICE),
+            ],
             [
                 ("polling", Dialogs.POLL),
                 ("feedback", Dialogs.FEEDBACK),
             ],
             [
-                ("spaces", Dialogs.SPACES)
-            ]
+                ("guest_parking", Dialogs.GUEST_PARKING),
+                ("spaces", Dialogs.SPACES),
+            ],
         ]
     )
 
@@ -68,12 +68,13 @@ async def start_menu_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYP
         keyboard = bot.create_keyboard(
             [
                 [
-                    ("profile",Dialogs.PROFILE),
+                    ("profile", Dialogs.PROFILE),
                     ("service", Dialogs.SERVICE),
                 ],
                 [
-                    ("spaces", Dialogs.SPACES)
-                ]
+                    ("guest_parking", Dialogs.GUEST_PARKING),
+                    ("spaces", Dialogs.SPACES),
+                ],
             ]
         )
 

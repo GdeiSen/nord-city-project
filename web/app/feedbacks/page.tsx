@@ -37,6 +37,7 @@ export default function FeedbacksPage() {
   } = useServerPaginatedData<Feedback>({
     api: feedbackApi,
     errorMessage: "Не удалось загрузить данные",
+    initialParams: { sort: "date:desc" },
   })
   const canEdit = useCanEdit()
 

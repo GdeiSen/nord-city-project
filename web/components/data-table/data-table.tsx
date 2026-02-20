@@ -193,6 +193,7 @@ export function DataTable<TData>({
   onServerParamsChange,
   filterPickerData,
   exportConfig,
+  getRowClassName,
 }: {
   data: TData[]
   columns: ColumnDef<TData>[]
@@ -213,6 +214,7 @@ export function DataTable<TData>({
     maxLimit?: number
     filename?: string
   }
+  getRowClassName?: (row: Row<TData>) => string | undefined
 }) {
   const pageSizeFromParams = serverParams?.pageSize ?? 10
   const isCardsView = view === "cards"
@@ -791,11 +793,13 @@ export function DataTable<TData>({
                 </TableRow>
               ) : table.getRowModel().rows?.length ? (
                 table.getRowModel().rows.map((row) => {
+                  const baseClass = onRowClick ? "cursor-pointer hover:bg-muted/50 transition-colors" : undefined
+                  const rowClass = getRowClassName?.(row as Row<TData>)
                   const rowEl = (
                     <TableRow
                       key={row.id}
                       data-state={row.getIsSelected() && "selected"}
-                      className={onRowClick ? "cursor-pointer hover:bg-muted/50 transition-colors" : undefined}
+                      className={[baseClass, rowClass].filter(Boolean).join(" ") || undefined}
                       onClick={onRowClick ? (e) => {
                         const target = e.target as HTMLElement
                         if (target.closest("button") || target.closest("[role=checkbox]") || target.closest("a")) return

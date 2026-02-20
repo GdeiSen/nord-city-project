@@ -62,6 +62,18 @@ class _NotificationProxy(_BotServiceProxy):
         """Notify user about ticket completion. Bot sends message and deletes reply messages in admin chat."""
         return await self._call("notify_ticket_completion", ticket_id=ticket_id)
 
+    async def notify_new_guest_parking(self, *, req_id: int) -> Dict[str, Any]:
+        """Отправить заявку на гостевую парковку в чат администраторов (при создании с сайта)."""
+        return await self._call("notify_new_guest_parking", req_id=req_id)
+
+    async def edit_guest_parking_message(self, *, req_id: int) -> Dict[str, Any]:
+        """Отредактировать сообщение заявки в чате администраторов (при изменении с сайта)."""
+        return await self._call("edit_guest_parking_message", req_id=req_id)
+
+    async def delete_guest_parking_messages(self, *, req_id: int) -> Dict[str, Any]:
+        """Удалить сообщение заявки из чата администраторов (перед удалением из БД)."""
+        return await self._call("delete_guest_parking_messages", req_id=req_id)
+
 
 # ---------------------------------------------------------------------------
 # Main client

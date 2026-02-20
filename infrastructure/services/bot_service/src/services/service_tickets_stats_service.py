@@ -7,7 +7,7 @@ from typing import Optional, Dict, Any
 from zoneinfo import ZoneInfo
 from services.base_service import BaseService
 from typing import TYPE_CHECKING
-from shared.entities.service_tickets_stats import ServiceTicketsStats
+from shared.schemas.service_tickets_stats import ServiceTicketsStatsSchema
 from telegram.error import BadRequest
 if TYPE_CHECKING:
     from bot import Bot
@@ -83,21 +83,21 @@ class StatsService(BaseService):
         last_update_iso = data.get("detailed_stats", {}).get("last_update")
         time_str = datetime.fromisoformat(last_update_iso).strftime('%d.%m.%Y %H:%M') if last_update_iso else self._now().strftime('%d.%m.%Y %H:%M')
         
-        new_tickets_str = ', '.join(map(str, stats.get('new_tickets', []))) or "нет"
-        in_progress_tickets_str = ', '.join(map(str, stats.get('in_progress_tickets', []))) or "нет"
+        stats_no_tickets = self.bot.get_text("stats_no_tickets")
+        new_tickets_str = ', '.join(map(str, stats.get('new_tickets', []))) or stats_no_tickets
+        in_progress_tickets_str = ', '.join(map(str, stats.get('in_progress_tickets', []))) or stats_no_tickets
 
-        return (
-            f"<b>📊 Статистика заявок</b>\n\n"
-            f"<b>Непринятых заявок:</b>\n{stats.get('new_count', 0)}\n"
-            f"<b>Заявок в работе:</b>\n{stats.get('in_progress_count', 0)}\n"
-            f"<b>Непринятые заявки:</b>\n{new_tickets_str}\n"
-            f"<b>Заявки в работе:</b>\n{in_progress_tickets_str}"
-            f"\n\n<b>Время обновления:</b> {time_str}"
-        )
+        return self.bot.get_text("stats_message", [
+            stats.get('new_count', 0),
+            stats.get('in_progress_count', 0),
+            new_tickets_str,
+            in_progress_tickets_str,
+            time_str,
+        ])
 
-    async def _get_stats(self) -> ServiceTicketsStats:
+    async def _get_stats(self) -> ServiceTicketsStatsSchema:
         # Получаем агрегированную статистику через новый метод базы
-        result = await self.bot.managers.database.service_ticket.get_stats(model_class=ServiceTicketsStats)
+        result = await self.bot.managers.database.service_ticket.get_stats(model_class=ServiceTicketsStatsSchema)
         if result["success"] and result["data"]:
             return result["data"]
         raise Exception(f"Failed to get stats: {result.get('error')}")
@@ -110,7 +110,7 @@ class StatsService(BaseService):
                 return
 
             stats_obj = await self._get_stats()
-            stats = stats_obj.to_dict() if hasattr(stats_obj, 'to_dict') else dict(stats_obj)
+            stats = stats_obj.model_dump()
             self.update_detailed_stats(stats)
             message_text = self.format_stats_message(stats)
             message_info = self.get_message_info()
@@ -223,7 +223,7 @@ class StatsService(BaseService):
         admin_chat_id = self.bot.managers.headers.get("ADMIN_CHAT_ID")
         if not admin_chat_id: return False
         stats_obj = await self._get_stats()
-        stats = stats_obj.to_dict() if hasattr(stats_obj, 'to_dict') else dict(stats_obj)
+        stats = stats_obj.model_dump()
         self.update_detailed_stats(stats)
         message_text = self.format_stats_message(stats)
         await self._create_new_stats_message(admin_chat_id, message_text)

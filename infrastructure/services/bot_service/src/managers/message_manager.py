@@ -128,7 +128,7 @@ class MessageManager(BaseManager):
                         if reply_markup:
                             keyboard_message = await context.bot.send_message(
                                 chat_id=chat_id,
-                                text="Выберите действие:",
+                                text=self.bot.get_text("choose_action"),
                                 reply_markup=reply_markup,
                                 parse_mode=parse_mode
                             )

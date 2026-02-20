@@ -3,7 +3,7 @@
  * Mirrors the structure of data-table types for consistency.
  */
 
-export type ChartPeriod = "week" | "month" | "year"
+export type ChartPeriod = "day" | "week" | "month" | "year"
 
 export type ChartEntity =
   | "service_tickets"
@@ -26,6 +26,7 @@ export interface ChartConfig {
 }
 
 export const CHART_PERIOD_LABELS: Record<ChartPeriod, string> = {
+  day: "День",
   week: "Неделя",
   month: "Месяц",
   year: "Год",

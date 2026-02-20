@@ -4,23 +4,27 @@ Eliminates duplicated boilerplate across list endpoints that use
 parse_list_params_from_query, db_client.get_paginated, and enrichment.
 """
 import logging
-from typing import Callable, Awaitable, Optional, Any
+from typing import Callable, Awaitable, Optional, Any, Type
 
 from fastapi import HTTPException, Query
+
+from shared.utils.converter import Converter
 
 from api.schemas.common import PaginatedResponse, parse_sort_param
 from api.schemas.list_params import parse_list_params_from_query
 
 logger = logging.getLogger(__name__)
 
-# Type for async enricher: receives items (list of dicts), mutates in place
-Enricher = Callable[[list], Awaitable[None]]
+# Enricher: receives list of models, returns list of response schemas
+Enricher = Callable[[list], Awaitable[list]]
 
 
 def create_paginated_list_handler(
     entity_proxy: Any,
     *,
+    model_class: Optional[Type[Any]] = None,
     enricher: Optional[Enricher] = None,
+    response_schema: Optional[Type[Any]] = None,
     entity_label: str = "items",
 ) -> Callable:
     """
@@ -28,7 +32,9 @@ def create_paginated_list_handler(
 
     Args:
         entity_proxy: db_client proxy (e.g. db_client.user, db_client.service_ticket).
-        enricher: Optional async function(items) that enriches items in place.
+        model_class: Optional model class for deserialising items from db_client.
+        enricher: Optional async function(items) that converts models to response schemas.
+        response_schema: When no enricher, convert each model to this schema (e.g. SpaceViewResponse).
         entity_label: Label for error messages (e.g. "users", "service tickets").
 
     Returns:
@@ -55,9 +61,10 @@ def create_paginated_list_handler(
             page=page,
             page_size=page_size,
             sort=parse_sort_param(sort),
-            search=search,
+            search=search or "",
             search_columns=cols,
             filters=filter_list,
+            model_class=model_class,
         )
         if not response.get("success"):
             raise HTTPException(
@@ -67,7 +74,9 @@ def create_paginated_list_handler(
         data = response.get("data", {})
         items = data.get("items", [])
         if enricher:
-            await enricher(items)
+            items = await enricher(items)
+        elif response_schema and items:
+            items = [response_schema(**Converter.to_dict(m)) for m in items]
         return PaginatedResponse(items=items, total=data.get("total", 0))
 
     return handler

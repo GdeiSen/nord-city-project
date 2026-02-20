@@ -190,8 +190,21 @@ export interface RentalSpaceView extends BaseEntity {
 }
 
 /**
- * Service ticket entity for maintenance requests
- * 
+ * Guest parking request entity
+ */
+export interface GuestParkingRequest extends BaseEntity {
+  id: number
+  user_id: number
+  arrival_date: string
+  license_plate: string
+  car_make_color: string
+  driver_phone: string
+  tenant_phone?: string
+  user?: User
+}
+
+/**
+ * Service ticket entity representing maintenance/repair requests
  * @interface ServiceTicket
  * @extends BaseEntity
  */
