@@ -152,7 +152,7 @@
     "dlg_svc_feedback_btn_speed": "Проблемы с оперативностью",
     "dlg_svc_feedback_btn_other": "Другое",
     "dlg_guest_parking_date": "Пожалуйста, укажите дату заезда автомобиля (например, 25.02.2025):",
-    "dlg_guest_parking_time": "Укажите предполагаемое время приезда:",
+    "dlg_guest_parking_time": "Укажите предполагаемое время приезда: (например, 14:30)",
     "dlg_guest_parking_license": "Введите госномер автомобиля.",
     "dlg_guest_parking_car": "Введите марку и цвет автомобиля.",
     "dlg_guest_parking_driver_phone": "Укажите контактный номер владельца автомобиля/водителя.",
