@@ -564,7 +564,7 @@ class NotificationService(BaseService):
             print(f"Error checking guest parking reminders: {e}")
 
     async def _send_guest_parking_reminder(self, req_id: int, data: dict) -> None:
-        """Отправляет напоминание о гостевой парковке администраторам."""
+        """Отправляет напоминание о гостевой парковке администраторам. Учёт отправленных — в кэше database_service."""
         if not self._admin_chat_id:
             return
         text = self.bot.get_text("guest_parking_reminder", [

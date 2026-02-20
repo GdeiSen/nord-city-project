@@ -42,9 +42,17 @@ async def create_guest_parking(body: CreateGuestParkingBody, request: Request):
     req_id = schema.id if hasattr(schema, "id") else schema.get("id")
     if req_id is not None:
         try:
-            await bot_client.notification.notify_new_guest_parking(req_id=req_id)
+            resp = await bot_client.notification.notify_new_guest_parking(req_id=req_id)
+            if resp and not resp.get("success"):
+                logger.error(
+                    "Bot notification for new guest parking failed: req_id=%s, error=%s",
+                    req_id, resp.get("error", "unknown"),
+                )
         except Exception as e:
-            logger.warning("Bot notification for new guest parking failed: %s", e)
+            logger.error(
+                "Bot notification for new guest parking failed: req_id=%s, error=%s",
+                req_id, e, exc_info=True,
+            )
     items = await enrich_guest_parking_with_users([schema])
     return items[0] if items else GuestParkingResponse.model_validate(schema)
 
@@ -93,9 +101,14 @@ async def update_guest_parking(entity_id: int, body: UpdateGuestParkingBody, req
         code = status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=code, detail=error)
     try:
-        await bot_client.notification.edit_guest_parking_message(req_id=entity_id)
+        resp = await bot_client.notification.edit_guest_parking_message(req_id=entity_id)
+        if resp and not resp.get("success"):
+            logger.error(
+                "Bot edit of guest parking message failed: entity_id=%s, error=%s",
+                entity_id, resp.get("error", "unknown"),
+            )
     except Exception as e:
-        logger.warning("Bot edit of guest parking message failed: %s", e)
+        logger.error("Bot edit of guest parking message failed: entity_id=%s: %s", entity_id, e, exc_info=True)
     return MessageResponse(message="Guest parking request updated", id=entity_id)
 
 
@@ -103,9 +116,14 @@ async def update_guest_parking(entity_id: int, body: UpdateGuestParkingBody, req
 async def delete_guest_parking(entity_id: int, request: Request):
     """Удалить заявку. Сначала удаляет сообщение из чата администраторов."""
     try:
-        await bot_client.notification.delete_guest_parking_messages(req_id=entity_id)
+        resp = await bot_client.notification.delete_guest_parking_messages(req_id=entity_id)
+        if resp and not resp.get("success", True):
+            logger.error(
+                "Bot deletion of guest parking message failed: entity_id=%s, error=%s",
+                entity_id, resp.get("error", "unknown"),
+            )
     except Exception as e:
-        logger.warning("Bot deletion of guest parking message failed: %s", e)
+        logger.error("Bot deletion of guest parking message failed: entity_id=%s: %s", entity_id, e, exc_info=True)
     response = await db_client.guest_parking.delete(
         entity_id=entity_id,
         _audit_context=get_audit_context(request, get_optional_current_user(request)),

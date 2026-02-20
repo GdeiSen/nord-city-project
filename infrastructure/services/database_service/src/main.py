@@ -185,6 +185,10 @@ async def lifespan(app: FastAPI):
     _register_resources()
     await _ensure_default_object()
     try:
+        await db_manager.services.get("guest_parking").init_reminder_cache()
+    except Exception as e:
+        logger.warning("Guest parking reminder cache init failed: %s", e)
+    try:
         await media_client.connect()
         logger.info("Media client connected for cleanup.")
     except Exception as e:

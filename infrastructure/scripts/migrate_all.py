@@ -133,23 +133,35 @@ async def step4_drop_reminder_sent(engine):
     print("  [OK] Колонка reminder_sent удалена или отсутствовала")
 
 
+async def step5_drop_reminder_sent_at(engine):
+    """Удаление колонки reminder_sent_at — учёт напоминаний перенесён в in-memory кэш database_service."""
+    async with engine.begin() as conn:
+        await conn.execute(text(
+            "ALTER TABLE guest_parking_requests DROP COLUMN IF EXISTS reminder_sent_at"
+        ))
+    print("  [OK] Колонка reminder_sent_at удалена или отсутствовала")
+
+
 async def run_all():
     url = get_db_url()
     engine = create_async_engine(url, echo=False)
 
     print("\n=== Миграция Nord City: старая → новая версия ===\n")
 
-    print("Шаг 1/4: Создание таблицы guest_parking_requests...")
+    print("Шаг 1/5: Создание таблицы guest_parking_requests...")
     await step1_create_guest_parking(engine)
 
-    print("\nШаг 2/4: Миграция TIMESTAMP → TIMESTAMPTZ...")
+    print("\nШаг 2/5: Миграция TIMESTAMP → TIMESTAMPTZ...")
     await step2_migrate_timestamptz(engine)
 
-    print("\nШаг 3/4: Добавление колонки msid...")
+    print("\nШаг 3/5: Добавление колонки msid...")
     await step3_add_msid(engine)
 
-    print("\nШаг 4/4: Удаление колонки reminder_sent...")
+    print("\nШаг 4/5: Удаление колонки reminder_sent...")
     await step4_drop_reminder_sent(engine)
+
+    print("\nШаг 5/5: Удаление колонки reminder_sent_at (логика в кэше)...")
+    await step5_drop_reminder_sent_at(engine)
 
     await engine.dispose()
     print("\n=== Миграция успешно завершена ===\n")

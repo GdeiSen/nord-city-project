@@ -66,7 +66,7 @@ class HttpRpcClient:
             Dict with keys: success (bool), data (Any), error (str | None).
         """
         if self._client is None:
-            raise ConnectionError("HttpRpcClient is not connected. Call connect() first.")
+            await self.connect()
 
         payload = {"service": service, "method": method, "params": params}
         try:

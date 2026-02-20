@@ -32,7 +32,7 @@ class GuestParkingCreateRpc(BaseModel):
 
 
 class GuestParkingUpdateRpc(BaseModel):
-    """Валидация update_data для guest_parking.update. msid — ID сообщения в чате (сохраняет бот)."""
+    """Валидация update_data для guest_parking.update. msid — ID сообщения (сохраняет бот)."""
     model_config = ConfigDict(extra="forbid")
 
     msid: Optional[int] = None

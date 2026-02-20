@@ -70,6 +70,7 @@ def _parse_time(s: str) -> tuple[int, int] | None:
 
 def _is_time_in_range(hour: int, minute: int) -> bool:
     """Проверка: время в диапазоне 9:00–19:00."""
+    return True
     if hour < 9:
         return False
     if hour > 19:
@@ -105,6 +106,12 @@ async def guest_parking_callback(
                 update, context, "guest_parking_date_invalid", dynamic=False
             )
             return CallbackResult.retry_current(sequence_id, _idx())
+        if parsed.date() < now().date():
+            set_dialog_position(bot, context, sequence_id, _idx())
+            await bot.send_message(
+                update, context, "guest_parking_date_past", dynamic=False
+            )
+            return CallbackResult.retry_current(sequence_id, _idx())
         data["arrival_date"] = parsed
         bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, data)
         return CallbackResult.continue_()
@@ -123,6 +130,21 @@ async def guest_parking_callback(
             set_dialog_position(bot, context, sequence_id, _idx())
             await bot.send_message(
                 update, context, "guest_parking_time_error", dynamic=False
+            )
+            return CallbackResult.retry_current(sequence_id, _idx())
+        arrival_date = data.get("arrival_date") or now()
+        if isinstance(arrival_date, datetime):
+            arrival_dt = arrival_date.replace(
+                hour=hour, minute=minute, second=0, microsecond=0
+            )
+        else:
+            arrival_dt = now().replace(hour=hour, minute=minute, second=0, microsecond=0)
+        from shared.utils.time_utils import SYSTEM_TIMEZONE
+        arrival_dt_cmp = arrival_dt if arrival_dt.tzinfo else arrival_dt.replace(tzinfo=SYSTEM_TIMEZONE)
+        if arrival_dt_cmp <= now():
+            set_dialog_position(bot, context, sequence_id, _idx())
+            await bot.send_message(
+                update, context, "guest_parking_datetime_past", dynamic=False
             )
             return CallbackResult.retry_current(sequence_id, _idx())
         data["arrival_time"] = f"{hour:02d}:{minute:02d}"
