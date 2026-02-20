@@ -70,7 +70,6 @@ def _parse_time(s: str) -> tuple[int, int] | None:
 
 def _is_time_in_range(hour: int, minute: int) -> bool:
     """Проверка: время в диапазоне 9:00–19:00."""
-    return True
     if hour < 9:
         return False
     if hour > 19:
