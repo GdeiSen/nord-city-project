@@ -74,6 +74,23 @@ class _NotificationProxy(_BotServiceProxy):
         """Удалить сообщение заявки из чата администраторов (перед удалением из БД)."""
         return await self._call("delete_guest_parking_messages", req_id=req_id)
 
+    async def send_bulk_notification(
+        self,
+        *,
+        user_ids: list[int],
+        title: str,
+        message: str,
+        image_urls: list[str] | None = None,
+    ) -> Dict[str, Any]:
+        """Send a notification to multiple bot users by their Telegram IDs."""
+        return await self._call(
+            "send_bulk_notification",
+            user_ids=user_ids,
+            title=title,
+            message=message,
+            image_urls=image_urls or [],
+        )
+
 
 # ---------------------------------------------------------------------------
 # Main client

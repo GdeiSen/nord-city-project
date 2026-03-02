@@ -10,6 +10,7 @@ from .audit_log import router as audit_log_router
 from .rental_spaces import router as rental_spaces_router
 from .space_views import router as space_views_router
 from .media import router as media_router
+from .notifications import router as notifications_router
 
 __all__ = [
     "users_router",
@@ -23,4 +24,5 @@ __all__ = [
     "rental_spaces_router",
     "space_views_router",
     "media_router",
+    "notifications_router",
 ]

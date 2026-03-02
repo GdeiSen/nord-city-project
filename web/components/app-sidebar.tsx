@@ -7,6 +7,7 @@ import {
   IconTicket,
   IconCar,
   IconMessageCircle,
+  IconBell,
   IconBuildingSkyscraper,
   IconHistory,
 } from "@tabler/icons-react"
@@ -88,6 +89,11 @@ const data = {
       title: "Отзывы",
       url: "/feedbacks",
       icon: IconMessageCircle,
+    },
+    {
+      title: "Оповещения",
+      url: "/notifications",
+      icon: IconBell,
     },
     {
       title: "Бизнес-центры",

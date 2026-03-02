@@ -52,6 +52,8 @@ export function SiteHeader() {
         return 'Заявки на обслуживание'
       case '/feedbacks':
         return 'Отзывы пользователей'
+      case '/notifications':
+        return 'Оповещения пользователей'
       case '/spaces':
         return 'Бизнес-центры'
       default:

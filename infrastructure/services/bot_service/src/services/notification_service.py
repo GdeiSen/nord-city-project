@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Optional, Dict, Any
 import re
 from telegram.constants import ParseMode
 from shared.constants import Dialogs, ServiceTicketStatus, Roles
+from shared.utils.media_utils import to_public_media_url
 from .base_service import BaseService
 from datetime import datetime
 from utils.time_utils import now, TimeUtils
@@ -40,6 +41,106 @@ class NotificationService(BaseService):
         self._chief_engineer_chat_id = self.bot.managers.headers.get("CHIEF_ENGINEER_CHAT_ID")
         self._reminder_scheduler_task = asyncio.create_task(self._run_reminder_scheduler())
         print("NotificationService initialized")
+
+    def _compose_broadcast_text(self, title: str, message: str) -> str:
+        parts = [str(title or "").strip(), str(message or "").strip()]
+        return "\n\n".join(part for part in parts if part)
+
+    def _normalize_broadcast_images(self, image_urls: list[str] | None) -> list[str]:
+        images: list[str] = []
+        for image_url in image_urls or []:
+            normalized = to_public_media_url(image_url) or str(image_url or "").strip()
+            if normalized.startswith("http://") or normalized.startswith("https://"):
+                images.append(normalized)
+        seen: set[str] = set()
+        unique_images: list[str] = []
+        for image in images:
+            if image in seen:
+                continue
+            seen.add(image)
+            unique_images.append(image)
+        return unique_images[:10]
+
+    async def _send_broadcast_to_user(
+        self,
+        *,
+        user_id: int,
+        text: str,
+        image_urls: list[str],
+    ) -> None:
+        if not image_urls:
+            await self.bot.application.bot.send_message(chat_id=user_id, text=text)
+            return
+
+        if len(image_urls) == 1:
+            if text and len(text) <= 1024:
+                await self.bot.application.bot.send_photo(
+                    chat_id=user_id,
+                    photo=image_urls[0],
+                    caption=text,
+                )
+                return
+            if text:
+                await self.bot.application.bot.send_message(chat_id=user_id, text=text)
+            await self.bot.application.bot.send_photo(chat_id=user_id, photo=image_urls[0])
+            return
+
+        if text:
+            await self.bot.application.bot.send_message(chat_id=user_id, text=text)
+
+        from telegram import InputMediaPhoto
+
+        media = [InputMediaPhoto(media=image_url) for image_url in image_urls]
+        await self.bot.application.bot.send_media_group(chat_id=user_id, media=media)
+
+    async def send_bulk_notification(
+        self,
+        *,
+        user_ids: list[int],
+        title: str,
+        message: str,
+        image_urls: list[str] | None = None,
+    ) -> Dict[str, Any]:
+        """Send a site-created announcement to multiple Telegram users."""
+        normalized_user_ids = sorted({int(user_id) for user_id in (user_ids or [])})
+        if not normalized_user_ids:
+            return {"success": False, "error": "no_recipients"}
+
+        text = self._compose_broadcast_text(title, message)
+        if not text:
+            return {"success": False, "error": "empty_message"}
+
+        normalized_images = self._normalize_broadcast_images(image_urls)
+        delivered_user_ids: list[int] = []
+        failed_deliveries: list[dict[str, Any]] = []
+
+        for user_id in normalized_user_ids:
+            try:
+                await self._send_broadcast_to_user(
+                    user_id=user_id,
+                    text=text,
+                    image_urls=normalized_images,
+                )
+                delivered_user_ids.append(user_id)
+            except Exception as exc:
+                failed_deliveries.append(
+                    {
+                        "user_id": user_id,
+                        "error": str(exc),
+                    }
+                )
+
+        return {
+            "success": True,
+            "data": {
+                "requested_count": len(normalized_user_ids),
+                "sent_count": len(delivered_user_ids),
+                "failed_count": len(failed_deliveries),
+                "delivered_user_ids": delivered_user_ids,
+                "failed_deliveries": failed_deliveries,
+            },
+            "error": None,
+        }
 
     async def notify_new_ticket(
         self, ticket=None, *, ticket_id: Optional[int] = None

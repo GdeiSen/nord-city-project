@@ -5,6 +5,7 @@ import { userApi, rentalObjectApi } from "@/lib/api"
 
 export interface FilterPickerUser {
   id: number
+  role?: number
   first_name?: string
   last_name?: string
   username?: string

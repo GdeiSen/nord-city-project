@@ -177,6 +177,21 @@ class _UserProxy(_CRUDProxy):
         """Batch-fetch users by IDs. Returns {success, data: [user_dict, ...]}."""
         return await self._call("get_by_ids", _model_class=model_class, ids=ids if ids else [])
 
+    async def get_notification_recipients(
+        self,
+        *,
+        role_ids: Optional[List[int]] = None,
+        user_ids: Optional[List[int]] = None,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        """Resolve unique notification recipients by roles and/or explicit user IDs."""
+        return await self._call(
+            "get_notification_recipients",
+            _model_class=model_class,
+            role_ids=role_ids or [],
+            user_ids=user_ids or [],
+        )
+
 
 class _ServiceTicketProxy(_CRUDProxy):
     """Service ticket proxy with additional methods."""

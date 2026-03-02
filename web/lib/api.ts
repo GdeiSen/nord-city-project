@@ -214,6 +214,30 @@ export const mediaApi = {
   },
 }
 
+export interface SendNotificationPayload {
+  role_ids: number[]
+  user_ids: number[]
+  title: string
+  message: string
+  image_urls: string[]
+}
+
+export interface SendNotificationResult {
+  resolved_recipient_count: number
+  sent_count: number
+  failed_count: number
+  failed_user_ids: number[]
+}
+
+export const notificationApi = {
+  async send(payload: SendNotificationPayload): Promise<SendNotificationResult> {
+    return apiFetch<SendNotificationResult>("/notifications/broadcast", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    })
+  },
+}
+
 /** Params for CSV export - matches current table view (filters, sort, columns) */
 export interface GetExportParams {
   page?: number
