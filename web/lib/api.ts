@@ -319,6 +319,19 @@ export const auditLogApi = {
 const guestParkingBase = createCrudApi<any>("/guest-parking")
 export const guestParkingApi = { ...guestParkingBase }
 
+export const guestParkingSettingsApi = {
+  async get(): Promise<any> {
+    return apiFetch<any>("/guest-parking-settings/")
+  },
+
+  async update(routeImages: string[]): Promise<any> {
+    return apiFetch<any>("/guest-parking-settings/", {
+      method: "PUT",
+      body: JSON.stringify({ route_images: routeImages }),
+    })
+  },
+}
+
 const feedbackBase = createCrudApi<any>("/feedbacks")
 export const feedbackApi = {
   ...feedbackBase,

@@ -202,6 +202,11 @@ export interface GuestParkingRequest extends BaseEntity {
   user?: User
 }
 
+export interface GuestParkingSettings extends BaseEntity {
+  id: number
+  route_images: string[]
+}
+
 /**
  * Service ticket entity representing maintenance/repair requests
  * @interface ServiceTicket

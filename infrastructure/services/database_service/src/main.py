@@ -27,6 +27,7 @@ from models.object import Object
 from models.poll_answer import PollAnswer
 from models.service_ticket import ServiceTicket
 from models.guest_parking_request import GuestParkingRequest
+from models.guest_parking_settings import GuestParkingSettings
 from models.audit_log import AuditLog
 from models.space import Space
 from models.space_view import SpaceView
@@ -42,6 +43,7 @@ from services.poll_service import PollService
 from services.space_service import SpaceService
 from services.service_ticket_service import ServiceTicketService
 from services.guest_parking_service import GuestParkingService
+from services.guest_parking_settings_service import GuestParkingSettingsService
 from services.audit_log_service import AuditLogService
 from services.space_view_service import SpaceViewService
 
@@ -76,7 +78,7 @@ def _register_resources():
 
     models_to_register = [
         User, UserAuth, Feedback, Object, PollAnswer,
-        ServiceTicket, GuestParkingRequest, AuditLog, Space, SpaceView, OtpCode,
+        ServiceTicket, GuestParkingRequest, GuestParkingSettings, AuditLog, Space, SpaceView, OtpCode,
     ]
     for model in models_to_register:
         db_manager.repositories.register(model)
@@ -90,6 +92,7 @@ def _register_resources():
         "space": SpaceService,
         "service_ticket": ServiceTicketService,
         "guest_parking": GuestParkingService,
+        "guest_parking_settings": GuestParkingSettingsService,
         "audit_log": AuditLogService,
         "space_view": SpaceViewService,
         "otp": OtpService,

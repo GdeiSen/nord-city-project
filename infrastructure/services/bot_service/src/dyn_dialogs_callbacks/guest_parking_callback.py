@@ -277,6 +277,22 @@ async def _finalize_and_show_summary(
         data=data,
     )
 
+    route_images: list[str] = []
+    try:
+        from shared.schemas import GuestParkingSettingsSchema
+
+        settings_resp = await bot.managers.database.guest_parking_settings.get_settings(
+            model_class=GuestParkingSettingsSchema
+        )
+        if settings_resp.get("success") and settings_resp.get("data") is not None:
+            settings = settings_resp["data"]
+            if isinstance(settings, dict):
+                route_images = list(settings.get("route_images") or [])
+            else:
+                route_images = list(getattr(settings, "route_images", []) or [])
+    except Exception:
+        route_images = []
+
     # Формируем итоговый текст для финального экрана
     date_str = arrival_dt.strftime("%d.%m.%Y") if arrival_date else ""
     time_str = data.get("arrival_time", "")
@@ -292,5 +308,4 @@ async def _finalize_and_show_summary(
     final_item = dialog.items.get(106)
     if final_item:
         final_item.text = summary
-        # Заглушки для скриншотов — заменить на реальные URL
-        final_item.images = []  # TODO: добавить URL скриншотов по схеме проезда
+        final_item.images = route_images[:2]

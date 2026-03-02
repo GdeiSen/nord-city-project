@@ -50,6 +50,10 @@ export function SiteHeader() {
         return 'Пользователи'
       case '/service-tickets':
         return 'Заявки на обслуживание'
+      case '/guest-parking':
+        return 'Гостевая парковка'
+      case '/guest-parking/settings':
+        return 'Настройки парковки'
       case '/feedbacks':
         return 'Отзывы пользователей'
       case '/notifications':

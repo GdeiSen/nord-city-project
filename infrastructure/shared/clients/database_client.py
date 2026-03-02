@@ -272,6 +272,27 @@ class _GuestParkingProxy(_CRUDProxy):
         )
 
 
+class _GuestParkingSettingsProxy(_CRUDProxy):
+    """Guest parking singleton settings proxy."""
+
+    async def get_settings(self, *, model_class: Any = None) -> Dict[str, Any]:
+        return await self._call("get_settings", _model_class=model_class)
+
+    async def save_settings(
+        self,
+        *,
+        route_images: List[str],
+        model_class: Any = None,
+        _audit_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "save_settings",
+            _model_class=model_class,
+            route_images=route_images,
+            _audit_context=_audit_context,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Main client
 # ---------------------------------------------------------------------------
@@ -308,6 +329,7 @@ class DatabaseClient:
         self.poll = _CRUDProxy(self._http, "poll")
         self.service_ticket = _ServiceTicketProxy(self._http, "service_ticket")
         self.guest_parking = _GuestParkingProxy(self._http, "guest_parking")
+        self.guest_parking_settings = _GuestParkingSettingsProxy(self._http, "guest_parking_settings")
         self.audit_log = _AuditLogProxy(self._http, "audit_log")
         self.space = _SpaceProxy(self._http, "space")
         self.space_view = _CRUDProxy(self._http, "space_view")

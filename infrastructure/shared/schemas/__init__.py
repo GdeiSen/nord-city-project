@@ -9,6 +9,7 @@ from .service_ticket import ServiceTicketSchema
 from .feedback import FeedbackSchema
 from .poll_answer import PollAnswerSchema
 from .guest_parking import GuestParkingSchema
+from .guest_parking_settings import GuestParkingSettingsSchema
 from .audit_log import AuditLogSchema
 from .space_view import SpaceViewSchema
 from .service_tickets_stats import ServiceTicketsStatsSchema
