@@ -93,7 +93,7 @@ async def service_feedback_callback(
         
     # Обработка этапа сбора дополнительных комментариев
     elif sequence_id == 4 and item_id == 4:
-        if answer:
+        if answer and not state:
             # Сохраняем и отправляем дополнительные комментарии
             bot.managers.storage.set(context, "feedback_message", f"{bot.get_text('service_feedback_quality_problems')}: {answer}")
             if ticket_id:
