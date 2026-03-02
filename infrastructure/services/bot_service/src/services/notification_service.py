@@ -74,29 +74,29 @@ class NotificationService(BaseService):
         image_urls: list[str],
     ) -> None:
         if not image_urls:
-            await self.bot.application.bot.send_message(chat_id=user_id, text=text)
+            await self.bot.application.bot.send_message(
+                chat_id=user_id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+            )
             return
 
         if len(image_urls) == 1:
-            if text and len(text) <= 1024:
-                await self.bot.application.bot.send_photo(
-                    chat_id=user_id,
-                    photo=image_urls[0],
-                    caption=text,
-                )
-                return
-            if text:
-                await self.bot.application.bot.send_message(chat_id=user_id, text=text)
-            await self.bot.application.bot.send_photo(chat_id=user_id, photo=image_urls[0])
-            return
+            await self.bot.application.bot.send_photo(
+                chat_id=user_id,
+                photo=image_urls[0],
+            )
+        else:
+            from telegram import InputMediaPhoto
 
-        if text:
-            await self.bot.application.bot.send_message(chat_id=user_id, text=text)
+            media = [InputMediaPhoto(media=image_url) for image_url in image_urls]
+            await self.bot.application.bot.send_media_group(chat_id=user_id, media=media)
 
-        from telegram import InputMediaPhoto
-
-        media = [InputMediaPhoto(media=image_url) for image_url in image_urls]
-        await self.bot.application.bot.send_media_group(chat_id=user_id, media=media)
+        await self.bot.application.bot.send_message(
+            chat_id=user_id,
+            text=text,
+            parse_mode=ParseMode.HTML,
+        )
 
     async def send_bulk_notification(
         self,
