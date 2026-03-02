@@ -21,7 +21,6 @@ class GuestParkingRequest(Base):
     arrival_date: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     license_plate: Mapped[str] = mapped_column(String(20))
     car_make_color: Mapped[str] = mapped_column(String(200))
-    driver_phone: Mapped[str] = mapped_column(String(40))
     tenant_phone: Mapped[Optional[str]] = mapped_column(String(40))
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

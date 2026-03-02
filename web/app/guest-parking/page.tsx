@@ -79,11 +79,6 @@ export default function GuestParkingPage() {
       meta: guestParkingColumnMeta.car_make_color,
     },
     {
-      accessorKey: "driver_phone",
-      header: "Телефон водителя",
-      meta: guestParkingColumnMeta.driver_phone,
-    },
-    {
       accessorKey: "user",
       header: "Арендатор",
       meta: guestParkingColumnMeta.user,

@@ -15,7 +15,6 @@ class GuestParkingSchema(BaseModel):
     arrival_date: Optional[datetime] = None
     license_plate: str = ""
     car_make_color: str = ""
-    driver_phone: str = ""
     tenant_phone: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

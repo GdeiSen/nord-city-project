@@ -594,7 +594,6 @@ class NotificationService(BaseService):
                 time_str,
                 data.get("license_plate", ""),
                 data.get("car_make_color", ""),
-                data.get("driver_phone", ""),
                 tenant_contact,
             ])
             message = await self.bot.application.bot.send_message(
@@ -659,7 +658,6 @@ class NotificationService(BaseService):
                 data = {
                     "license_plate": item.get("license_plate", "") if isinstance(item, dict) else (getattr(item, "license_plate", "") or ""),
                     "car_make_color": item.get("car_make_color", "") if isinstance(item, dict) else (getattr(item, "car_make_color", "") or ""),
-                    "driver_phone": item.get("driver_phone", "") if isinstance(item, dict) else (getattr(item, "driver_phone", "") or ""),
                 }
                 try:
                     await self._send_guest_parking_reminder(req_id, data)
@@ -676,7 +674,6 @@ class NotificationService(BaseService):
         text = self.bot.get_text("guest_parking_reminder", [
             data.get("license_plate", ""),
             data.get("car_make_color", ""),
-            data.get("driver_phone", ""),
         ])
         await self.bot.application.bot.send_message(
             chat_id=self._admin_chat_id,
@@ -702,7 +699,6 @@ class NotificationService(BaseService):
                 arrival_date = req.get("arrival_date")
                 license_plate = req.get("license_plate", "")
                 car_make_color = req.get("car_make_color", "")
-                driver_phone = req.get("driver_phone", "")
                 tenant_phone = req.get("tenant_phone", "")
             else:
                 req_id_val = getattr(req, "id", None)
@@ -710,7 +706,6 @@ class NotificationService(BaseService):
                 arrival_date = getattr(req, "arrival_date", None)
                 license_plate = getattr(req, "license_plate", "") or ""
                 car_make_color = getattr(req, "car_make_color", "") or ""
-                driver_phone = getattr(req, "driver_phone", "") or ""
                 tenant_phone = getattr(req, "tenant_phone", "") or ""
 
             user = await self.bot.services.user.get_user_by_id(user_id) if user_id else None
@@ -735,7 +730,7 @@ class NotificationService(BaseService):
                 time_str = ""
 
             text = self.bot.get_text("guest_parking_to_admin", [
-                date_str, time_str, license_plate, car_make_color, driver_phone, tenant_contact,
+                date_str, time_str, license_plate, car_make_color, tenant_contact,
             ])
             message = await self.bot.application.bot.send_message(
                 chat_id=self._admin_chat_id,
@@ -774,14 +769,12 @@ class NotificationService(BaseService):
                 arrival_date = req.get("arrival_date")
                 license_plate = req.get("license_plate", "")
                 car_make_color = req.get("car_make_color", "")
-                driver_phone = req.get("driver_phone", "")
                 tenant_phone = req.get("tenant_phone", "")
             else:
                 user_id = getattr(req, "user_id", None)
                 arrival_date = getattr(req, "arrival_date", None)
                 license_plate = getattr(req, "license_plate", "") or ""
                 car_make_color = getattr(req, "car_make_color", "") or ""
-                driver_phone = getattr(req, "driver_phone", "") or ""
                 tenant_phone = getattr(req, "tenant_phone", "") or ""
 
             user = await self.bot.services.user.get_user_by_id(user_id) if user_id else None
@@ -805,7 +798,7 @@ class NotificationService(BaseService):
                 date_str = str(arrival_date)[:10] if arrival_date else ""
                 time_str = ""
 
-            payload = [date_str, time_str, license_plate, car_make_color, driver_phone, tenant_contact]
+            payload = [date_str, time_str, license_plate, car_make_color, tenant_contact]
             await self.bot.managers.message.edit_message(
                 chat_id=self._admin_chat_id,
                 message_id=msid,

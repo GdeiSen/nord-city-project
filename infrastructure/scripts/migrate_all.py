@@ -7,6 +7,8 @@
   2. Миграция колонок TIMESTAMP → TIMESTAMPTZ
   3. Добавление колонки msid в guest_parking_requests
   4. Удаление колонки reminder_sent из guest_parking_requests
+  5. Удаление колонки reminder_sent_at из guest_parking_requests
+  6. Удаление колонки driver_phone из guest_parking_requests
 
 Использование:
     Из корня проекта:
@@ -142,26 +144,38 @@ async def step5_drop_reminder_sent_at(engine):
     print("  [OK] Колонка reminder_sent_at удалена или отсутствовала")
 
 
+async def step6_drop_driver_phone(engine):
+    """Удаление колонки driver_phone из guest_parking_requests."""
+    async with engine.begin() as conn:
+        await conn.execute(text(
+            "ALTER TABLE guest_parking_requests DROP COLUMN IF EXISTS driver_phone"
+        ))
+    print("  [OK] Колонка driver_phone удалена или отсутствовала")
+
+
 async def run_all():
     url = get_db_url()
     engine = create_async_engine(url, echo=False)
 
     print("\n=== Миграция Nord City: старая → новая версия ===\n")
 
-    print("Шаг 1/5: Создание таблицы guest_parking_requests...")
+    print("Шаг 1/6: Создание таблицы guest_parking_requests...")
     await step1_create_guest_parking(engine)
 
-    print("\nШаг 2/5: Миграция TIMESTAMP → TIMESTAMPTZ...")
+    print("\nШаг 2/6: Миграция TIMESTAMP → TIMESTAMPTZ...")
     await step2_migrate_timestamptz(engine)
 
-    print("\nШаг 3/5: Добавление колонки msid...")
+    print("\nШаг 3/6: Добавление колонки msid...")
     await step3_add_msid(engine)
 
-    print("\nШаг 4/5: Удаление колонки reminder_sent...")
+    print("\nШаг 4/6: Удаление колонки reminder_sent...")
     await step4_drop_reminder_sent(engine)
 
-    print("\nШаг 5/5: Удаление колонки reminder_sent_at (логика в кэше)...")
+    print("\nШаг 5/6: Удаление колонки reminder_sent_at (логика в кэше)...")
     await step5_drop_reminder_sent_at(engine)
+
+    print("\nШаг 6/6: Удаление колонки driver_phone...")
+    await step6_drop_driver_phone(engine)
 
     await engine.dispose()
     print("\n=== Миграция успешно завершена ===\n")

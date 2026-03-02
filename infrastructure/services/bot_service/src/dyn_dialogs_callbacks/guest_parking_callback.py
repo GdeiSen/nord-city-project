@@ -1,6 +1,6 @@
 """
 Callback для диалога гостевой парковки.
-Валидация даты, времени (9:00-19:00), госномера, телефонов.
+Валидация даты, времени (9:00-19:00), госномера, телефона арендатора.
 Создание заявки, уведомление администраторов, напоминание за 15 мин.
 """
 import re
@@ -175,23 +175,10 @@ async def guest_parking_callback(
             return CallbackResult.retry_current(sequence_id, _idx())
         data["car_make_color"] = car
         bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, data)
-        return CallbackResult.continue_()
-
-    # --- Телефон водителя ---
-    if item_id == 104:
-        if not is_valid_belarus_phone(answer or ""):
-            set_dialog_position(bot, context, sequence_id, _idx())
-            await bot.send_message(
-                update, context, "guest_parking_driver_phone_error", dynamic=False
-            )
-            return CallbackResult.retry_current(sequence_id, _idx())
-        data["driver_phone"] = _normalize_phone(answer or "")
-        bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, data)
 
         user_id = bot.get_user_id(update)
         user = await bot.services.user.get_user_by_id(user_id) if user_id else None
         if user and user.phone_number and user.phone_number.strip():
-            # У арендатора уже есть контакт — переходим к финалу
             data["tenant_phone"] = _normalize_phone(user.phone_number)
             bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, data)
             bot.managers.storage.set(context, Variables.ACTIVE_DIALOG_SEQUENCE_ID, 6)
@@ -201,7 +188,7 @@ async def guest_parking_callback(
         return CallbackResult.continue_()
 
     # --- Телефон арендатора ---
-    if item_id == 105:
+    if item_id == 104:
         if not is_valid_belarus_phone(answer or ""):
             set_dialog_position(bot, context, sequence_id, _idx())
             await bot.send_message(
@@ -267,7 +254,6 @@ async def _finalize_and_show_summary(
             "arrival_date": arrival_dt_save.isoformat(),
             "license_plate": data.get("license_plate", ""),
             "car_make_color": data.get("car_make_color", ""),
-            "driver_phone": data.get("driver_phone", ""),
             "tenant_phone": data.get("tenant_phone"),
         },
         model_class=GuestParkingSchema,
@@ -301,7 +287,6 @@ async def _finalize_and_show_summary(
             time_str,
             data.get("license_plate", ""),
             data.get("car_make_color", ""),
-            data.get("driver_phone", ""),
         ],
     )
     final_item = dialog.items.get(106)

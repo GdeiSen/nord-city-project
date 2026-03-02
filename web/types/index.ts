@@ -198,7 +198,6 @@ export interface GuestParkingRequest extends BaseEntity {
   arrival_date: string
   license_plate: string
   car_make_color: string
-  driver_phone: string
   tenant_phone?: string
   user?: User
 }

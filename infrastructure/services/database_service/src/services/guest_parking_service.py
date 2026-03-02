@@ -38,14 +38,12 @@ def _to_cache_item(record: Any) -> dict:
             "arrival_date": record.get("arrival_date"),
             "license_plate": record.get("license_plate", ""),
             "car_make_color": record.get("car_make_color", ""),
-            "driver_phone": record.get("driver_phone", ""),
         }
     return {
         "id": getattr(record, "id", None),
         "arrival_date": getattr(record, "arrival_date", None),
         "license_plate": getattr(record, "license_plate", "") or "",
         "car_make_color": getattr(record, "car_make_color", "") or "",
-        "driver_phone": getattr(record, "driver_phone", "") or "",
     }
 
 
