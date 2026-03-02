@@ -43,8 +43,13 @@ class NotificationService(BaseService):
         print("NotificationService initialized")
 
     def _compose_broadcast_text(self, title: str, message: str) -> str:
-        parts = [str(title or "").strip(), str(message or "").strip()]
-        return "\n\n".join(part for part in parts if part)
+        return self.bot.get_text(
+            "bulk_notification_template",
+            [
+                str(title or "").strip(),
+                str(message or "").strip(),
+            ],
+        ).strip()
 
     def _normalize_broadcast_images(self, image_urls: list[str] | None) -> list[str]:
         images: list[str] = []
