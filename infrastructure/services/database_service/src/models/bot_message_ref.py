@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, DateTime, Integer, JSON, Sequence, String, Index, func
+from sqlalchemy import BigInteger, DateTime, Integer, JSON, Sequence, String, Index, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -10,7 +10,12 @@ from .base import Base
 class BotMessageRef(Base):
     __tablename__ = "bot_message_refs"
 
-    id: Mapped[int] = mapped_column(Integer, Sequence("bot_message_refs_id_seq"), primary_key=True)
+    id: Mapped[int] = mapped_column(
+        Integer,
+        Sequence("bot_message_refs_id_seq"),
+        primary_key=True,
+        server_default=text("nextval('bot_message_refs_id_seq'::regclass)"),
+    )
     entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
     entity_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)

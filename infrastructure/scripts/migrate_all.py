@@ -249,6 +249,27 @@ async def step9_migrate_audit(engine):
         await conn.run_sync(
             lambda c: BotMessageRef.__table__.create(c, checkfirst=True)
         )
+        await conn.execute(text("CREATE SEQUENCE IF NOT EXISTS bot_message_refs_id_seq"))
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE bot_message_refs
+                ALTER COLUMN id
+                SET DEFAULT nextval('bot_message_refs_id_seq'::regclass)
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                SELECT setval(
+                    'bot_message_refs_id_seq',
+                    COALESCE((SELECT MAX(id) FROM bot_message_refs), 1),
+                    EXISTS (SELECT 1 FROM bot_message_refs)
+                )
+                """
+            )
+        )
         await conn.execute(text(
             """
             DO $$
@@ -336,6 +357,28 @@ async def step10_drop_service_ticket_msid(engine):
         if not column_exists:
             print("  [OK] Колонка service_tickets.msid уже отсутствует")
             return
+
+        await conn.execute(text("CREATE SEQUENCE IF NOT EXISTS bot_message_refs_id_seq"))
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE bot_message_refs
+                ALTER COLUMN id
+                SET DEFAULT nextval('bot_message_refs_id_seq'::regclass)
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                SELECT setval(
+                    'bot_message_refs_id_seq',
+                    COALESCE((SELECT MAX(id) FROM bot_message_refs), 1),
+                    EXISTS (SELECT 1 FROM bot_message_refs)
+                )
+                """
+            )
+        )
 
         pending_backfill = await conn.scalar(
             text(

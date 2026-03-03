@@ -114,6 +114,27 @@ EXECUTE FUNCTION audit_log_fill_defaults_trigger();
 async def ensure_bot_message_refs(engine) -> None:
     async with engine.begin() as conn:
         await conn.run_sync(lambda c: BotMessageRef.__table__.create(c, checkfirst=True))
+        await conn.execute(text("CREATE SEQUENCE IF NOT EXISTS bot_message_refs_id_seq"))
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE bot_message_refs
+                ALTER COLUMN id
+                SET DEFAULT nextval('bot_message_refs_id_seq'::regclass)
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                SELECT setval(
+                    'bot_message_refs_id_seq',
+                    COALESCE((SELECT MAX(id) FROM bot_message_refs), 1),
+                    EXISTS (SELECT 1 FROM bot_message_refs)
+                )
+                """
+            )
+        )
     print("  [OK] Таблица bot_message_refs создана или уже существует")
 
 

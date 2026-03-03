@@ -79,6 +79,27 @@ async def run_migration():
                 return
 
             await conn.run_sync(lambda c: BotMessageRef.__table__.create(c, checkfirst=True))
+            await conn.execute(text("CREATE SEQUENCE IF NOT EXISTS bot_message_refs_id_seq"))
+            await conn.execute(
+                text(
+                    """
+                    ALTER TABLE bot_message_refs
+                    ALTER COLUMN id
+                    SET DEFAULT nextval('bot_message_refs_id_seq'::regclass)
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    SELECT setval(
+                        'bot_message_refs_id_seq',
+                        COALESCE((SELECT MAX(id) FROM bot_message_refs), 1),
+                        EXISTS (SELECT 1 FROM bot_message_refs)
+                    )
+                    """
+                )
+            )
 
             pending_backfill = await conn.scalar(
                 text(
