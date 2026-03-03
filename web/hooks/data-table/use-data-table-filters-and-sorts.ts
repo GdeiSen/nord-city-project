@@ -45,23 +45,36 @@ export function useDataTableFiltersAndSorts(
 ): UseDataTableFiltersAndSortsReturn {
   const { serverPagination = false, serverParams, onClearAll } = options
 
-  const [advancedFilters, setAdvancedFilters] = useState<ColumnFilter[]>([])
-  const [advancedSorts, setAdvancedSorts] = useState<ColumnSort[]>([])
-  const [openFilterPickerIndex, setOpenFilterPickerIndex] = useState<number | null>(null)
-
-  useEffect(() => {
-    if (serverPagination && serverParams?.sort) {
-      const parts = serverParams.sort.split(",").filter(Boolean)
-      const sorts = parts.map((p) => {
-        const [col, dir] = p.includes(":") ? p.split(":") : [p, "asc"]
+  const parseServerSort = useCallback((sortValue?: string): ColumnSort[] => {
+    const raw = String(sortValue || "").trim()
+    if (!raw) return []
+    return raw
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const [col, dir] = part.includes(":") ? part.split(":", 2) : [part, "asc"]
         return {
           columnId: col.trim(),
           direction: (dir?.trim() || "asc") as "asc" | "desc",
         }
       })
-      setAdvancedSorts(sorts)
-    }
-  }, [serverPagination, serverParams?.sort])
+      .filter((sort) => Boolean(sort.columnId))
+  }, [])
+
+  const [advancedFilters, setAdvancedFilters] = useState<ColumnFilter[]>([])
+  const [advancedSorts, setAdvancedSorts] = useState<ColumnSort[]>(() =>
+    serverPagination ? parseServerSort(serverParams?.sort) : []
+  )
+  const [openFilterPickerIndex, setOpenFilterPickerIndex] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!serverPagination) return
+    const nextSorts = parseServerSort(serverParams?.sort)
+    setAdvancedSorts((prev) =>
+      JSON.stringify(prev) === JSON.stringify(nextSorts) ? prev : nextSorts
+    )
+  }, [serverPagination, serverParams?.sort, parseServerSort])
 
   const addSort = useCallback(() => {
     setAdvancedSorts((prev) => [...prev, { columnId: "", direction: "asc" as const }])

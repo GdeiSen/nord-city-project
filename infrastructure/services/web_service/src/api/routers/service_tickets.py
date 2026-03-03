@@ -72,10 +72,11 @@ def _inject_attachment_meta(data: dict) -> dict:
     else:
         meta_dict.pop("attachments", None)
 
-    if not update_data.get("image"):
-        first_image = next((item for item in normalized if _is_image_url(item)), None)
-        if first_image:
-            update_data["image"] = first_image
+    # attachment_urls is the source of truth for ticket media:
+    # recompute preview image on every explicit attachment update so stale
+    # image links are cleared when files are removed from the editor.
+    first_image = next((item for item in normalized if _is_image_url(item)), None)
+    update_data["image"] = first_image
 
     update_data["meta"] = json.dumps(meta_dict, ensure_ascii=False) if meta_dict else None
     return update_data
