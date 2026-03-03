@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { toast } from "sonner"
 import { ColumnDef } from "@tanstack/react-table"
 
 import { AppSidebar } from "@/components/app-sidebar"
@@ -11,7 +12,7 @@ import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { useServerPaginatedData } from "@/hooks"
 import { formatDate } from "@/lib/date-utils"
-import { storageFileApi } from "@/lib/api"
+import { storageApi, storageFileApi } from "@/lib/api"
 import { storageFileColumnMeta } from "@/lib/table-configs"
 import { StorageFile } from "@/types"
 
@@ -70,6 +71,7 @@ export default function FileStoragePage() {
     loading,
     serverParams,
     setServerParams,
+    refetch,
   } = useServerPaginatedData<StorageFile>({
     api: storageFileApi,
     errorMessage: "Не удалось загрузить файлы",
@@ -185,6 +187,24 @@ export default function FileStoragePage() {
             columns={columns}
             loading={loading}
             loadingMessage="Загрузка файлов..."
+            contextMenuActions={{
+              getCopyText: (row) =>
+                `${row.original.original_name} ${row.original.storage_path} ${row.original.public_url}`,
+              deleteTitle: "Удалить файл?",
+              deleteDescription:
+                "Файл будет удален из storage и отвязан от связанной сущности. Это действие нельзя отменить.",
+              onDelete: async (row) => {
+                try {
+                  await storageApi.delete(row.original.storage_path)
+                  await refetch()
+                  toast.success("Файл удален")
+                } catch (error: any) {
+                  toast.error("Не удалось удалить файл", {
+                    description: error?.message ?? "Попробуйте еще раз.",
+                  })
+                }
+              },
+            }}
             serverPagination
             totalRowCount={total}
             serverParams={serverParams}

@@ -60,6 +60,34 @@ function getStatusValue(data: Record<string, unknown> | undefined): string | nul
   return status.trim()
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+}
+
+function getHighlightedJsonHtml(value: Record<string, unknown>): string {
+  const raw = escapeHtml(JSON.stringify(value, null, 2))
+
+  return raw.replace(
+    /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+\-]?\d+)?)/g,
+    (match) => {
+      let className = "text-foreground"
+      if (match.startsWith('"')) {
+        className = match.endsWith(":") ? "text-sky-300" : "text-emerald-300"
+      } else if (match === "true" || match === "false") {
+        className = "text-violet-300"
+      } else if (match === "null") {
+        className = "text-muted-foreground"
+      } else {
+        className = "text-amber-300"
+      }
+      return `<span class="${className}">${match}</span>`
+    }
+  )
+}
+
 function JsonBlock({
   title,
   value,
@@ -72,9 +100,17 @@ function JsonBlock({
   return (
     <div className="space-y-2">
       <p className="text-sm font-medium">{title}</p>
-      <pre className="max-h-80 overflow-auto rounded-md border bg-muted/20 p-3 text-xs whitespace-pre-wrap break-words">
-        {JSON.stringify(value, null, 2)}
-      </pre>
+      <div className="overflow-hidden rounded-md border bg-muted/20">
+        <div className="max-h-80 overflow-x-auto overflow-y-auto">
+          <pre className="min-w-max p-3 text-xs leading-5 whitespace-pre">
+            <code
+              dangerouslySetInnerHTML={{
+                __html: getHighlightedJsonHtml(value),
+              }}
+            />
+          </pre>
+        </div>
+      </div>
     </div>
   )
 }
@@ -91,7 +127,7 @@ function DetailRow({
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
-      <div className="min-w-0 text-sm">{value}</div>
+      <div className="min-w-0 break-words text-sm">{value}</div>
     </div>
   )
 }
@@ -112,7 +148,7 @@ export function AuditEntrySheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-xl">
+      <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-2xl">
         <SheetHeader className="space-y-2 border-b pb-4">
           <SheetTitle>
             {entry ? `Запись аудита #${entry.id}` : "Запись аудита"}
