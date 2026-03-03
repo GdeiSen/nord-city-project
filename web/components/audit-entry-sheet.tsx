@@ -100,10 +100,11 @@ function JsonBlock({
   return (
     <div className="space-y-2">
       <p className="text-sm font-medium">{title}</p>
-      <div className="overflow-hidden rounded-md border bg-muted/20">
-        <div className="max-h-80 overflow-x-auto overflow-y-auto">
-          <pre className="min-w-max p-3 text-xs leading-5 whitespace-pre">
+      <div className="min-w-0 max-w-full overflow-hidden rounded-md border bg-muted/20">
+        <div className="max-h-80 min-w-0 max-w-full overflow-x-scroll overflow-y-auto">
+          <pre className="inline-block min-w-full max-w-none p-3 text-xs leading-5 whitespace-pre align-top">
             <code
+              className="inline-block min-w-full max-w-none"
               dangerouslySetInnerHTML={{
                 __html: getHighlightedJsonHtml(value),
               }}
@@ -148,7 +149,10 @@ export function AuditEntrySheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-2xl">
+      <SheetContent
+        side="right"
+        className="flex min-w-0 !w-[min(92vw,72rem)] max-w-[min(92vw,72rem)] flex-col gap-0 p-0 sm:!max-w-[min(92vw,72rem)]"
+      >
         <SheetHeader className="space-y-2 border-b pb-4">
           <SheetTitle>
             {entry ? `Запись аудита #${entry.id}` : "Запись аудита"}
@@ -160,9 +164,9 @@ export function AuditEntrySheet({
           </SheetDescription>
         </SheetHeader>
 
-        <ScrollArea className="flex-1">
+        <ScrollArea className="min-w-0 flex-1">
           {entry ? (
-            <div className="space-y-6 p-4">
+            <div className="min-w-0 max-w-full space-y-6 p-4">
               <div className="flex flex-wrap gap-2">
                 <Badge variant={entry.action === "delete" ? "destructive" : entry.action === "create" ? "default" : "secondary"}>
                   {ACTION_LABELS[entry.action] ?? entry.action}

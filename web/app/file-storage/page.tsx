@@ -5,7 +5,7 @@ import { toast } from "sonner"
 import { ColumnDef } from "@tanstack/react-table"
 
 import { AppSidebar } from "@/components/app-sidebar"
-import { DataTable } from "@/components/data-table"
+import { DataTable, createSelectColumn } from "@/components/data-table"
 import { MarqueeText } from "@/components/marquee-text"
 import { PageHeader } from "@/components/page-header"
 import { SiteHeader } from "@/components/site-header"
@@ -79,6 +79,7 @@ export default function FileStoragePage() {
   })
 
   const columns: ColumnDef<StorageFile>[] = [
+    createSelectColumn<StorageFile>(),
     {
       accessorKey: "id",
       header: "ID",
