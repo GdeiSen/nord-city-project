@@ -358,6 +358,32 @@ class _StorageFileProxy(_CRUDProxy):
             entity_id=entity_id,
         )
 
+    async def find_by_path(
+        self,
+        *,
+        storage_path: str,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "find_by_path",
+            _model_class=model_class,
+            storage_path=storage_path,
+        )
+
+    async def merge_meta_by_path(
+        self,
+        *,
+        storage_path: str,
+        meta_updates: Optional[Dict[str, Any]] = None,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "merge_meta_by_path",
+            _model_class=model_class,
+            storage_path=storage_path,
+            meta_updates=meta_updates or {},
+        )
+
 
 # ---------------------------------------------------------------------------
 # Main client

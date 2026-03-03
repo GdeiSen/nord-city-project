@@ -70,6 +70,15 @@ class StorageFileService(BaseService):
         except (TypeError, ValueError):
             return None
 
+    @classmethod
+    def _merge_meta(cls, current_meta: Optional[dict], meta_updates: Optional[dict]) -> dict | None:
+        current = cls._normalize_meta(current_meta) or {}
+        updates = cls._normalize_meta(meta_updates)
+        if updates is None:
+            return current or None
+        current.update(updates)
+        return current or None
+
     async def _register_upload(
         self,
         *,
@@ -98,7 +107,7 @@ class StorageFileService(BaseService):
             existing.kind = kind
             existing.category = category
             if encoded_meta is not None:
-                existing.meta = encoded_meta
+                existing.meta = self._merge_meta(existing.meta, encoded_meta)
             updated = await self.repository.update(session=session, obj_in=existing)
             return updated
 
@@ -175,7 +184,7 @@ class StorageFileService(BaseService):
                     size_bytes=0,
                     kind=self._infer_kind(original_name, guessed_content_type),
                     category=category,
-                    meta=self._normalize_meta(meta),
+                    meta=self._merge_meta(None, meta),
                 )
                 item = await self.repository.create(session=session, obj_in=item)
                 item_map[path] = item
@@ -185,7 +194,7 @@ class StorageFileService(BaseService):
             item.entity_id = int(entity_id)
             item.category = category
             if meta:
-                item.meta = self._normalize_meta(meta)
+                item.meta = self._merge_meta(item.meta, meta)
             updated = await self.repository.update(session=session, obj_in=item)
             bound_items.append(updated)
 
@@ -266,3 +275,45 @@ class StorageFileService(BaseService):
             .order_by(StorageFile.created_at.asc(), StorageFile.id.asc())
         )
         return list(rows.scalars().all())
+
+    @db_session_manager
+    async def find_by_path(
+        self,
+        *,
+        session,
+        storage_path: str,
+        model_class=None,
+    ) -> Optional[StorageFile]:
+        path = self._normalize_path(storage_path)
+        if not path:
+            return None
+        return await session.scalar(
+            select(StorageFile).where(StorageFile.storage_path == path)
+        )
+
+    @db_session_manager
+    async def merge_meta_by_path(
+        self,
+        *,
+        session,
+        storage_path: str,
+        meta_updates: Optional[dict] = None,
+        model_class=None,
+    ) -> Optional[StorageFile]:
+        path = self._normalize_path(storage_path)
+        if not path:
+            return None
+
+        item = await session.scalar(
+            select(StorageFile).where(StorageFile.storage_path == path)
+        )
+        if item is None:
+            return None
+
+        normalized_current = self._normalize_meta(item.meta)
+        merged_meta = self._merge_meta(item.meta, meta_updates)
+        if merged_meta == normalized_current:
+            return item
+
+        item.meta = merged_meta
+        return await self.repository.update(session=session, obj_in=item)

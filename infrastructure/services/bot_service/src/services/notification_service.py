@@ -18,7 +18,7 @@ from utils.time_utils import now, TimeUtils
 
 from telegram import Update, Message
 from telegram.ext import ContextTypes
-from shared.schemas import UserSchema, AuditLogSchema
+from shared.schemas import UserSchema, AuditLogSchema, StorageFileSchema
 
 if TYPE_CHECKING:
     from bot import Bot
@@ -131,6 +131,85 @@ class NotificationService(BaseService):
             f"Last error: {last_error}"
         )
 
+    @staticmethod
+    def _extract_storage_file_meta(storage_file: Any) -> dict[str, Any]:
+        if storage_file is None:
+            return {}
+
+        if isinstance(storage_file, dict):
+            meta = storage_file.get("meta")
+        else:
+            meta = getattr(storage_file, "meta", None)
+
+        if isinstance(meta, dict):
+            return dict(meta)
+
+        if isinstance(meta, str) and meta.strip():
+            try:
+                parsed = json.loads(meta)
+                if isinstance(parsed, dict):
+                    return parsed
+            except (TypeError, ValueError):
+                return {}
+
+        return {}
+
+    async def _get_storage_file_telegram_file_id(self, storage_path: str | None) -> str | None:
+        if not storage_path:
+            return None
+
+        try:
+            response = await self.bot.managers.database.storage_file.find_by_path(
+                storage_path=storage_path,
+                model_class=StorageFileSchema,
+            )
+        except Exception:
+            return None
+
+        if not response.get("success"):
+            return None
+
+        meta = self._extract_storage_file_meta(response.get("data"))
+        telegram_file_id = str(meta.get("telegram_file_id") or "").strip()
+        return telegram_file_id or None
+
+    async def _persist_storage_file_telegram_file_id(
+        self,
+        *,
+        storage_path: str | None,
+        telegram_file_id: str | None,
+    ) -> None:
+        if not storage_path:
+            return
+
+        try:
+            await self.bot.managers.database.storage_file.merge_meta_by_path(
+                storage_path=storage_path,
+                meta_updates={"telegram_file_id": telegram_file_id},
+                model_class=StorageFileSchema,
+            )
+        except Exception:
+            return
+
+    async def _prepare_broadcast_document_refs(
+        self,
+        document_urls: list[str],
+    ) -> list[dict[str, Any]]:
+        document_refs: list[dict[str, Any]] = []
+
+        for document_url in document_urls:
+            storage_path = extract_media_path(document_url)
+            telegram_file_id = await self._get_storage_file_telegram_file_id(storage_path)
+            document_refs.append(
+                {
+                    "url": document_url,
+                    "storage_path": storage_path,
+                    "telegram_file_id": telegram_file_id,
+                }
+            )
+
+        return document_refs
+
     async def _send_broadcast_document(
         self,
         *,
@@ -139,11 +218,18 @@ class NotificationService(BaseService):
     ) -> None:
         telegram_file_id = str(document_ref.get("telegram_file_id") or "").strip()
         if telegram_file_id:
-            await self.bot.application.bot.send_document(
-                chat_id=user_id,
-                document=telegram_file_id,
-            )
-            return
+            try:
+                await self.bot.application.bot.send_document(
+                    chat_id=user_id,
+                    document=telegram_file_id,
+                )
+                return
+            except Exception:
+                document_ref["telegram_file_id"] = None
+                await self._persist_storage_file_telegram_file_id(
+                    storage_path=document_ref.get("storage_path"),
+                    telegram_file_id=None,
+                )
 
         attachment_url = str(document_ref.get("url") or "").strip()
         filename, file_content = await self._download_broadcast_document(attachment_url)
@@ -154,6 +240,10 @@ class NotificationService(BaseService):
         uploaded_file_id = getattr(getattr(message, "document", None), "file_id", None)
         if uploaded_file_id:
             document_ref["telegram_file_id"] = uploaded_file_id
+            await self._persist_storage_file_telegram_file_id(
+                storage_path=document_ref.get("storage_path"),
+                telegram_file_id=str(uploaded_file_id),
+            )
 
     async def _send_broadcast_to_user(
         self,
@@ -213,13 +303,7 @@ class NotificationService(BaseService):
 
         normalized_attachments = self._normalize_broadcast_attachments(attachment_urls)
         image_urls, document_urls = self._split_broadcast_attachments(normalized_attachments)
-        document_refs: list[dict[str, Any]] = [
-            {
-                "url": document_url,
-                "telegram_file_id": None,
-            }
-            for document_url in document_urls
-        ]
+        document_refs = await self._prepare_broadcast_document_refs(document_urls)
         delivered_user_ids: list[int] = []
         failed_deliveries: list[dict[str, Any]] = []
 

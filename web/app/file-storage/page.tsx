@@ -15,7 +15,22 @@ import { storageFileApi } from "@/lib/api"
 import { storageFileColumnMeta } from "@/lib/table-configs"
 import { StorageFile } from "@/types"
 
-function getEntityDetailUrl(entityType?: string, entityId?: number): string | null {
+function getMetaObjectId(meta: Record<string, unknown> | undefined): number | null {
+  const raw = meta?.object_id
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return raw
+  }
+  if (typeof raw === "string" && raw.trim() && !Number.isNaN(Number(raw))) {
+    return Number(raw)
+  }
+  return null
+}
+
+function getEntityDetailUrl(
+  entityType?: string,
+  entityId?: number,
+  meta?: Record<string, unknown>
+): string | null {
   if (!entityType || entityId == null) {
     return null
   }
@@ -30,8 +45,11 @@ function getEntityDetailUrl(entityType?: string, entityId?: number): string | nu
     case "Feedback":
       return `/feedbacks/${entityId}`
     case "Object":
-    case "Space":
       return `/spaces/${entityId}`
+    case "Space": {
+      const objectId = getMetaObjectId(meta)
+      return objectId != null ? `/spaces/${objectId}/${entityId}` : "/spaces"
+    }
     default:
       return null
   }
@@ -108,7 +126,11 @@ export default function FileStoragePage() {
       meta: storageFileColumnMeta.entity_type,
       cell: ({ row }) => {
         const label = getEntityLabel(row.original.entity_type, row.original.entity_id)
-        const url = getEntityDetailUrl(row.original.entity_type, row.original.entity_id)
+        const url = getEntityDetailUrl(
+          row.original.entity_type,
+          row.original.entity_id,
+          row.original.meta
+        )
 
         if (!row.original.entity_type || row.original.entity_id == null) {
           return <span className="text-muted-foreground">Не привязан</span>

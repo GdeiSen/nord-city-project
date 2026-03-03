@@ -22,7 +22,14 @@ class SpaceService(BaseService):
     def __init__(self, db_manager: DatabaseManager):
         super().__init__(db_manager)
 
-    async def _sync_space_files(self, *, session, entity_id: int, urls: list[str]) -> None:
+    async def _sync_space_files(
+        self,
+        *,
+        session,
+        entity_id: int,
+        object_id: int | None,
+        urls: list[str],
+    ) -> None:
         storage_svc = self.db_manager.services.get("storage_file")
         if storage_svc is None:
             return
@@ -32,7 +39,10 @@ class SpaceService(BaseService):
             entity_id=int(entity_id),
             urls=urls or [],
             category=StorageFileCategory.DEFAULT,
-            meta={"source": "space_photos"},
+            meta={
+                "source": "space_photos",
+                "object_id": int(object_id) if object_id is not None else None,
+            },
         )
 
     @db_session_manager
@@ -42,6 +52,7 @@ class SpaceService(BaseService):
             await self._sync_space_files(
                 session=session,
                 entity_id=int(created.id),
+                object_id=int(created.object_id) if getattr(created, "object_id", None) is not None else None,
                 urls=list(created.photos or []),
             )
         return created
@@ -56,9 +67,16 @@ class SpaceService(BaseService):
     @db_session_manager
     async def update(self, *, session, entity_id, update_data, **kwargs):
         """Override to cleanup media files that are no longer referenced."""
-        if "photos" in update_data:
+        if "photos" in update_data or "object_id" in update_data:
             existing = await self.repository.get_by_id(session=session, entity_id=entity_id)
-            if existing:
+            new_list = list(existing.photos) if existing and existing.photos else []
+            next_object_id = None
+            if existing and getattr(existing, "object_id", None) is not None:
+                next_object_id = int(existing.object_id)
+            if update_data.get("object_id") is not None:
+                next_object_id = int(update_data["object_id"])
+
+            if existing and "photos" in update_data:
                 old_photos = list(existing.photos) if existing.photos else []
                 new_photos = update_data.get("photos")
                 new_list = list(new_photos) if new_photos else []
@@ -72,6 +90,7 @@ class SpaceService(BaseService):
             await self._sync_space_files(
                 session=session,
                 entity_id=int(entity_id),
+                object_id=next_object_id,
                 urls=new_list,
             )
         return await super().update(session=session, entity_id=entity_id, update_data=update_data, **kwargs)
@@ -90,5 +109,10 @@ class SpaceService(BaseService):
                         logger.info("Cleaned up media on delete: %s", path)
                     except Exception as e:
                         logger.warning("Failed to cleanup media %s: %s", path, e)
-        await self._sync_space_files(session=session, entity_id=int(entity_id), urls=[])
+        await self._sync_space_files(
+            session=session,
+            entity_id=int(entity_id),
+            object_id=int(existing.object_id) if existing and getattr(existing, "object_id", None) is not None else None,
+            urls=[],
+        )
         return await super().delete(session=session, entity_id=entity_id, **kwargs)
