@@ -12,6 +12,7 @@ from .rental_spaces import router as rental_spaces_router
 from .space_views import router as space_views_router
 from .media import router as media_router
 from .notifications import router as notifications_router
+from .storage_files import router as storage_files_router
 
 __all__ = [
     "users_router",
@@ -27,4 +28,5 @@ __all__ = [
     "space_views_router",
     "media_router",
     "notifications_router",
+    "storage_files_router",
 ]

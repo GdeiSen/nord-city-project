@@ -10,6 +10,7 @@ import {
   IconBell,
   IconBuildingSkyscraper,
   IconHistory,
+  IconFile,
 } from "@tabler/icons-react"
 
 import { NavMain } from "@/components/nav-main"
@@ -104,6 +105,11 @@ const data = {
       title: "Журнал аудита",
       url: "/audit-log",
       icon: IconHistory,
+    },
+    {
+      title: "Хранилище файлов",
+      url: "/file-storage",
+      icon: IconFile,
     },
   ],
   

@@ -7,25 +7,20 @@ import os
 import re
 from typing import List
 
-# Media path pattern: uuid_hex + _ + filename (e.g. a1b2c3d4_photo.jpg)
+# Stored file path pattern: uuid_hex + _ + filename (e.g. a1b2c3d4_photo.jpg)
 MEDIA_PATH_PATTERN = re.compile(r"^[a-f0-9]{32}_.+$")
+STORAGE_URL_MARKERS = ("/storage/", "/media/")
 
 
 def is_media_service_url(url: str, base_url: str | None = None) -> bool:
     """
-    Check if URL points to our media service storage.
-    If base_url is None, we check for /media/ prefix and valid path pattern.
+    Check if URL points to our storage service.
+    Supports both /media/ and /storage/ prefixes during migration.
     """
     if not url or not isinstance(url, str) or not url.strip():
         return False
     url = url.strip()
-    # Must contain /media/ and have something after it
-    if "/media/" not in url:
-        return False
-    parts = url.split("/media/", 1)
-    if len(parts) != 2 or not parts[1]:
-        return False
-    path = parts[1].split("?")[0].strip()  # strip query params
+    path = extract_media_path(url)
     if not path or ".." in path or path.startswith("/"):
         return False
     # Path should match our format: uuid_filename.ext
@@ -34,26 +29,29 @@ def is_media_service_url(url: str, base_url: str | None = None) -> bool:
 
 def extract_media_path(url: str) -> str | None:
     """
-    Extract storage path from a media service URL.
-    Returns the path (e.g. uuid_filename.jpg) or None if not a valid media URL.
+    Extract storage path from a storage/media service URL.
+    Returns the path (e.g. uuid_filename.jpg) or None if not a valid storage URL.
     """
     if not url or not isinstance(url, str):
         return None
-    if "/media/" not in url:
-        return None
-    parts = url.split("/media/", 1)
-    if len(parts) != 2 or not parts[1]:
-        return None
-    path = parts[1].split("?")[0].strip()
-    if not path or ".." in path:
-        return None
-    return path if MEDIA_PATH_PATTERN.match(path) else None
+    for marker in STORAGE_URL_MARKERS:
+        if marker not in url:
+            continue
+        parts = url.split(marker, 1)
+        if len(parts) != 2 or not parts[1]:
+            continue
+        path = parts[1].split("?")[0].strip()
+        if not path or ".." in path:
+            return None
+        return path if MEDIA_PATH_PATTERN.match(path) else None
+    return None
 
 
 def to_public_media_url(url: str) -> str | None:
     """
     Convert any media URL to a full public URL for external use (e.g. Telegram).
-    Handles relative (/api/v1/media/xxx), internal (127.0.0.1), plain path, or already-public URLs.
+    Handles relative (/api/v1/storage/xxx or /api/v1/media/xxx), internal (127.0.0.1),
+    plain path, or already-public URLs.
     Returns None if URL cannot be converted.
     """
     if not url or not isinstance(url, str):
@@ -69,7 +67,7 @@ def to_public_media_url(url: str) -> str | None:
         base = os.getenv("NEXT_PUBLIC_API_URL", "").rstrip("/")
     if not base:
         return None
-    return f"{base}/media/{path}"
+    return f"{base}/storage/{path}"
 
 
 def get_removed_media_paths(old_urls: List[str], new_urls: List[str]) -> List[str]:

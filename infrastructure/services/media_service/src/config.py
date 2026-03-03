@@ -1,5 +1,5 @@
 """
-Configuration for Media Service.
+Configuration for Storage Service.
 Manages storage directory and HTTP server settings.
 """
 
@@ -16,7 +16,7 @@ from shared.utils.config_base import ServiceConfig, get_env_var
 
 @dataclass
 class MediaServiceConfig:
-    """Complete configuration for Media Service."""
+    """Complete configuration for Storage Service."""
 
     service: ServiceConfig
     storage_dir: Path
@@ -30,18 +30,25 @@ class MediaServiceConfig:
     @classmethod
     def from_env(cls) -> "MediaServiceConfig":
         """Create configuration from environment variables."""
-        # infrastructure/media_storage (from services/media_service/src/config.py)
+        # infrastructure/media_storage (legacy default path retained for compatibility)
         default_storage = Path(__file__).resolve().parents[3] / "media_storage"
-        storage_str = get_env_var("MEDIA_STORAGE_DIR", default=str(default_storage))
+        storage_str = os.getenv("STORAGE_DIR") or get_env_var(
+            "MEDIA_STORAGE_DIR",
+            default=str(default_storage),
+        )
         storage_dir = Path(storage_str).resolve()
 
         svc = ServiceConfig.from_env("media_service", prefix="MEDIA_SERVICE_")
-        svc.port = int(get_env_var("MEDIA_SERVICE_PORT", default="8004"))
+        svc.port = int(
+            os.getenv("STORAGE_SERVICE_PORT")
+            or get_env_var("MEDIA_SERVICE_PORT", default="8004")
+        )
         return cls(
             service=svc,
             storage_dir=storage_dir,
             max_upload_size=int(
-                get_env_var("MEDIA_MAX_UPLOAD_SIZE", default=str(25 * 1024 * 1024))
+                os.getenv("STORAGE_MAX_UPLOAD_SIZE")
+                or get_env_var("MEDIA_MAX_UPLOAD_SIZE", default=str(25 * 1024 * 1024))
             ),
             allowed_content_types=None,  # Allow all by default; can add validation later
         )

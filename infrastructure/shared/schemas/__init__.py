@@ -15,3 +15,4 @@ from .space_view import SpaceViewSchema
 from .service_tickets_stats import ServiceTicketsStatsSchema
 from .otp_code import OtpCodeSchema
 from .enrichment import UserSummary, ObjectSummary
+from .storage_file import StorageFileSchema

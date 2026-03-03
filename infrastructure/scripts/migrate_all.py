@@ -10,6 +10,7 @@
   5. Удаление колонки reminder_sent_at из guest_parking_requests
   6. Удаление колонки driver_phone из guest_parking_requests
   7. Создание таблицы guest_parking_settings
+  8. Создание таблицы storage_files
 
 Использование:
     Из корня проекта:
@@ -51,6 +52,7 @@ if str(db_src) not in sys.path:
     sys.path.insert(0, str(db_src))
 from models.guest_parking_request import GuestParkingRequest
 from models.guest_parking_settings import GuestParkingSettings
+from models.storage_file import StorageFile
 
 
 def get_db_url() -> str:
@@ -164,32 +166,44 @@ async def step7_create_guest_parking_settings(engine):
     print("  [OK] Таблица guest_parking_settings создана или уже существует")
 
 
+async def step8_create_storage_files(engine):
+    """Создание таблицы storage_files."""
+    async with engine.begin() as conn:
+        await conn.run_sync(
+            lambda c: StorageFile.__table__.create(c, checkfirst=True)
+        )
+    print("  [OK] Таблица storage_files создана или уже существует")
+
+
 async def run_all():
     url = get_db_url()
     engine = create_async_engine(url, echo=False)
 
     print("\n=== Миграция Nord City: старая → новая версия ===\n")
 
-    print("Шаг 1/7: Создание таблицы guest_parking_requests...")
+    print("Шаг 1/8: Создание таблицы guest_parking_requests...")
     await step1_create_guest_parking(engine)
 
-    print("\nШаг 2/7: Миграция TIMESTAMP → TIMESTAMPTZ...")
+    print("\nШаг 2/8: Миграция TIMESTAMP → TIMESTAMPTZ...")
     await step2_migrate_timestamptz(engine)
 
-    print("\nШаг 3/7: Добавление колонки msid...")
+    print("\nШаг 3/8: Добавление колонки msid...")
     await step3_add_msid(engine)
 
-    print("\nШаг 4/7: Удаление колонки reminder_sent...")
+    print("\nШаг 4/8: Удаление колонки reminder_sent...")
     await step4_drop_reminder_sent(engine)
 
-    print("\nШаг 5/7: Удаление колонки reminder_sent_at (логика в кэше)...")
+    print("\nШаг 5/8: Удаление колонки reminder_sent_at (логика в кэше)...")
     await step5_drop_reminder_sent_at(engine)
 
-    print("\nШаг 6/7: Удаление колонки driver_phone...")
+    print("\nШаг 6/8: Удаление колонки driver_phone...")
     await step6_drop_driver_phone(engine)
 
-    print("\nШаг 7/7: Создание таблицы guest_parking_settings...")
+    print("\nШаг 7/8: Создание таблицы guest_parking_settings...")
     await step7_create_guest_parking_settings(engine)
+
+    print("\nШаг 8/8: Создание таблицы storage_files...")
+    await step8_create_storage_files(engine)
 
     await engine.dispose()
     print("\n=== Миграция успешно завершена ===\n")

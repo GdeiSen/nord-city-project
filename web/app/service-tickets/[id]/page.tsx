@@ -86,6 +86,17 @@ function getStatusBgClass(status: string | null): string {
   }
 }
 
+function isImageUrl(url: string): boolean {
+  return /\.(jpe?g|png|gif|webp|svg)(\?|$)/i.test(url)
+}
+
+function getAttachmentName(url: string): string {
+  const tail = url.split("/").pop() || "file"
+  const clean = tail.split("?")[0]
+  const parts = clean.split("_")
+  return parts.length > 1 ? parts.slice(1).join("_") : clean
+}
+
 function getAuditLabel(entry: AuditLogEntry, users: any[]): string {
   const entryStatus = getStatusFromEntry(entry)
   const who = getAssigneeDisplay(users, entry, entryStatus)
@@ -250,6 +261,29 @@ export default function ServiceTicketDetailPage() {
                     <div className="space-y-2">
                       <div className="text-sm font-medium text-muted-foreground">Ответ</div>
                       <p className="text-sm">{ticket.answer}</p>
+                    </div>
+                  )}
+
+                  {ticket.attachment_urls && ticket.attachment_urls.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="text-sm font-medium text-muted-foreground">Вложения</div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {ticket.attachment_urls.map((url) => (
+                          <a
+                            key={url}
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-md border bg-muted/20 p-3 transition-colors hover:bg-muted/40"
+                          >
+                            {isImageUrl(url) ? (
+                              <img src={url} alt="" className="mb-3 aspect-video w-full rounded object-cover" />
+                            ) : null}
+                            <div className="truncate text-sm font-medium">{getAttachmentName(url)}</div>
+                            <div className="truncate text-xs text-muted-foreground">{url}</div>
+                          </a>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>

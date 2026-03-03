@@ -15,6 +15,7 @@ class ServiceTicketResponse(BaseModel):
     description: Optional[str] = None
     location: Optional[str] = None
     image: Optional[str] = None
+    attachment_urls: List[str] = []
     status: str = "NEW"
     ddid: Optional[str] = None
     msid: Optional[int] = None
@@ -37,6 +38,7 @@ class CreateServiceTicketRequest(BaseModel):
     description: Optional[str] = None
     location: Optional[str] = None
     image: Optional[str] = None
+    attachment_urls: List[str] = []
     status: str = "NEW"  # Ignored: always NEW for new tickets
     ddid: Optional[str] = None
     answer: Optional[str] = None
@@ -57,6 +59,7 @@ class UpdateServiceTicketBody(BaseModel):
     description: Optional[str] = None
     location: Optional[str] = None
     image: Optional[str] = None
+    attachment_urls: Optional[List[str]] = None
     status: Optional[str] = None
     assignee_id: Optional[int] = None  # For status=ASSIGNED: user_id to whom ticket is assigned (stored in meta)
     ddid: Optional[str] = None

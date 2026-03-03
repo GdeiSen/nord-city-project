@@ -30,12 +30,12 @@ def _require_admin(current_user: dict = Depends(get_current_user)) -> dict:
     return current_user
 
 
-def _normalize_attachment_urls(image_urls: list[str]) -> list[str]:
-    """Accept only files stored in our media service and convert them to public URLs."""
+def _normalize_attachment_urls(attachment_urls: list[str]) -> list[str]:
+    """Accept only files stored in our storage service and convert them to public URLs."""
     normalized_urls: list[str] = []
     seen_paths: set[str] = set()
 
-    for raw_url in image_urls or []:
+    for raw_url in attachment_urls or []:
         candidate = str(raw_url or "").strip()
         if not candidate:
             continue
@@ -51,7 +51,7 @@ def _normalize_attachment_urls(image_urls: list[str]) -> list[str]:
         if media_path is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Можно прикреплять только изображения, загруженные через media service.",
+                detail="Можно прикреплять только файлы, загруженные через storage service.",
             )
 
         if media_path in seen_paths:
@@ -104,7 +104,7 @@ async def broadcast_notification(
         user_ids=recipient_ids,
         title=body.title,
         message=body.message,
-        image_urls=_normalize_attachment_urls(body.image_urls),
+        attachment_urls=_normalize_attachment_urls(body.attachment_urls or body.image_urls),
     )
     if not bot_response.get("success"):
         error = bot_response.get("error", "Не удалось отправить уведомление.")

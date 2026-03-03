@@ -11,6 +11,7 @@ class NotificationBroadcastRequest(BaseModel):
     user_ids: List[int] = Field(default_factory=list)
     title: str = Field(min_length=1, max_length=160)
     message: str = Field(min_length=1, max_length=4000)
+    attachment_urls: List[str] = Field(default_factory=list, max_length=15)
     image_urls: List[str] = Field(default_factory=list, max_length=10)
 
     @field_validator("title", "message", mode="before")
@@ -18,9 +19,9 @@ class NotificationBroadcastRequest(BaseModel):
     def _strip_text(cls, value: str) -> str:
         return str(value or "").strip()
 
-    @field_validator("image_urls", mode="before")
+    @field_validator("attachment_urls", "image_urls", mode="before")
     @classmethod
-    def _normalize_images(cls, value):
+    def _normalize_attachments(cls, value):
         if value is None:
             return []
         return value
@@ -29,6 +30,8 @@ class NotificationBroadcastRequest(BaseModel):
     def _validate_recipients(self):
         if not self.role_ids and not self.user_ids:
             raise ValueError("Нужно выбрать хотя бы одну роль или одного пользователя.")
+        if not self.attachment_urls and self.image_urls:
+            self.attachment_urls = list(self.image_urls)
         return self
 
 

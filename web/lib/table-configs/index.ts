@@ -4,5 +4,6 @@ export { serviceTicketColumns, serviceTicketColumnMeta } from "./service-tickets
 export { userColumns, userColumnMeta } from "./users"
 export { feedbackColumns, feedbackColumnMeta } from "./feedbacks"
 export { auditLogColumns, auditLogColumnMeta } from "./audit-log"
+export { storageFileColumns, storageFileColumnMeta } from "./storage-files"
 export type { TableColumnConfig, ColumnType } from "./types"
 export { configToMeta } from "./types"

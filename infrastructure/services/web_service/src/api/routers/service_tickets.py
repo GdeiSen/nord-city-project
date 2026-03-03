@@ -1,4 +1,5 @@
 import logging
+import json
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
@@ -34,6 +35,52 @@ SERVICE_TICKET_EXPORT_HEADERS = {
 }
 
 
+def _is_image_url(value: str) -> bool:
+    return str(value or "").lower().split("?", 1)[0].endswith(
+        (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg")
+    )
+
+
+def _parse_ticket_meta(value) -> dict:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, dict):
+                return parsed
+        except (TypeError, ValueError):
+            return {}
+    return {}
+
+
+def _inject_attachment_meta(data: dict) -> dict:
+    update_data = dict(data)
+    attachments = update_data.pop("attachment_urls", None)
+    if attachments is None:
+        return update_data
+
+    normalized: list[str] = []
+    for item in attachments:
+        candidate = str(item or "").strip()
+        if candidate and candidate not in normalized:
+            normalized.append(candidate)
+
+    meta_dict = _parse_ticket_meta(update_data.get("meta"))
+    if normalized:
+        meta_dict["attachments"] = normalized
+    else:
+        meta_dict.pop("attachments", None)
+
+    if not update_data.get("image"):
+        first_image = next((item for item in normalized if _is_image_url(item)), None)
+        if first_image:
+            update_data["image"] = first_image
+
+    update_data["meta"] = json.dumps(meta_dict, ensure_ascii=False) if meta_dict else None
+    return update_data
+
+
 def _get_ticket_export_value(col_id: str):
     def getter(item: dict):
         if col_id == "id":
@@ -62,7 +109,7 @@ def _get_ticket_export_value(col_id: str):
 
 @router.post("/", response_model=ServiceTicketResponse, status_code=status.HTTP_201_CREATED)
 async def create_service_ticket(body: CreateServiceTicketRequest, request: Request):
-    data = body.model_dump()
+    data = _inject_attachment_meta(body.model_dump())
     data["status"] = ServiceTicketStatus.NEW  # Always NEW for new tickets
     response = await db_client.service_ticket.create(
         model_data=data,
@@ -188,7 +235,7 @@ async def get_service_ticket_by_id(entity_id: int):
 
 @router.put("/{entity_id}", response_model=MessageResponse)
 async def update_service_ticket(entity_id: int, body: UpdateServiceTicketBody, request: Request):
-    update_data = body.model_dump(exclude_unset=True)
+    update_data = _inject_attachment_meta(body.model_dump(exclude_unset=True))
     assignee_id_for_meta = update_data.pop("assignee_id", None)
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")

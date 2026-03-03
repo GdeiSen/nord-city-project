@@ -30,6 +30,7 @@ from api.routers import (
     space_views_router,
     media_router,
     notifications_router,
+    storage_files_router,
 )
 
 # Configure logging
@@ -120,6 +121,7 @@ app.include_router(rental_spaces_router, prefix=API_PREFIX)
 app.include_router(space_views_router, prefix=API_PREFIX)
 app.include_router(media_router, prefix=API_PREFIX)
 app.include_router(notifications_router, prefix=API_PREFIX)
+app.include_router(storage_files_router, prefix=API_PREFIX)
 
 
 # --- Service-level endpoints (outside /api/v1) ---

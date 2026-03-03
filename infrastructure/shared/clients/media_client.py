@@ -1,5 +1,5 @@
 """
-MediaClient -- typed proxy for media_service over HTTP.
+MediaClient -- typed proxy for storage_service over HTTP.
 
 Uses HttpRpcClient under the hood. Provides explicit methods for
 upload, delete, and URL construction. Follows the same pattern as
@@ -12,6 +12,7 @@ import logging
 from typing import Dict, Any, Optional
 
 from shared.clients.http_rpc_client import HttpRpcClient
+from shared.utils.media_utils import normalize_public_api_base
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +23,8 @@ logger = logging.getLogger(__name__)
 
 class _MediaProxy:
     """
-    Proxy for media service methods via HTTP RPC.
-    Calls /internal/rpc with service="media".
+    Proxy for storage service methods via HTTP RPC.
+    Calls /internal/rpc with service="storage" (legacy alias "media" also supported).
     """
 
     def __init__(self, client: HttpRpcClient, service_name: str):
@@ -31,7 +32,7 @@ class _MediaProxy:
         self._service = service_name
 
     async def _call(self, method: str, **params) -> Dict[str, Any]:
-        """Execute an RPC call to the media service."""
+        """Execute an RPC call to the storage service."""
         return await self._client.call(self._service, method, params)
 
     async def upload(
@@ -69,6 +70,8 @@ class _MediaProxy:
         path = path.lstrip("/")
         if path.startswith("media/"):
             path = path[6:].lstrip("/")
+        if path.startswith("storage/"):
+            path = path[8:].lstrip("/")
         result = await self._call("delete", path=path)
         if not result.get("success"):
             if "not found" in (result.get("error") or "").lower():
@@ -83,7 +86,7 @@ class _MediaProxy:
 
 class MediaClient:
     """
-    Singleton client for media_service.
+    Singleton client for storage_service.
     Uses HttpRpcClient and exposes media proxy.
     """
 
@@ -99,25 +102,32 @@ class MediaClient:
         if self._is_initialized:
             return
 
-        base_url = os.getenv("MEDIA_SERVICE_HTTP_URL", "http://127.0.0.1:8004").rstrip("/")
-        timeout = float(os.getenv("MEDIA_SERVICE_TIMEOUT", "30"))
+        base_url = (
+            os.getenv("STORAGE_SERVICE_HTTP_URL")
+            or os.getenv("MEDIA_SERVICE_HTTP_URL", "http://127.0.0.1:8004")
+        ).rstrip("/")
+        timeout = float(
+            os.getenv("STORAGE_SERVICE_TIMEOUT")
+            or os.getenv("MEDIA_SERVICE_TIMEOUT", "30")
+        )
 
         self._http = HttpRpcClient(base_url, timeout=timeout, rpc_path="/internal/rpc")
         self._connected = False
 
         # Service proxy
-        self.media = _MediaProxy(self._http, "media")
+        self.storage = _MediaProxy(self._http, "storage")
+        self.media = self.storage
 
         self._is_initialized = True
 
     async def connect(self) -> None:
-        """Open the HTTP connection to media_service."""
+        """Open the HTTP connection to storage_service."""
         if self._connected:
             return
         try:
             await self._http.connect()
             self._connected = True
-            logger.info("MediaClient connected to media_service via HTTP.")
+            logger.info("MediaClient connected to storage_service via HTTP.")
         except Exception as e:
             logger.error(f"Failed to connect MediaClient: {e}", exc_info=True)
             self._connected = False
@@ -131,21 +141,25 @@ class MediaClient:
             logger.info("MediaClient disconnected.")
 
     def get_base_url(self) -> str:
-        """Return the base URL of the media service."""
+        """Return the base URL of the storage service."""
         return self._http.base_url
 
     def get_media_url(self, path: str) -> str:
         """
-        Construct full public URL for a stored media file.
-        Uses PUBLIC_API_BASE_URL when set (web proxy), otherwise internal media URL.
+        Construct full public URL for a stored file.
+        Uses PUBLIC_API_BASE_URL / NEXT_PUBLIC_API_URL when set, otherwise internal storage URL.
         """
         path = path.lstrip("/")
         if path.startswith("media/"):
             path = path[6:].lstrip("/")
-        base = os.getenv("PUBLIC_API_BASE_URL", "").rstrip("/")
+        if path.startswith("storage/"):
+            path = path[8:].lstrip("/")
+        base = normalize_public_api_base(os.getenv("PUBLIC_API_BASE_URL", ""))
+        if not base:
+            base = normalize_public_api_base(os.getenv("NEXT_PUBLIC_API_URL", ""))
         if base:
-            return f"{base}/media/{path}"
-        return f"{self._http.base_url}/media/{path}"
+            return f"{base}/storage/{path}"
+        return f"{self._http.base_url}/storage/{path}"
 
     # --- Convenience methods (delegate to proxy) ---
 
@@ -157,7 +171,7 @@ class MediaClient:
         content_type: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Upload a file. Returns {path, url}."""
-        return await self.media.upload(
+        return await self.storage.upload(
             file_content=file_content,
             filename=filename,
             content_type=content_type,
@@ -165,12 +179,14 @@ class MediaClient:
 
     async def delete(self, path: str) -> bool:
         """Delete a file by path. Returns True if deleted."""
-        return await self.media.delete(path=path)
+        return await self.storage.delete(path=path)
 
     async def health_check(self) -> bool:
-        """Check if the media service is healthy."""
+        """Check if the storage service is healthy."""
         return await self._http.health_check()
 
 
 # Singleton instance for easy import
 media_client = MediaClient()
+storage_client = media_client
+StorageClient = MediaClient

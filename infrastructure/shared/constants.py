@@ -130,9 +130,32 @@ class ServiceTicketStatus:
     IN_PROGRESS = "IN_PROGRESS"
 
 
+class StorageFileKind:
+    IMAGE = "IMAGE"
+    VIDEO = "VIDEO"
+    DOCUMENT = "DOCUMENT"
+    OTHER = "OTHER"
+
+
+class StorageFileCategory:
+    DEFAULT = "DEFAULT"
+    SYSTEM = "SYSTEM"
+    TEMP = "TEMP"
+
+
 # Entity types (model __name__) that should be audited
 AUDITED_ENTITY_TYPES = frozenset(
-    {"User", "Feedback", "Object", "PollAnswer", "ServiceTicket", "Space", "SpaceView", "GuestParkingRequest"}
+    {
+        "User",
+        "Feedback",
+        "Object",
+        "PollAnswer",
+        "ServiceTicket",
+        "Space",
+        "SpaceView",
+        "GuestParkingRequest",
+        "StorageFile",
+    }
 )
 
 # Audit modes: fast (no old/new), smart (diff only), heavy (full old/new)
@@ -159,6 +182,7 @@ AUDIT_ENTITY_MODES: dict[str, str] = {
     "Space": AUDIT_MODE_FAST,
     "SpaceView": AUDIT_MODE_FAST,
     "GuestParkingRequest": AUDIT_MODE_FAST,
+    "StorageFile": AUDIT_MODE_FAST,
 }
 
 ASSIGNEE_SYSTEM = 1

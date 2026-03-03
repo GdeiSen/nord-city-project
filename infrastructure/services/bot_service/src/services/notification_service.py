@@ -1,8 +1,10 @@
 # ./services/notification_service.py
 import asyncio
 import json
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Dict, Any
 import re
+from urllib.parse import urlparse
 from telegram.constants import ParseMode
 from shared.constants import Dialogs, ServiceTicketStatus, Roles
 from shared.utils.media_utils import to_public_media_url
@@ -51,29 +53,46 @@ class NotificationService(BaseService):
             ],
         ).strip()
 
-    def _normalize_broadcast_images(self, image_urls: list[str] | None) -> list[str]:
-        images: list[str] = []
-        for image_url in image_urls or []:
-            normalized = to_public_media_url(image_url) or str(image_url or "").strip()
+    def _normalize_broadcast_attachments(self, attachment_urls: list[str] | None) -> list[str]:
+        attachments: list[str] = []
+        for raw_url in attachment_urls or []:
+            normalized = to_public_media_url(raw_url) or str(raw_url or "").strip()
             if normalized.startswith("http://") or normalized.startswith("https://"):
-                images.append(normalized)
+                attachments.append(normalized)
         seen: set[str] = set()
-        unique_images: list[str] = []
-        for image in images:
-            if image in seen:
+        unique_attachments: list[str] = []
+        for attachment in attachments:
+            if attachment in seen:
                 continue
-            seen.add(image)
-            unique_images.append(image)
-        return unique_images[:10]
+            seen.add(attachment)
+            unique_attachments.append(attachment)
+        return unique_attachments[:15]
+
+    def _split_broadcast_attachments(self, attachment_urls: list[str]) -> tuple[list[str], list[str]]:
+        image_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"}
+        images: list[str] = []
+        documents: list[str] = []
+
+        for attachment_url in attachment_urls:
+            parsed = urlparse(attachment_url)
+            extension = Path(parsed.path).suffix.lower()
+            if extension in image_extensions:
+                images.append(attachment_url)
+            else:
+                documents.append(attachment_url)
+
+        return images[:10], documents[:10]
 
     async def _send_broadcast_to_user(
         self,
         *,
         user_id: int,
         text: str,
-        image_urls: list[str],
+        attachment_urls: list[str],
     ) -> None:
-        if not image_urls:
+        image_urls, document_urls = self._split_broadcast_attachments(attachment_urls)
+
+        if not image_urls and not document_urls:
             await self.bot.application.bot.send_message(
                 chat_id=user_id,
                 text=text,
@@ -86,7 +105,7 @@ class NotificationService(BaseService):
                 chat_id=user_id,
                 photo=image_urls[0],
             )
-        else:
+        elif len(image_urls) > 1:
             from telegram import InputMediaPhoto
 
             media = [InputMediaPhoto(media=image_url) for image_url in image_urls]
@@ -98,13 +117,19 @@ class NotificationService(BaseService):
             parse_mode=ParseMode.HTML,
         )
 
+        for document_url in document_urls:
+            await self.bot.application.bot.send_document(
+                chat_id=user_id,
+                document=document_url,
+            )
+
     async def send_bulk_notification(
         self,
         *,
         user_ids: list[int],
         title: str,
         message: str,
-        image_urls: list[str] | None = None,
+        attachment_urls: list[str] | None = None,
     ) -> Dict[str, Any]:
         """Send a site-created announcement to multiple Telegram users."""
         normalized_user_ids = sorted({int(user_id) for user_id in (user_ids or [])})
@@ -115,7 +140,7 @@ class NotificationService(BaseService):
         if not text:
             return {"success": False, "error": "empty_message"}
 
-        normalized_images = self._normalize_broadcast_images(image_urls)
+        normalized_attachments = self._normalize_broadcast_attachments(attachment_urls)
         delivered_user_ids: list[int] = []
         failed_deliveries: list[dict[str, Any]] = []
 
@@ -124,7 +149,7 @@ class NotificationService(BaseService):
                 await self._send_broadcast_to_user(
                     user_id=user_id,
                     text=text,
-                    image_urls=normalized_images,
+                    attachment_urls=normalized_attachments,
                 )
                 delivered_user_ids.append(user_id)
             except Exception as exc:

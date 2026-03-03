@@ -80,7 +80,7 @@ class _NotificationProxy(_BotServiceProxy):
         user_ids: list[int],
         title: str,
         message: str,
-        image_urls: list[str] | None = None,
+        attachment_urls: list[str] | None = None,
     ) -> Dict[str, Any]:
         """Send a notification to multiple bot users by their Telegram IDs."""
         return await self._call(
@@ -88,7 +88,7 @@ class _NotificationProxy(_BotServiceProxy):
             user_ids=user_ids,
             title=title,
             message=message,
-            image_urls=image_urls or [],
+            attachment_urls=attachment_urls or [],
         )
 
 

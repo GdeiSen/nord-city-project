@@ -1,0 +1,268 @@
+import mimetypes
+from pathlib import Path
+from typing import Optional
+
+from sqlalchemy import select
+
+from database.database_manager import DatabaseManager
+from models.storage_file import StorageFile
+from shared.constants import StorageFileCategory, StorageFileKind
+from shared.utils.media_utils import MEDIA_PATH_PATTERN, extract_media_path
+
+from .base_service import BaseService, db_session_manager
+
+
+class StorageFileService(BaseService):
+    """Registry service for all uploaded files stored by the storage layer."""
+
+    model_class = StorageFile
+
+    def __init__(self, db_manager: DatabaseManager):
+        super().__init__(db_manager)
+
+    @staticmethod
+    def _normalize_path(value: str) -> str | None:
+        candidate = str(value or "").strip()
+        if not candidate:
+            return None
+
+        path = extract_media_path(candidate)
+        if path:
+            return path
+
+        fallback = candidate.lstrip("/")
+        if fallback.startswith("media/"):
+            fallback = fallback[6:].lstrip("/")
+        if fallback.startswith("storage/"):
+            fallback = fallback[8:].lstrip("/")
+
+        return fallback if fallback and MEDIA_PATH_PATTERN.match(fallback) else None
+
+    @staticmethod
+    def _infer_kind(original_name: str, content_type: str | None = None) -> str:
+        content = str(content_type or "").lower()
+        extension = Path(str(original_name or "")).suffix.lower()
+
+        if content.startswith("image/") or extension in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"}:
+            return StorageFileKind.IMAGE
+        if content.startswith("video/") or extension in {".mp4", ".webm", ".mov"}:
+            return StorageFileKind.VIDEO
+        if (
+            content.startswith("text/")
+            or content in {
+                "application/pdf",
+                "application/msword",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.ms-excel",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            }
+            or extension in {".pdf", ".doc", ".docx", ".txt", ".md", ".xls", ".xlsx", ".csv"}
+        ):
+            return StorageFileKind.DOCUMENT
+        return StorageFileKind.OTHER
+
+    @staticmethod
+    def _normalize_meta(meta: Optional[dict]) -> dict | None:
+        if not meta:
+            return None
+        try:
+            return dict(meta)
+        except (TypeError, ValueError):
+            return None
+
+    async def _register_upload(
+        self,
+        *,
+        session,
+        storage_path: str,
+        public_url: str,
+        original_name: str,
+        content_type: str | None,
+        size_bytes: int,
+        extension: str | None,
+        kind: str,
+        category: str,
+        meta: Optional[dict] = None,
+    ) -> StorageFile:
+        existing = await session.scalar(
+            select(StorageFile).where(StorageFile.storage_path == storage_path)
+        )
+        encoded_meta = self._normalize_meta(meta)
+
+        if existing:
+            existing.public_url = public_url
+            existing.original_name = original_name
+            existing.content_type = content_type
+            existing.size_bytes = int(size_bytes or 0)
+            existing.extension = extension
+            existing.kind = kind
+            existing.category = category
+            if encoded_meta is not None:
+                existing.meta = encoded_meta
+            updated = await self.repository.update(session=session, obj_in=existing)
+            return updated
+
+        model = StorageFile(
+            storage_path=storage_path,
+            public_url=public_url,
+            original_name=original_name,
+            content_type=content_type,
+            extension=extension,
+            size_bytes=int(size_bytes or 0),
+            kind=kind or self._infer_kind(original_name, content_type),
+            category=category or StorageFileCategory.DEFAULT,
+            meta=encoded_meta,
+        )
+        created = await self.repository.create(session=session, obj_in=model)
+        return created
+
+    async def _bind_files(
+        self,
+        *,
+        session,
+        entity_type: str,
+        entity_id: int,
+        urls: list[str],
+        category: str = StorageFileCategory.DEFAULT,
+        meta: Optional[dict] = None,
+    ) -> list[StorageFile]:
+        url_map: dict[str, str] = {}
+        for url in urls or []:
+            path = self._normalize_path(url)
+            if path and path not in url_map:
+                url_map[path] = str(url or "").strip()
+
+        desired_paths = list(url_map.keys())
+
+        existing_bound = (
+            await session.execute(
+                select(StorageFile).where(
+                    StorageFile.entity_type == entity_type,
+                    StorageFile.entity_id == int(entity_id),
+                    StorageFile.category == category,
+                )
+            )
+        ).scalars().all()
+
+        for item in existing_bound:
+            if item.storage_path not in desired_paths:
+                item.entity_type = None
+                item.entity_id = None
+                await self.repository.update(session=session, obj_in=item)
+
+        if not desired_paths:
+            return []
+
+        existing_items = (
+            await session.execute(
+                select(StorageFile).where(StorageFile.storage_path.in_(desired_paths))
+            )
+        ).scalars().all()
+        item_map = {item.storage_path: item for item in existing_items}
+        bound_items: list[StorageFile] = []
+
+        for path in desired_paths:
+            item = item_map.get(path)
+            if item is None:
+                original_name = path.split("_", 1)[1] if "_" in path else path
+                guessed_content_type = mimetypes.guess_type(original_name)[0]
+                item = StorageFile(
+                    storage_path=path,
+                    public_url=url_map[path],
+                    original_name=original_name,
+                    content_type=guessed_content_type,
+                    extension=Path(original_name).suffix.lower() or None,
+                    size_bytes=0,
+                    kind=self._infer_kind(original_name, guessed_content_type),
+                    category=category,
+                    meta=self._normalize_meta(meta),
+                )
+                item = await self.repository.create(session=session, obj_in=item)
+                item_map[path] = item
+
+            item.public_url = url_map[path]
+            item.entity_type = entity_type
+            item.entity_id = int(entity_id)
+            item.category = category
+            if meta:
+                item.meta = self._normalize_meta(meta)
+            updated = await self.repository.update(session=session, obj_in=item)
+            bound_items.append(updated)
+
+        return bound_items
+
+    @db_session_manager
+    async def register_upload(
+        self,
+        *,
+        session,
+        storage_path: str,
+        public_url: str,
+        original_name: str,
+        content_type: str | None = None,
+        size_bytes: int = 0,
+        extension: str | None = None,
+        kind: str | None = None,
+        category: str = StorageFileCategory.DEFAULT,
+        meta: Optional[dict] = None,
+    ) -> Optional[StorageFile]:
+        path = self._normalize_path(storage_path)
+        if not path:
+            return None
+        ext = extension or (Path(original_name).suffix.lower() or None)
+        detected_kind = kind or self._infer_kind(original_name, content_type)
+        return await self._register_upload(
+            session=session,
+            storage_path=path,
+            public_url=public_url,
+            original_name=original_name,
+            content_type=content_type,
+            size_bytes=size_bytes,
+            extension=ext,
+            kind=detected_kind,
+            category=category,
+            meta=meta,
+        )
+
+    @db_session_manager
+    async def bind_files(
+        self,
+        *,
+        session,
+        entity_type: str,
+        entity_id: int,
+        urls: list[str],
+        category: str = StorageFileCategory.DEFAULT,
+        meta: Optional[dict] = None,
+    ) -> list[StorageFile]:
+        if not entity_type or entity_id is None:
+            return []
+        return await self._bind_files(
+            session=session,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            urls=urls or [],
+            category=category,
+            meta=meta,
+        )
+
+    @db_session_manager
+    async def find_by_entity(
+        self,
+        *,
+        session,
+        entity_type: str,
+        entity_id: int,
+        model_class=None,
+    ) -> list[StorageFile]:
+        if not entity_type or entity_id is None:
+            return []
+        rows = await session.execute(
+            select(StorageFile)
+            .where(
+                StorageFile.entity_type == entity_type,
+                StorageFile.entity_id == int(entity_id),
+            )
+            .order_by(StorageFile.created_at.asc(), StorageFile.id.asc())
+        )
+        return list(rows.scalars().all())

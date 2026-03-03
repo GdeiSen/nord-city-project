@@ -1,12 +1,13 @@
 """
-Nord City Media Service
-=======================
-HTTP service for storing and serving media files (images, documents, etc.).
+Nord City Storage Service
+=========================
+HTTP service for storing and serving files (images, documents, etc.).
 Files are stored in a configurable directory on disk.
 """
 
 import base64
 import logging
+import mimetypes
 import os
 import signal
 import sys
@@ -23,6 +24,7 @@ from fastapi.responses import FileResponse, JSONResponse
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../../'))
 
 from config import get_config
+from shared.constants import StorageFileKind
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,8 +33,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Nord City Media Service",
-    description="Media storage and serving for Nord City platform.",
+    title="Nord City Storage Service",
+    description="File storage and serving for Nord City platform.",
     version="1.0.0",
 )
 
@@ -90,6 +92,50 @@ def _resolve_path(relative_path: str) -> Path:
     return path
 
 
+def _detect_content_type(filename: str, explicit_content_type: str | None = None) -> str:
+    content_type = str(explicit_content_type or "").strip().lower()
+    if content_type:
+        return content_type
+    guessed, _ = mimetypes.guess_type(filename or "")
+    return guessed or "application/octet-stream"
+
+
+def _detect_file_kind(filename: str, content_type: str) -> str:
+    ext = Path(filename or "").suffix.lower()
+    if content_type.startswith("image/") or ext in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"}:
+        return StorageFileKind.IMAGE
+    if content_type.startswith("video/") or ext in {".mp4", ".webm", ".mov"}:
+        return StorageFileKind.VIDEO
+    if (
+        content_type.startswith("text/")
+        or content_type in {
+            "application/pdf",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.ms-excel",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }
+        or ext in {".pdf", ".doc", ".docx", ".txt", ".md", ".xls", ".xlsx", ".csv"}
+    ):
+        return StorageFileKind.DOCUMENT
+    return StorageFileKind.OTHER
+
+
+def _build_file_payload(unique_name: str, original_name: str, content_type: str, size_bytes: int) -> Dict[str, Any]:
+    url_path = f"/storage/{unique_name}"
+    safe_name = original_name or unique_name
+    return {
+        "path": unique_name,
+        "url": url_path,
+        "original_name": safe_name,
+        "filename": safe_name,
+        "content_type": content_type,
+        "size_bytes": int(size_bytes),
+        "extension": Path(safe_name).suffix.lower() or None,
+        "kind": _detect_file_kind(safe_name, content_type),
+    }
+
+
 def _do_upload(file_content_b64: str, filename: str, content_type: str | None = None) -> Dict[str, Any]:
     """Internal upload logic. Returns {path, url}."""
     cfg = _get_config()
@@ -108,7 +154,8 @@ def _do_upload(file_content_b64: str, filename: str, content_type: str | None = 
     except OSError as e:
         logger.error(f"Failed to write file {file_path}: {e}")
         raise RuntimeError("Failed to store file") from e
-    return {"path": unique_name, "url": f"/media/{unique_name}"}
+    detected_content_type = _detect_content_type(filename, content_type)
+    return _build_file_payload(unique_name, filename, detected_content_type, len(content))
 
 
 def _do_delete(path: str) -> Dict[str, Any]:
@@ -147,7 +194,7 @@ async def _rpc_handler(request: dict) -> dict:
     method = request.get("method")
     params = request.get("params", {})
 
-    if service != "media":
+    if service not in {"media", "storage"}:
         return {"success": False, "data": None, "error": f"Unknown service: {service}"}
     if not method:
         return {"success": False, "data": None, "error": "Missing method"}
@@ -217,20 +264,20 @@ async def upload_file(file: UploadFile = File(...)):
         logger.error(f"Failed to write file {file_path}: {e}")
         raise HTTPException(status_code=500, detail="Failed to store file")
 
-    # URL path for serving
-    url_path = f"/media/{unique_name}"
+    detected_content_type = _detect_content_type(file.filename or "file", file.content_type)
     return JSONResponse(
-        content={
-            "path": unique_name,
-            "url": url_path,
-        }
+        content=_build_file_payload(
+            unique_name,
+            file.filename or unique_name,
+            detected_content_type,
+            len(content),
+        )
     )
 
 
-@app.get("/media/{file_path:path}")
-async def serve_media(file_path: str):
+async def _serve_file(file_path: str):
     """
-    Serve a stored media file by path.
+    Serve a stored file by path.
     """
     try:
         abs_path = _resolve_path(file_path)
@@ -239,26 +286,24 @@ async def serve_media(file_path: str):
     if not abs_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
 
-    # Content-Type from extension
-    suffix = abs_path.suffix.lower()
-    media_types = {
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".png": "image/png",
-        ".gif": "image/gif",
-        ".webp": "image/webp",
-        ".svg": "image/svg+xml",
-        ".pdf": "application/pdf",
-    }
-    media_type = media_types.get(suffix, "application/octet-stream")
+    media_type = _detect_content_type(abs_path.name)
 
     return FileResponse(abs_path, media_type=media_type)
 
 
-@app.delete("/media/{file_path:path}")
-async def delete_media(file_path: str):
+@app.get("/storage/{file_path:path}")
+async def serve_storage(file_path: str):
+    return await _serve_file(file_path)
+
+
+@app.get("/media/{file_path:path}")
+async def serve_media(file_path: str):
+    return await _serve_file(file_path)
+
+
+async def _delete_file(file_path: str):
     """
-    Delete a stored media file by path.
+    Delete a stored file by path.
     """
     try:
         abs_path = _resolve_path(file_path)
@@ -276,6 +321,16 @@ async def delete_media(file_path: str):
     return JSONResponse(content={"deleted": True, "path": file_path})
 
 
+@app.delete("/storage/{file_path:path}")
+async def delete_storage(file_path: str):
+    return await _delete_file(file_path)
+
+
+@app.delete("/media/{file_path:path}")
+async def delete_media(file_path: str):
+    return await _delete_file(file_path)
+
+
 @app.get("/health")
 async def health_check():
     """Health check for the media service."""
@@ -283,7 +338,7 @@ async def health_check():
     writable = os.access(storage, os.W_OK)
     return {
         "status": "healthy" if writable else "degraded",
-        "service": "media_service",
+        "service": "storage_service",
         "storage_writable": writable,
         "storage_dir": str(storage),
     }
@@ -298,10 +353,10 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, signal_handler)
 
     cfg = get_config()
-    host = os.getenv("MEDIA_SERVICE_HOST", "0.0.0.0")
+    host = os.getenv("STORAGE_SERVICE_HOST") or os.getenv("MEDIA_SERVICE_HOST", "0.0.0.0")
     port = cfg.service.port
 
-    logger.info(f"Starting Media Service on {host}:{port}")
+    logger.info(f"Starting Storage Service on {host}:{port}")
     logger.info(f"Storage directory: {cfg.storage_dir}")
 
     uvicorn.run(

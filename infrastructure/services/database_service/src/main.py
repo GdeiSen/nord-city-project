@@ -32,6 +32,7 @@ from models.audit_log import AuditLog
 from models.space import Space
 from models.space_view import SpaceView
 from models.otp_code import OtpCode
+from models.storage_file import StorageFile
 
 # --- Service Imports for Registration ---
 from services.user_service import UserService
@@ -46,6 +47,7 @@ from services.guest_parking_service import GuestParkingService
 from services.guest_parking_settings_service import GuestParkingSettingsService
 from services.audit_log_service import AuditLogService
 from services.space_view_service import SpaceViewService
+from services.storage_file_service import StorageFileService
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -79,6 +81,7 @@ def _register_resources():
     models_to_register = [
         User, UserAuth, Feedback, Object, PollAnswer,
         ServiceTicket, GuestParkingRequest, GuestParkingSettings, AuditLog, Space, SpaceView, OtpCode,
+        StorageFile,
     ]
     for model in models_to_register:
         db_manager.repositories.register(model)
@@ -96,6 +99,7 @@ def _register_resources():
         "audit_log": AuditLogService,
         "space_view": SpaceViewService,
         "otp": OtpService,
+        "storage_file": StorageFileService,
     }
     for name, service_class in services_to_register.items():
         db_manager.services.register(name, service_class(db_manager))

@@ -22,6 +22,7 @@ import {
 import { ServiceTicket, User, RentalObject, TICKET_STATUS } from "@/types"
 import { serviceTicketApi, userApi, rentalObjectApi } from "@/lib/api"
 import { EntityPicker } from "@/components/entity-picker"
+import { StorageUploader } from "@/components/storage-uploader"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -68,9 +69,10 @@ export default function ServiceTicketEditPage() {
           ...ticket,
           user: user || undefined,
           assignee_id: assigneeId,
+          attachment_urls: ticket.attachment_urls ?? [],
         })
       } else {
-        setFormData({ status: TICKET_STATUS.NEW })
+        setFormData({ status: TICKET_STATUS.NEW, attachment_urls: [] })
       }
     }
     withLoading(load).catch((err: any) => {
@@ -94,7 +96,7 @@ export default function ServiceTicketEditPage() {
     try {
       const payload: Record<string, unknown> = {}
       const fields = [
-        "user_id", "object_id", "description", "location", "image", "status", "ddid",
+        "user_id", "object_id", "description", "location", "image", "attachment_urls", "status", "ddid",
         "answer", "header", "details", "msid", "meta",
       ] as const
       for (const key of fields) {
@@ -208,6 +210,13 @@ export default function ServiceTicketEditPage() {
                     <Label htmlFor="location">Местоположение</Label>
                     <Input id="location" name="location" value={formData.location ?? ""} onChange={handleInputChange} />
                   </div>
+                  <StorageUploader
+                    value={formData.attachment_urls ?? []}
+                    onChange={(urls) => setFormData((prev) => ({ ...prev, attachment_urls: urls }))}
+                    label="Файлы заявки"
+                    description="Изображения и документы будут храниться в системе storage."
+                    category="DEFAULT"
+                  />
                   {isEdit && (
                     <div className="grid gap-6 sm:grid-cols-2">
                       <div className="space-y-2">

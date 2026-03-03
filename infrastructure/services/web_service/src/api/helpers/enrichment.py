@@ -3,6 +3,7 @@ Enrichment helpers for batch-fetching related entities.
 Uses typed models (UserSummary, ObjectSummary) for enrichment.
 Returns API response schemas.
 """
+import json
 import logging
 from typing import Dict, List, Set, Any, Callable, Awaitable
 
@@ -27,6 +28,30 @@ DEFAULT_USER_SUMMARY = UserSummary(
     username="",
     object_id=None,
 )
+
+
+def _extract_ticket_attachment_urls(meta_value: Any, image_value: Any) -> list[str]:
+    attachments: list[str] = []
+    image_candidate = str(image_value or "").strip()
+    if image_candidate:
+        attachments.append(image_candidate)
+
+    meta_dict: dict[str, Any] = {}
+    if isinstance(meta_value, str) and meta_value.strip():
+        try:
+            meta_dict = json.loads(meta_value)
+        except (TypeError, ValueError):
+            meta_dict = {}
+    elif isinstance(meta_value, dict):
+        meta_dict = meta_value
+
+    raw_attachments = meta_dict.get("attachments") if isinstance(meta_dict, dict) else []
+    if isinstance(raw_attachments, list):
+        for item in raw_attachments:
+            candidate = str(item or "").strip()
+            if candidate and candidate not in attachments:
+                attachments.append(candidate)
+    return attachments
 
 
 # --- Batch fetch (return typed models) ---
@@ -145,6 +170,7 @@ async def enrich_service_tickets_with_users_and_objects(
         d["user"] = user_map.get(t.user_id, DEFAULT_USER_SUMMARY) if t.user_id else None
         oid = t.object_id or (d["user"].object_id if d.get("user") else None)
         d["object"] = object_map.get(oid) if oid else None
+        d["attachment_urls"] = _extract_ticket_attachment_urls(t.meta, t.image)
         result.append(ServiceTicketResponse(**d))
     return result
 

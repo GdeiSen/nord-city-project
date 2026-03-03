@@ -1,6 +1,13 @@
 import { getToken } from "@/lib/auth"
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8003/api/v1"
+function normalizeApiBase(baseUrl: string | undefined): string {
+  const base = String(baseUrl || "").trim().replace(/\/+$/, "")
+  if (!base) return "http://localhost:8003/api/v1"
+  if (/^https?:\/\//i.test(base)) return base
+  return `https://${base}`
+}
+
+const API_BASE = normalizeApiBase(process.env.NEXT_PUBLIC_API_URL)
 
 interface PaginatedResponse<T> {
   items: T[]
@@ -181,36 +188,72 @@ export const authApi = {
   },
 }
 
-// Media upload (multipart/form-data)
+export interface UploadedStorageFile {
+  file_id?: number
+  path: string
+  url: string
+  original_name?: string
+  filename?: string
+  content_type?: string
+  extension?: string
+  size_bytes?: number
+  kind?: string
+}
+
+async function uploadStorageFile(
+  file: File,
+  options: { category?: string; endpoint?: string } = {}
+): Promise<UploadedStorageFile> {
+  const token = typeof window !== "undefined" ? getToken() : null
+  const headers: Record<string, string> = {}
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`
+  }
+  const formData = new FormData()
+  formData.append("file", file)
+  formData.append("category", options.category || "DEFAULT")
+
+  const res = await fetch(`${API_BASE}${options.endpoint || "/storage/upload"}`, {
+    method: "POST",
+    headers,
+    body: formData,
+  })
+
+  const text = await res.text()
+  let data: any
+  try {
+    data = text ? JSON.parse(text) : null
+  } catch {
+    throw new Error(res.statusText || "Upload failed")
+  }
+
+  if (!res.ok) {
+    const msg = typeof data?.detail === "string" ? data.detail : data?.detail?.msg ?? res.statusText
+    throw new Error(msg)
+  }
+  return data
+}
+
+// Legacy media upload (kept for existing image-only forms)
 export const mediaApi = {
   async upload(file: File): Promise<{ path: string; url: string }> {
-    const token = typeof window !== "undefined" ? getToken() : null
-    const headers: Record<string, string> = {}
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`
-    }
-    const formData = new FormData()
-    formData.append("file", file)
-
-    const res = await fetch(`${API_BASE}/media/upload`, {
-      method: "POST",
-      headers,
-      body: formData,
+    const result = await uploadStorageFile(file, {
+      category: "DEFAULT",
+      endpoint: "/media/upload",
     })
-
-    const text = await res.text()
-    let data: any
-    try {
-      data = text ? JSON.parse(text) : null
-    } catch {
-      throw new Error(res.statusText || "Upload failed")
+    return {
+      path: result.path,
+      url: result.url,
     }
+  },
+}
 
-    if (!res.ok) {
-      const msg = typeof data?.detail === "string" ? data.detail : data?.detail?.msg ?? res.statusText
-      throw new Error(msg)
-    }
-    return data
+export const storageApi = {
+  async upload(
+    file: File,
+    options: { category?: string } = {}
+  ): Promise<UploadedStorageFile> {
+    return uploadStorageFile(file, options)
   },
 }
 
@@ -219,7 +262,7 @@ export interface SendNotificationPayload {
   user_ids: number[]
   title: string
   message: string
-  image_urls: string[]
+  attachment_urls: string[]
 }
 
 export interface SendNotificationResult {
@@ -292,6 +335,7 @@ export const serviceTicketApi = {
   ...serviceTicketBase,
   ...createExportApi("/service-tickets"),
 }
+export const storageFileApi = createCrudApi<any>("/storage-files")
 
 // Audit log (read-only)
 export const auditLogApi = {

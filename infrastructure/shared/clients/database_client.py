@@ -293,6 +293,72 @@ class _GuestParkingSettingsProxy(_CRUDProxy):
         )
 
 
+class _StorageFileProxy(_CRUDProxy):
+    """Storage file registry proxy."""
+
+    async def register_upload(
+        self,
+        *,
+        storage_path: str,
+        public_url: str,
+        original_name: str,
+        content_type: str | None = None,
+        size_bytes: int = 0,
+        extension: str | None = None,
+        kind: str | None = None,
+        category: str = "DEFAULT",
+        meta: Optional[Dict[str, Any]] = None,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "register_upload",
+            _model_class=model_class,
+            storage_path=storage_path,
+            public_url=public_url,
+            original_name=original_name,
+            content_type=content_type,
+            size_bytes=size_bytes,
+            extension=extension,
+            kind=kind,
+            category=category,
+            meta=meta or {},
+        )
+
+    async def bind_files(
+        self,
+        *,
+        entity_type: str,
+        entity_id: int,
+        urls: List[str],
+        category: str = "DEFAULT",
+        meta: Optional[Dict[str, Any]] = None,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "bind_files",
+            _model_class=model_class,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            urls=urls or [],
+            category=category,
+            meta=meta or {},
+        )
+
+    async def find_by_entity(
+        self,
+        *,
+        entity_type: str,
+        entity_id: int,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "find_by_entity",
+            _model_class=model_class,
+            entity_type=entity_type,
+            entity_id=entity_id,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Main client
 # ---------------------------------------------------------------------------
@@ -330,6 +396,7 @@ class DatabaseClient:
         self.service_ticket = _ServiceTicketProxy(self._http, "service_ticket")
         self.guest_parking = _GuestParkingProxy(self._http, "guest_parking")
         self.guest_parking_settings = _GuestParkingSettingsProxy(self._http, "guest_parking_settings")
+        self.storage_file = _StorageFileProxy(self._http, "storage_file")
         self.audit_log = _AuditLogProxy(self._http, "audit_log")
         self.space = _SpaceProxy(self._http, "space")
         self.space_view = _CRUDProxy(self._http, "space_view")

@@ -60,6 +60,8 @@ export function SiteHeader() {
         return 'Оповещения пользователей'
       case '/spaces':
         return 'Бизнес-центры'
+      case '/file-storage':
+        return 'Хранилище файлов'
       default:
         if (pathname.startsWith('/spaces/')) {
           return 'Помещения бизнес-центра'

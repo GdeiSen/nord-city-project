@@ -78,6 +78,23 @@ export const TICKET_PRIORITY_LABELS_RU: Record<TicketPriority, string> = {
   [TICKET_PRIORITY.CRITICAL]: 'Критический',
 } as const
 
+export const STORAGE_FILE_KIND = {
+  IMAGE: "IMAGE",
+  VIDEO: "VIDEO",
+  DOCUMENT: "DOCUMENT",
+  OTHER: "OTHER",
+} as const
+
+export type StorageFileKind = typeof STORAGE_FILE_KIND[keyof typeof STORAGE_FILE_KIND]
+
+export const STORAGE_FILE_CATEGORY = {
+  DEFAULT: "DEFAULT",
+  SYSTEM: "SYSTEM",
+  TEMP: "TEMP",
+} as const
+
+export type StorageFileCategory = typeof STORAGE_FILE_CATEGORY[keyof typeof STORAGE_FILE_CATEGORY]
+
 /**
  * Base interface for entities with timestamps
  */
@@ -207,6 +224,20 @@ export interface GuestParkingSettings extends BaseEntity {
   route_images: string[]
 }
 
+export interface StorageFile extends BaseEntity {
+  storage_path: string
+  public_url: string
+  original_name: string
+  content_type?: string
+  extension?: string
+  size_bytes: number
+  kind: StorageFileKind
+  category: StorageFileCategory
+  entity_type?: string
+  entity_id?: number
+  meta?: Record<string, unknown>
+}
+
 /**
  * Service ticket entity representing maintenance/repair requests
  * @interface ServiceTicket
@@ -223,6 +254,8 @@ export interface ServiceTicket extends BaseEntity {
   location?: string;
   /** Image URL for the ticket */
   image?: string;
+  /** Attached files uploaded through storage service */
+  attachment_urls?: string[];
   /** Ticket status (NEW, ACCEPTED, ASSIGNED, COMPLETED) */
   status: TicketStatus;
   /** Dialog ID format: 0000-0000-0000 */
@@ -235,6 +268,8 @@ export interface ServiceTicket extends BaseEntity {
   priority: TicketPriority;
   /** Ticket category */
   category?: string;
+  /** Additional metadata JSON */
+  meta?: string | Record<string, unknown>;
   /** Associated user */
   user?: User;
   /** Associated rental object (from object_id) */

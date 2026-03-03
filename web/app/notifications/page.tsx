@@ -5,7 +5,7 @@ import { IconSend, IconSettings } from "@tabler/icons-react"
 import { toast } from "sonner"
 
 import { AppSidebar } from "@/components/app-sidebar"
-import { MediaUploader } from "@/components/media-uploader"
+import { StorageUploader } from "@/components/storage-uploader"
 import {
   NotificationDeliverySheet,
   type NotificationDeliverySelection,
@@ -48,7 +48,7 @@ export default function NotificationsPage() {
   })
   const [title, setTitle] = React.useState("")
   const [message, setMessage] = React.useState("")
-  const [imageUrls, setImageUrls] = React.useState<string[]>([])
+  const [attachmentUrls, setAttachmentUrls] = React.useState<string[]>([])
   const [isSubmitting, setIsSubmitting] = React.useState(false)
 
   const roleOptions = React.useMemo(() => getRoleOptions(), [])
@@ -76,7 +76,7 @@ export default function NotificationsPage() {
         user_ids: selection.userIds,
         title: trimmedTitle,
         message: trimmedMessage,
-        image_urls: imageUrls,
+        attachment_urls: attachmentUrls,
       })
 
       if (result.sent_count === 0 && result.failed_count > 0) {
@@ -95,7 +95,7 @@ export default function NotificationsPage() {
 
       setTitle("")
       setMessage("")
-      setImageUrls([])
+      setAttachmentUrls([])
     } catch (error: any) {
       toast.error("Не удалось отправить уведомление", {
         description: error?.message ?? "Попробуйте еще раз.",
@@ -164,10 +164,12 @@ export default function NotificationsPage() {
                     />
                   </div>
 
-                  <MediaUploader
-                    value={imageUrls}
-                    onChange={setImageUrls}
-                    label="Изображения"
+                  <StorageUploader
+                    value={attachmentUrls}
+                    onChange={setAttachmentUrls}
+                    label="Вложения"
+                    description="Поддерживаются изображения и документы: PDF, DOCX, TXT, MD, Excel."
+                    category="SYSTEM"
                   />
 
                   <div className="flex justify-end pt-4">
