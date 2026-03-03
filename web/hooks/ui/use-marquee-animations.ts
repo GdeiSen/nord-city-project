@@ -10,10 +10,14 @@ let listenersRegistered = false
 
 function readDisabledState(): boolean {
   if (typeof window === "undefined") {
-    return false
+    return true
   }
 
-  return window.localStorage.getItem(STORAGE_KEY) === "1"
+  const stored = window.localStorage.getItem(STORAGE_KEY)
+  if (stored == null) {
+    return true
+  }
+  return stored === "1"
 }
 
 function applyDisabledState(disabled: boolean) {
@@ -70,7 +74,7 @@ export function useMarqueeAnimationsDisabled() {
       applyDisabledState(nextValue)
       return nextValue
     },
-    () => false
+    () => true
   )
 
   const update = React.useCallback((nextValue: boolean) => {
