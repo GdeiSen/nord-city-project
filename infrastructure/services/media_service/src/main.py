@@ -251,6 +251,47 @@ class MinioStorageBackend:
             int(getattr(stat, "size", 0) or 0),
         )
 
+    def create_download_session(
+        self,
+        *,
+        path: str,
+    ) -> Dict[str, Any]:
+        object_name = _normalize_object_name(path)
+        try:
+            self.client.stat_object(self.cfg.s3_bucket, object_name)
+        except S3Error as exc:
+            code = getattr(exc, "code", "")
+            if code in {"NoSuchKey", "NoSuchObject"}:
+                raise FileNotFoundError("File not found")
+            logger.error(
+                "Failed to stat object %s for download session: %s",
+                object_name,
+                exc,
+                exc_info=True,
+            )
+            raise RuntimeError("Failed to verify file for download") from exc
+
+        try:
+            download_url = self.public_client.presigned_get_object(
+                self.cfg.s3_bucket,
+                object_name,
+                expires=timedelta(seconds=self.cfg.presigned_expiry_seconds),
+            )
+        except S3Error as exc:
+            logger.error(
+                "Failed to create presigned GET URL for %s: %s",
+                object_name,
+                exc,
+                exc_info=True,
+            )
+            raise RuntimeError("Failed to create download URL") from exc
+
+        return {
+            "path": object_name,
+            "download_url": download_url,
+            "expires_in": self.cfg.presigned_expiry_seconds,
+        }
+
     async def stream_object(self, object_name: str) -> tuple[AsyncIterator[bytes], str, dict[str, str]]:
         try:
             response = self.client.get_object(self.cfg.s3_bucket, object_name)
@@ -336,6 +377,12 @@ async def _rpc_handler(request: dict) -> dict:
                 content_type=content_type,
                 size_bytes=size_bytes,
             )
+            return {"success": True, "data": result, "error": None}
+        if method == "create_download_session":
+            path = params.get("path", "")
+            if not path:
+                return {"success": False, "data": None, "error": "Missing path"}
+            result = _get_backend().create_download_session(path=path)
             return {"success": True, "data": result, "error": None}
         if method == "complete_upload":
             path = params.get("path", "")

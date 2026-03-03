@@ -69,11 +69,11 @@ class ServiceTicketService(BaseService):
         user_id: int,
         assignee: Optional[str] = None,
     ) -> Optional[ServiceTicketSchema]:
-        """Update ticket status with meta (msid, assignee). BaseService writes audit.
+        """Update ticket status with actor metadata. BaseService writes audit.
         ASSIGNED: status stays ASSIGNED, meta records who it was assigned to.
         IN_PROGRESS: set when 'принято'."""
         try:
-            meta: Dict[str, Any] = {"msid": msid, "user_id": user_id}
+            meta: Dict[str, Any] = {"reply_message_id": msid, "user_id": user_id}
             if assignee:
                 meta["assignee"] = assignee
             result = await self.bot.managers.database.service_ticket.update(
@@ -82,7 +82,7 @@ class ServiceTicketService(BaseService):
                 model_class=ServiceTicketSchema,
                 _audit_context={
                     "source": "bot_service",
-                    "assignee_id": user_id,
+                    "actor_id": user_id,
                     "meta": meta,
                 },
             )

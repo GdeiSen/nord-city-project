@@ -1,15 +1,14 @@
 """
-Storage upload and proxy router.
+Storage router.
 - Upload: creates/finalizes presigned uploads; requires Admin/Super Admin.
-- GET /storage/{path}: proxies files through web_service (no direct access to storage_service).
+- GET /storage/{path}: validates the file and redirects to a short-lived MinIO URL.
 """
 
 import logging
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import StreamingResponse
-import httpx
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from api.dependencies import get_current_user
@@ -22,8 +21,6 @@ from shared.utils.storage_utils import normalize_public_api_base
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Storage"])
-
-STORAGE_SERVICE_URL = os.getenv("STORAGE_SERVICE_HTTP_URL", "http://127.0.0.1:8004").rstrip("/")
 PUBLIC_API_BASE = normalize_public_api_base(os.getenv("PUBLIC_API_BASE_URL", ""))
 if not PUBLIC_API_BASE:
     PUBLIC_API_BASE = normalize_public_api_base(os.getenv("NEXT_PUBLIC_API_URL", ""))
@@ -56,8 +53,8 @@ def _require_admin(current_user: dict = Depends(get_current_user)) -> dict:
 
 async def _serve_file(file_path: str):
     """
-    Proxy files through web_service. Fetches from storage_service and streams to client.
-    Public access (no auth required) for viewing/downloading files.
+    Validate file registration and redirect the client to a short-lived
+    signed MinIO download URL so bytes are read directly from MinIO.
     """
     if not file_path or ".." in file_path:
         raise HTTPException(status_code=400, detail="Invalid path")
@@ -66,46 +63,35 @@ async def _serve_file(file_path: str):
         path = path[8:].lstrip("/")
     if not path or not path.split("/")[-1]:
         raise HTTPException(status_code=400, detail="Invalid path")
-    storage_url = f"{STORAGE_SERVICE_URL}/storage/{path}"
+
     try:
-        client = httpx.AsyncClient(timeout=60.0)
-        request = client.build_request("GET", storage_url)
-        resp = await client.send(request, stream=True)
-        if resp.status_code == 404:
-            await resp.aclose()
-            await client.aclose()
-            raise HTTPException(status_code=404, detail="File not found")
-        if resp.status_code != 200:
-            await resp.aclose()
-            await client.aclose()
-            raise HTTPException(status_code=502, detail="Storage service error")
-
-        content_type = resp.headers.get("content-type", "application/octet-stream")
-        headers: dict[str, str] = {}
-        content_length = resp.headers.get("content-length")
-        if content_length:
-            headers["Content-Length"] = content_length
-        etag = resp.headers.get("etag")
-        if etag:
-            headers["ETag"] = etag
-
-        async def iterator():
-            try:
-                async for chunk in resp.aiter_bytes():
-                    if chunk:
-                        yield chunk
-            finally:
-                await resp.aclose()
-                await client.aclose()
-
-        return StreamingResponse(
-            iterator(),
-            media_type=content_type,
-            headers=headers,
+        registry_response = await db_client.storage_file.find_by_path(
+            storage_path=path,
+            model_class=StorageFileSchema,
         )
-    except httpx.RequestError as e:
-        logger.error(f"Storage proxy error for {path}: {e}")
+        if not registry_response.get("success"):
+            raise HTTPException(status_code=502, detail="Storage registry unavailable")
+        if registry_response.get("data") is None:
+            raise HTTPException(status_code=404, detail="File not found")
+
+        session = await storage_client.create_download_session(path=path)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        if "not found" in str(exc).lower():
+            raise HTTPException(status_code=404, detail="File not found")
+        logger.error("Storage redirect generation failed for %s: %s", path, exc, exc_info=True)
         raise HTTPException(status_code=502, detail="Storage service unavailable")
+
+    download_url = str(session.get("download_url") or "").strip()
+    if not download_url:
+        raise HTTPException(status_code=502, detail="Storage service returned invalid download URL")
+
+    return RedirectResponse(
+        url=download_url,
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 @router.get("/storage/{file_path:path}")

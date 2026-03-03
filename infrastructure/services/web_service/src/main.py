@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../../'))
 
 from shared.clients.database_client import db_client
+from shared.clients.audit_client import audit_client
 from shared.clients.bot_client import bot_client
 from shared.clients.storage_client import storage_client
 from config import get_config
@@ -51,6 +52,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.critical(f"Failed to connect database client during startup: {e}", exc_info=True)
     try:
+        await audit_client.connect()
+        logger.info("Audit client connected via HTTP.")
+    except Exception as e:
+        logger.warning(f"Failed to connect audit client during startup: {e}", exc_info=True)
+    try:
         await bot_client.connect()
         logger.info("Bot client connected via HTTP.")
     except Exception as e:
@@ -64,6 +70,7 @@ async def lifespan(app: FastAPI):
     logger.info("WebService shutting down...")
     await storage_client.disconnect()
     await bot_client.disconnect()
+    await audit_client.disconnect()
     await db_client.disconnect()
     logger.info("Clients disconnected.")
 
@@ -138,10 +145,12 @@ async def root():
 async def health_check():
     """Health check for the web service and its database client connection."""
     is_connected = db_client._connected
+    audit_connected = audit_client._connected
     return {
-        "status": "healthy" if is_connected else "degraded",
+        "status": "healthy" if (is_connected and audit_connected) else "degraded",
         "service": "web_service",
         "database_client_connected": is_connected,
+        "audit_client_connected": audit_connected,
     }
 
 

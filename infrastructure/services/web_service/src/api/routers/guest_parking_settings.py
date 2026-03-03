@@ -80,7 +80,7 @@ async def update_guest_parking_settings(
     response = await db_client.guest_parking_settings.save_settings(
         route_images=_normalize_route_images(body.route_images),
         model_class=GuestParkingSettingsSchema,
-        _audit_context={"source": "web_service", "assignee_id": current_user["user_id"]},
+        _audit_context={"source": "web_service", "actor_id": current_user["user_id"], "actor_type": "USER"},
     )
     if not response.get("success"):
         raise HTTPException(

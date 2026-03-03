@@ -16,7 +16,8 @@ This means:
 
 - MinIO is used as the object backend.
 - `web_service` does not proxy upload bytes.
-- `web_service` still proxies download reads so the public file URL remains stable.
+- `web_service` keeps the stable public file URL but redirects reads to a
+  short-lived signed MinIO URL, so the file bytes are read directly from MinIO.
 
 ## Required Environment Variables
 
@@ -236,7 +237,8 @@ Stored files should be referenced like:
 https://your-domain.com/api/v1/storage/<path>
 ```
 
-This is correct. Upload goes to MinIO, but permanent read URLs stay behind `web_service`.
+This is correct. Upload goes to MinIO, and `web_service` validates the file
+before redirecting the client to a short-lived signed MinIO URL.
 
 ## What Not To Do
 

@@ -176,24 +176,27 @@ async def enrich_service_tickets_with_users_and_objects(
 
 
 async def enrich_audit_log_with_assignees(items: List[Any]) -> List[AuditLogEntryResponse]:
-    """Enrich audit log entries with assignee display name. Returns list of AuditLogEntryResponse."""
+    """Enrich audit log entries with actor display name. Returns list of AuditLogEntryResponse."""
     if not items:
         return []
-    assignee_ids = [a.assignee_id for a in items if a.assignee_id is not None and a.assignee_id > 1]
-    user_map = await batch_fetch_users(assignee_ids)
+    actor_ids = [a.actor_id for a in items if getattr(a, "actor_id", None) is not None and a.actor_id > 1]
+    user_map = await batch_fetch_users(actor_ids)
     result: List[AuditLogEntryResponse] = []
     for a in items:
         d = a.model_dump()
-        aid = a.assignee_id
-        if aid is None or aid <= 1:
-            d["assignee_display"] = "Система"
-        elif aid in user_map:
-            u = user_map[aid]
+        actor_id = a.actor_id
+        actor_type = (a.actor_type or "").upper()
+        if actor_type == "SERVICE":
+            d["actor_display"] = a.source_service or "Сервис"
+        elif actor_id is None or actor_id <= 1:
+            d["actor_display"] = "Система"
+        elif actor_id in user_map:
+            u = user_map[actor_id]
             parts = [u.last_name, u.first_name]
             name = " ".join(p or "" for p in parts).strip()
             un = u.username or ""
-            d["assignee_display"] = f"{name} @{un}".strip(" @") if (name or un) else f"#{aid}"
+            d["actor_display"] = f"{name} @{un}".strip(" @") if (name or un) else f"#{actor_id}"
         else:
-            d["assignee_display"] = f"#{aid}"
+            d["actor_display"] = f"#{actor_id}"
         result.append(AuditLogEntryResponse(**d))
     return result

@@ -29,6 +29,7 @@ from models.service_ticket import ServiceTicket
 from models.guest_parking_request import GuestParkingRequest
 from models.guest_parking_settings import GuestParkingSettings
 from models.audit_log import AuditLog
+from models.bot_message_ref import BotMessageRef
 from models.space import Space
 from models.space_view import SpaceView
 from models.otp_code import OtpCode
@@ -46,6 +47,7 @@ from services.service_ticket_service import ServiceTicketService
 from services.guest_parking_service import GuestParkingService
 from services.guest_parking_settings_service import GuestParkingSettingsService
 from services.audit_log_service import AuditLogService
+from services.bot_message_ref_service import BotMessageRefService
 from services.space_view_service import SpaceViewService
 from services.storage_file_service import StorageFileService
 
@@ -81,7 +83,7 @@ def _register_resources():
     models_to_register = [
         User, UserAuth, Feedback, Object, PollAnswer,
         ServiceTicket, GuestParkingRequest, GuestParkingSettings, AuditLog, Space, SpaceView, OtpCode,
-        StorageFile,
+        StorageFile, BotMessageRef,
     ]
     for model in models_to_register:
         db_manager.repositories.register(model)
@@ -97,6 +99,7 @@ def _register_resources():
         "guest_parking": GuestParkingService,
         "guest_parking_settings": GuestParkingSettingsService,
         "audit_log": AuditLogService,
+        "bot_message_ref": BotMessageRefService,
         "space_view": SpaceViewService,
         "otp": OtpService,
         "storage_file": StorageFileService,
@@ -182,6 +185,7 @@ async def _rpc_handler(request: dict) -> dict:
 
 from contextlib import asynccontextmanager
 
+from shared.clients.audit_client import audit_client
 from shared.clients.storage_client import storage_client
 
 
@@ -190,6 +194,11 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Database Service (HTTP)...")
     await db_manager.initialize_db()
     _register_resources()
+    try:
+        audit_client.set_local_append_writer(db_manager.services.get("audit_log").append_event)
+        logger.info("Audit client configured with local transactional writer.")
+    except Exception as e:
+        logger.warning("Audit client local writer setup failed: %s", e)
     await _ensure_default_object()
     try:
         await db_manager.services.get("guest_parking").init_reminder_cache()
@@ -203,6 +212,7 @@ async def lifespan(app: FastAPI):
     logger.info("Database Service ready.")
     yield
     logger.info("Shutting down Database Service...")
+    audit_client.set_local_append_writer(None)
     await storage_client.disconnect()
     await db_manager.db_connection.close()
     logger.info("Database Service stopped.")

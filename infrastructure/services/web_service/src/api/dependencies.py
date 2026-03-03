@@ -8,12 +8,17 @@ from api.routers.auth import _decode_access_token
 
 def get_audit_context(request: Request, current_user: Optional[dict] = None) -> dict:
     """
-    Build audit context for db_client calls: assignee_id, source (caller service).
+    Build audit context for db_client calls: actor_id, source and request tracing.
     Pass to create/update/delete as _audit_context=... for audit logging.
     """
-    ctx = {"source": "web_service"}
+    ctx = {
+        "source": "web_service",
+        "request_id": request.headers.get("X-Request-ID"),
+        "correlation_id": request.headers.get("X-Correlation-ID"),
+    }
     if current_user and "user_id" in current_user:
-        ctx["assignee_id"] = current_user["user_id"]
+        ctx["actor_id"] = current_user["user_id"]
+        ctx["actor_type"] = "USER"
     return ctx
 
 

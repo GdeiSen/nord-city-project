@@ -206,12 +206,53 @@ class _ServiceTicketProxy(_CRUDProxy):
 class _AuditLogProxy(_CRUDProxy):
     """Audit log proxy with find_by_entity for status history queries."""
 
+    async def append_event(
+        self,
+        *,
+        entity_type: str,
+        entity_id: int,
+        action: str,
+        event_type: str = "ENTITY_CHANGE",
+        actor_id: Optional[int] = None,
+        actor_type: str = "SYSTEM",
+        source_service: str = "database_service",
+        retention_class: str = "OPERATIONAL",
+        request_id: Optional[str] = None,
+        correlation_id: Optional[str] = None,
+        reason: Optional[str] = None,
+        old_data: Optional[dict] = None,
+        new_data: Optional[dict] = None,
+        meta: Optional[dict] = None,
+        audit_type: str = "fast",
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "append_event",
+            _model_class=model_class,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            action=action,
+            event_type=event_type,
+            actor_id=actor_id,
+            actor_type=actor_type,
+            source_service=source_service,
+            retention_class=retention_class,
+            request_id=request_id,
+            correlation_id=correlation_id,
+            reason=reason,
+            old_data=old_data,
+            new_data=new_data,
+            meta=meta or {},
+            audit_type=audit_type,
+        )
+
     async def find_by_entity(
         self,
         *,
         entity_type: str,
         entity_id: int,
         limit: Optional[int] = None,
+        order: str = "asc",
         model_class: Any = None,
     ) -> Dict[str, Any]:
         return await self._call(
@@ -220,6 +261,119 @@ class _AuditLogProxy(_CRUDProxy):
             entity_type=entity_type,
             entity_id=entity_id,
             limit=limit,
+            order=order,
+        )
+
+    async def purge_before(
+        self,
+        *,
+        before_iso: str,
+        retention_class: Optional[str] = None,
+        batch_size: int = 1000,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "purge_before",
+            _model_class=model_class,
+            before_iso=before_iso,
+            retention_class=retention_class,
+            batch_size=batch_size,
+        )
+
+    async def purge_expired(
+        self,
+        *,
+        batch_size: int = 1000,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "purge_expired",
+            _model_class=model_class,
+            batch_size=batch_size,
+        )
+
+
+class _BotMessageRefProxy(_CRUDProxy):
+    """Telegram/admin chat message references."""
+
+    async def upsert_message(
+        self,
+        *,
+        entity_type: str,
+        entity_id: int,
+        chat_id: int,
+        message_id: int,
+        kind: str = "PRIMARY",
+        meta: Optional[Dict[str, Any]] = None,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "upsert_message",
+            _model_class=model_class,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            chat_id=chat_id,
+            message_id=message_id,
+            kind=kind,
+            meta=meta or {},
+        )
+
+    async def list_by_entity(
+        self,
+        *,
+        entity_type: str,
+        entity_id: int,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "list_by_entity",
+            _model_class=model_class,
+            entity_type=entity_type,
+            entity_id=entity_id,
+        )
+
+    async def get_primary(
+        self,
+        *,
+        entity_type: str,
+        entity_id: int,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "get_primary",
+            _model_class=model_class,
+            entity_type=entity_type,
+            entity_id=entity_id,
+        )
+
+    async def find_by_message(
+        self,
+        *,
+        chat_id: int,
+        message_id: int,
+        entity_type: Optional[str] = None,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "find_by_message",
+            _model_class=model_class,
+            chat_id=chat_id,
+            message_id=message_id,
+            entity_type=entity_type,
+        )
+
+    async def delete_by_entity(
+        self,
+        *,
+        entity_type: str,
+        entity_id: int,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "delete_by_entity",
+            _model_class=model_class,
+            entity_type=entity_type,
+            entity_id=entity_id,
         )
 
 
@@ -424,6 +578,7 @@ class DatabaseClient:
         self.guest_parking_settings = _GuestParkingSettingsProxy(self._http, "guest_parking_settings")
         self.storage_file = _StorageFileProxy(self._http, "storage_file")
         self.audit_log = _AuditLogProxy(self._http, "audit_log")
+        self.bot_message_ref = _BotMessageRefProxy(self._http, "bot_message_ref")
         self.space = _SpaceProxy(self._http, "space")
         self.space_view = _CRUDProxy(self._http, "space_view")
         self.otp = _OtpProxy(self._http, "otp")

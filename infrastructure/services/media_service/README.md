@@ -6,15 +6,15 @@ MinIO-backed facade service for file storage and file delivery.
 
 - Stores files in `MinIO` (S3-compatible object storage)
 - Keeps `web_service`, `bot_service` and all shared clients on the storage-only contract
-- Serves files through `/storage/{path}`
-- Supports presigned direct uploads (`init -> PUT to MinIO -> complete`)
+- Serves internal file streams through `/storage/{path}`
+- Supports presigned uploads and downloads
 
 ## API
 
 | Method | Path | Description |
 |-------|------|----------|
-| POST | `/internal/rpc` | RPC endpoint for `storage_client` (`service=storage`, methods: `create_upload_session`, `complete_upload`, `delete`) |
-| GET | `/storage/{path}` | Stream file from MinIO |
+| POST | `/internal/rpc` | RPC endpoint for `storage_client` (`service=storage`, methods: `create_upload_session`, `create_download_session`, `complete_upload`, `delete`) |
+| GET | `/storage/{path}` | Internal stream endpoint from MinIO |
 | DELETE | `/storage/{path}` | Delete file from MinIO |
 | GET | `/health` | Health check of MinIO connectivity and bucket availability |
 
@@ -41,8 +41,9 @@ MinIO-backed facade service for file storage and file delivery.
 - `storage_service` is now the permanent file gateway of the platform.
 - Files are stored in MinIO as objects.
 - `storage_path` remains the object key and stays compatible with `storage_files.storage_path`.
-- Public URLs still point to `web_service` (`/api/v1/storage/...`) rather than exposing MinIO directly.
+- Public URLs still point to `web_service` (`/api/v1/storage/...`), which then redirects reads to a signed MinIO URL.
 - `storage_files` in the database remains the source of metadata and relations.
-- Browser uploads can now go directly to MinIO via presigned PUT URLs returned by `web_service`.
+- Browser uploads go directly to MinIO via presigned PUT URLs returned by `web_service`.
+- Browser reads go to the stable platform URL first, then follow a short-lived signed redirect to MinIO.
 - For direct browser uploads, the MinIO bucket must allow CORS for your site origin.
 - Full setup guide: `/Users/orca/Local/nord-city-project/docs/STORAGE_MINIO_SETUP.md`

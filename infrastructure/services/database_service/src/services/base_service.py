@@ -5,6 +5,7 @@ from typing import Type, TypeVar, Any, Optional, List, Dict
 
 from sqlalchemy.orm import DeclarativeBase
 from database.database_manager import DatabaseManager
+from shared.clients.audit_client import audit_client
 from shared.utils.converter import Converter
 from shared.utils.audit_diff import compute_smart_diff
 
@@ -16,6 +17,9 @@ from shared.constants import (
     AUDIT_MODE_HEAVY,
     AUDIT_SKIP_UPDATE_FIELDS,
     AUDIT_HEAVY_MAX_JSON_BYTES,
+    AUDIT_ENTITY_RETENTION_CLASS,
+    AuditActorType,
+    AuditRetentionClass,
 )
 
 ModelType = TypeVar('ModelType', bound=DeclarativeBase)
@@ -32,12 +36,26 @@ def db_session_manager(func):
         if not hasattr(self, 'db_manager') or not isinstance(self.db_manager, DatabaseManager):
             raise TypeError(f"Object {self.__class__.__name__} needs a 'db_manager' to use @db_session_manager.")
 
-        # Ensure session is not passed manually
-        kwargs.pop('session', None)
+        existing_session = kwargs.get("session")
+        if existing_session is not None:
+            try:
+                return await func(self, *args, **kwargs)
+            except Exception as e:
+                logger.error(
+                    f"Exception in service method '{self.__class__.__name__}.{func.__name__}': {e}",
+                    exc_info=True,
+                )
+                raise
 
         try:
             async with self.db_manager.get_session() as session:
-                return await func(self, *args, session=session, **kwargs)
+                try:
+                    result = await func(self, *args, session=session, **kwargs)
+                    await session.commit()
+                    return result
+                except Exception:
+                    await session.rollback()
+                    raise
         except Exception as e:
             logger.error(
                 f"Exception in service method '{self.__class__.__name__}.{func.__name__}': {e}",
@@ -67,8 +85,39 @@ class BaseService:
         self.repository = self.db_manager.repositories.get(self.model_class)
 
     def _get_audit_context(self, kwargs: dict) -> Optional[dict]:
-        """Extract and remove _audit_context from kwargs (assignee_id, source, meta, ...)."""
+        """Extract and remove _audit_context from kwargs (actor_id/source/meta/request ids)."""
         return kwargs.pop("_audit_context", None)
+
+    def _normalize_audit_context(self, audit_context: Optional[dict]) -> dict:
+        ctx = dict(audit_context or {})
+        actor_id = ctx.get("actor_id")
+        if actor_id is None:
+            actor_id = ctx.get("assignee_id")
+        if actor_id is None:
+            actor_id = ctx.get("user_id")
+        source_service = str(ctx.get("source") or "database_service")
+        actor_type = str(ctx.get("actor_type") or "").upper()
+        if not actor_type:
+            try:
+                numeric_actor_id = int(actor_id) if actor_id is not None else None
+            except (TypeError, ValueError):
+                numeric_actor_id = None
+            if numeric_actor_id is not None and numeric_actor_id > 1:
+                actor_type = AuditActorType.USER
+            elif source_service not in {"database_service", "web_service"}:
+                actor_type = AuditActorType.SERVICE
+            else:
+                actor_type = AuditActorType.SYSTEM
+        meta = ctx.get("meta") if isinstance(ctx.get("meta"), dict) else {}
+        return {
+            "actor_id": actor_id,
+            "actor_type": actor_type,
+            "source_service": source_service,
+            "request_id": ctx.get("request_id"),
+            "correlation_id": ctx.get("correlation_id"),
+            "reason": ctx.get("reason"),
+            "meta": dict(meta),
+        }
 
     def _limit_audit_json_size(self, data: Optional[dict]) -> Optional[dict]:
         """Limit JSON size for heavy audit; replace with placeholder if exceeded."""
@@ -117,32 +166,42 @@ class BaseService:
         """Write audit log entry if entity is audited."""
         if self.model_class.__name__ not in AUDITED_ENTITY_TYPES:
             return
-        audit_svc = self.db_manager.services.get("audit_log")
-        if audit_svc is None or not hasattr(audit_svc, "append"):
-            return
         mode = AUDIT_ENTITY_MODES.get(self.model_class.__name__, AUDIT_MODE_FAST)
         stored_old, stored_new = self._resolve_audit_data(action, mode, old_data, new_data)
-        assignee_id = (audit_context.get("assignee_id") or audit_context.get("user_id")) if audit_context else None
-        meta = audit_context.get("meta") if audit_context else {}
-        if not isinstance(meta, dict):
-            meta = {}
-        meta = dict(meta)
-        if "source" not in meta and audit_context and audit_context.get("source"):
-            meta["source"] = audit_context["source"]
+        if action == "update" and mode == AUDIT_MODE_SMART and stored_old is None and stored_new is None:
+            return
+        normalized_ctx = self._normalize_audit_context(audit_context)
+        meta = normalized_ctx["meta"]
+        if "source" not in meta and normalized_ctx["source_service"]:
+            meta["source"] = normalized_ctx["source_service"]
         try:
-            await audit_svc.append(
+            event_type = "ENTITY_CHANGE"
+            if action == "update" and isinstance(stored_new, dict) and "status" in stored_new:
+                event_type = "STATE_CHANGE"
+            await audit_client.append_event(
                 session=session,
                 entity_type=self.model_class.__name__,
                 entity_id=entity_id,
+                event_type=event_type,
                 action=action,
+                actor_id=normalized_ctx["actor_id"],
+                actor_type=normalized_ctx["actor_type"],
+                source_service=normalized_ctx["source_service"],
+                retention_class=AUDIT_ENTITY_RETENTION_CLASS.get(
+                    self.model_class.__name__,
+                    AuditRetentionClass.OPERATIONAL,
+                ),
+                request_id=normalized_ctx["request_id"],
+                correlation_id=normalized_ctx["correlation_id"],
+                reason=normalized_ctx["reason"],
                 old_data=stored_old,
                 new_data=stored_new,
                 meta=meta if meta else {},
-                assignee_id=assignee_id,
                 audit_type=mode,
             )
         except Exception as e:
-            logger.warning("Failed to write audit log: %s", e)
+            logger.error("Failed to write audit log: %s", e)
+            raise
 
     @db_session_manager
     async def create(self, *, session, model_instance: ModelType, **kwargs) -> Optional[ModelType]:

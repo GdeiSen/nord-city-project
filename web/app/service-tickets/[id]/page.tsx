@@ -43,6 +43,7 @@ function getStatusBadge(status: string) {
 }
 
 function getAssigneeDisplay(users: any[], entry: AuditLogEntry, status?: string | null): string {
+  if (entry.actor_display) return entry.actor_display
   const meta = entry.meta as Record<string, unknown> | undefined
   const assigneeName = meta?.assignee as string | undefined
   if (assigneeName) return assigneeName
@@ -51,7 +52,7 @@ function getAssigneeDisplay(users: any[], entry: AuditLogEntry, status?: string 
     const u = users.find((x) => x.id === assigneeId)
     return u ? [u.last_name, u.first_name].filter(Boolean).join(" ") || u.username || `#${assigneeId}` : `#${assigneeId}`
   }
-  const aid = entry.assignee_id
+  const aid = entry.actor_id
   if (aid == null || aid === 0 || aid === 1) return "Система"
   const u = users.find((x) => x.id === aid)
   return u ? [u.last_name, u.first_name].filter(Boolean).join(" ") || u.username || `#${aid}` : `#${aid}`

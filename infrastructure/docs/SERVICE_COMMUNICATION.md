@@ -62,11 +62,16 @@ db_client.space          # CRUD + get_by_object_id
 db_client.feedback       # CRUD
 db_client.poll           # CRUD
 db_client.guest_parking  # CRUD
-db_client.audit_log      # CRUD + find_by_entity
+db_client.audit_log      # CRUD + find_by_entity + append_event + purge
+db_client.bot_message_ref # Telegram/admin chat message refs
 db_client.space_view     # CRUD
 db_client.otp            # verify_code, invalidate_user_codes, create
 db_client.auth           # CRUD (auth records)
 ```
+
+Для межсервисной работы с аудитом используйте отдельный `audit_client`
+(`shared/clients/audit_client.py`). `db_client.audit_log` — это низкоуровневый
+storage-layer, который нужен самому `audit_service`.
 
 ### Передача данных с моделями (схемами)
 

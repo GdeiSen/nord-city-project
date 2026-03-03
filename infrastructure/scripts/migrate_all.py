@@ -11,6 +11,7 @@
   6. Удаление колонки driver_phone из guest_parking_requests
   7. Создание таблицы guest_parking_settings
   8. Создание таблицы storage_files
+  9. Рефакторинг аудита (новые поля audit_log + bot_message_refs)
 
 Использование:
     Из корня проекта:
@@ -52,7 +53,9 @@ if str(db_src) not in sys.path:
     sys.path.insert(0, str(db_src))
 from models.guest_parking_request import GuestParkingRequest
 from models.guest_parking_settings import GuestParkingSettings
+from models.audit_log import AuditLog
 from models.storage_file import StorageFile
+from models.bot_message_ref import BotMessageRef
 
 
 def get_db_url() -> str:
@@ -175,35 +178,113 @@ async def step8_create_storage_files(engine):
     print("  [OK] Таблица storage_files создана или уже существует")
 
 
+async def step9_migrate_audit(engine):
+    """Рефакторинг audit_log и создание bot_message_refs."""
+    async with engine.begin() as conn:
+        await conn.run_sync(
+            lambda c: AuditLog.__table__.create(c, checkfirst=True)
+        )
+        await conn.run_sync(
+            lambda c: BotMessageRef.__table__.create(c, checkfirst=True)
+        )
+        await conn.execute(text(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'audit_log' AND column_name = 'assignee_id'
+                ) AND NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'audit_log' AND column_name = 'actor_id'
+                ) THEN
+                    ALTER TABLE audit_log RENAME COLUMN assignee_id TO actor_id;
+                END IF;
+            END $$;
+            """
+        ))
+        await conn.execute(text("ALTER TABLE audit_log ALTER COLUMN entity_id TYPE BIGINT"))
+        await conn.execute(text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS event_type VARCHAR(64) DEFAULT 'ENTITY_CHANGE'"))
+        await conn.execute(text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS actor_type VARCHAR(16) DEFAULT 'SYSTEM'"))
+        await conn.execute(text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS source_service VARCHAR(64) DEFAULT 'database_service'"))
+        await conn.execute(text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS retention_class VARCHAR(16) DEFAULT 'OPERATIONAL'"))
+        await conn.execute(text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS request_id VARCHAR(128)"))
+        await conn.execute(text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS correlation_id VARCHAR(128)"))
+        await conn.execute(text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS reason VARCHAR(255)"))
+        await conn.execute(text("UPDATE audit_log SET event_type = COALESCE(event_type, 'ENTITY_CHANGE')"))
+        await conn.execute(text(
+            """
+            UPDATE audit_log
+            SET source_service = COALESCE(
+                NULLIF(source_service, ''),
+                NULLIF(meta::jsonb ->> 'source', ''),
+                'database_service'
+            )
+            """
+        ))
+        await conn.execute(text(
+            """
+            UPDATE audit_log
+            SET actor_type = CASE
+                WHEN actor_id IS NOT NULL AND actor_id > 1 THEN 'USER'
+                WHEN COALESCE(source_service, 'database_service') NOT IN ('database_service', 'web_service') THEN 'SERVICE'
+                ELSE 'SYSTEM'
+            END
+            WHERE actor_type IS NULL OR actor_type = ''
+            """
+        ))
+        await conn.execute(text(
+            """
+            UPDATE audit_log
+            SET retention_class = CASE entity_type
+                WHEN 'User' THEN 'CRITICAL'
+                WHEN 'Object' THEN 'CRITICAL'
+                WHEN 'Space' THEN 'CRITICAL'
+                WHEN 'GuestParkingSettings' THEN 'CRITICAL'
+                WHEN 'SpaceView' THEN 'TECHNICAL'
+                WHEN 'StorageFile' THEN 'TECHNICAL'
+                ELSE 'OPERATIONAL'
+            END
+            WHERE retention_class IS NULL OR retention_class = ''
+            """
+        ))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audit_log_created ON audit_log (created_at)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audit_log_actor_created ON audit_log (actor_id, created_at)"))
+    print("  [OK] audit_log обновлен, bot_message_refs создана")
+
+
 async def run_all():
     url = get_db_url()
     engine = create_async_engine(url, echo=False)
 
     print("\n=== Миграция Nord City: старая → новая версия ===\n")
 
-    print("Шаг 1/8: Создание таблицы guest_parking_requests...")
+    print("Шаг 1/9: Создание таблицы guest_parking_requests...")
     await step1_create_guest_parking(engine)
 
-    print("\nШаг 2/8: Миграция TIMESTAMP → TIMESTAMPTZ...")
+    print("\nШаг 2/9: Миграция TIMESTAMP → TIMESTAMPTZ...")
     await step2_migrate_timestamptz(engine)
 
-    print("\nШаг 3/8: Добавление колонки msid...")
+    print("\nШаг 3/9: Добавление колонки msid...")
     await step3_add_msid(engine)
 
-    print("\nШаг 4/8: Удаление колонки reminder_sent...")
+    print("\nШаг 4/9: Удаление колонки reminder_sent...")
     await step4_drop_reminder_sent(engine)
 
-    print("\nШаг 5/8: Удаление колонки reminder_sent_at (логика в кэше)...")
+    print("\nШаг 5/9: Удаление колонки reminder_sent_at (логика в кэше)...")
     await step5_drop_reminder_sent_at(engine)
 
-    print("\nШаг 6/8: Удаление колонки driver_phone...")
+    print("\nШаг 6/9: Удаление колонки driver_phone...")
     await step6_drop_driver_phone(engine)
 
-    print("\nШаг 7/8: Создание таблицы guest_parking_settings...")
+    print("\nШаг 7/9: Создание таблицы guest_parking_settings...")
     await step7_create_guest_parking_settings(engine)
 
-    print("\nШаг 8/8: Создание таблицы storage_files...")
+    print("\nШаг 8/9: Создание таблицы storage_files...")
     await step8_create_storage_files(engine)
+
+    print("\nШаг 9/9: Рефакторинг аудита...")
+    await step9_migrate_audit(engine)
 
     await engine.dispose()
     print("\n=== Миграция успешно завершена ===\n")

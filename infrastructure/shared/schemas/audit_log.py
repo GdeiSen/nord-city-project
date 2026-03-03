@@ -12,11 +12,18 @@ class AuditLogSchema(BaseModel):
     id: Optional[int] = None
     entity_type: str = ""
     entity_id: int = 0
+    event_type: str = "ENTITY_CHANGE"
     action: str = ""
+    actor_id: Optional[int] = None
+    actor_type: str = "SYSTEM"
+    source_service: str = "database_service"
+    retention_class: str = "OPERATIONAL"
+    request_id: Optional[str] = None
+    correlation_id: Optional[str] = None
+    reason: Optional[str] = None
     old_data: Optional[Dict[str, Any]] = None
     new_data: Optional[Dict[str, Any]] = None
     meta: Optional[Dict[str, Any]] = None
-    assignee_id: Optional[int] = None
     audit_type: str = "fast"
     created_at: Optional[datetime] = None
 

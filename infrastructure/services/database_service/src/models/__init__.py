@@ -10,5 +10,6 @@ from .space_view import SpaceView
 from .guest_parking_request import GuestParkingRequest
 from .guest_parking_settings import GuestParkingSettings
 from .audit_log import AuditLog
+from .bot_message_ref import BotMessageRef
 from .otp_code import OtpCode
 from .storage_file import StorageFile

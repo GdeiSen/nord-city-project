@@ -11,6 +11,8 @@ const AUDIT_ENTITY_TYPES = [
   { value: "Space", label: "Помещение" },
   { value: "SpaceView", label: "Просмотр помещения" },
   { value: "PollAnswer", label: "Ответ опроса" },
+  { value: "GuestParkingSettings", label: "Настройки парковки" },
+  { value: "StorageFile", label: "Файл" },
 ]
 
 const AUDIT_ACTIONS = [
@@ -42,10 +44,16 @@ export const auditLogColumns: TableColumnConfig[] = [
     filterSelect: AUDIT_ACTIONS,
   },
   {
-    id: "assignee_display",
-    label: "Исполнитель",
+    id: "actor_display",
+    label: "Кто изменил",
     type: "string",
     searchDbColumns: [],
+  },
+  {
+    id: "source_service",
+    label: "Источник",
+    type: "string",
+    searchDbColumns: ["source_service"],
   },
   {
     id: "created",

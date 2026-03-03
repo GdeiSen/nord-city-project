@@ -104,6 +104,22 @@ class _StorageProxy:
             raise RuntimeError(result.get("error", "Failed to create upload session"))
         return result.get("data") or {}
 
+    async def create_download_session(
+        self,
+        *,
+        path: str,
+    ) -> Dict[str, Any]:
+        normalized_path = path.lstrip("/")
+        if normalized_path.startswith("storage/"):
+            normalized_path = normalized_path[8:].lstrip("/")
+        result = await self._call(
+            "create_download_session",
+            path=normalized_path,
+        )
+        if not result.get("success"):
+            raise RuntimeError(result.get("error", "Failed to create download session"))
+        return result.get("data") or {}
+
     async def complete_upload(
         self,
         *,
@@ -213,6 +229,13 @@ class StorageClient:
             size_bytes=size_bytes,
         )
 
+    async def create_download_session(
+        self,
+        *,
+        path: str,
+    ) -> Dict[str, Any]:
+        return await self.storage.create_download_session(path=path)
+
     async def complete_upload(
         self,
         *,
@@ -231,4 +254,3 @@ class StorageClient:
 
 
 storage_client = StorageClient()
-

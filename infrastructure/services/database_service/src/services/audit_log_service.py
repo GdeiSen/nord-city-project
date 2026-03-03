@@ -1,48 +1,23 @@
 """
 Audit log service for recording and querying data change history.
-Supports explicit append (e.g. from bot with metadata) and find_by_entity for status history queries.
-Modes: fast (no old/new), smart (diff only), heavy (full old/new).
+
+Acts as the persistence layer for both local transactional writes inside
+database_service and remote writes from the dedicated audit_service.
 """
 
-import logging
-from typing import List, Optional, Dict, Any
+from datetime import datetime, timezone, timedelta
+from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from database.database_manager import DatabaseManager
 from models.audit_log import AuditLog
-from shared.utils.converter import Converter
-from shared.constants import AUDIT_FIND_BY_ENTITY_DEFAULT_LIMIT
-from shared.utils.audit_diff import compute_smart_diff
+from shared.constants import (
+    AUDIT_FIND_BY_ENTITY_DEFAULT_LIMIT,
+    AUDIT_RETENTION_DAYS,
+    AuditRetentionClass,
+)
 from .base_service import BaseService, db_session_manager
-
-logger = logging.getLogger(__name__)
-
-
-# Services that should have audit logging (exclude audit_log itself, otp, auth)
-AUDITED_SERVICES = {
-    "user",
-    "feedback",
-    "object",
-    "poll",
-    "service_ticket",
-    "guest_parking",
-    "space",
-    "space_view",
-}
-
-# Map service name to entity_type (model name)
-SERVICE_TO_ENTITY_TYPE = {
-    "user": "User",
-    "feedback": "Feedback",
-    "object": "Object",
-    "poll": "PollAnswer",
-    "service_ticket": "ServiceTicket",
-    "guest_parking": "GuestParkingRequest",
-    "space": "Space",
-    "space_view": "SpaceView",
-}
-
 
 class AuditLogService(BaseService):
     """Service for audit log operations."""
@@ -52,33 +27,43 @@ class AuditLogService(BaseService):
     def __init__(self, db_manager: DatabaseManager):
         super().__init__(db_manager)
 
-    async def append(
+    @db_session_manager
+    async def append_event(
         self,
         *,
         session,
         entity_type: str,
         entity_id: int,
         action: str,
+        event_type: str = "ENTITY_CHANGE",
+        actor_id: Optional[int] = None,
+        actor_type: str = "SYSTEM",
+        source_service: str = "database_service",
+        retention_class: str = AuditRetentionClass.OPERATIONAL,
+        request_id: Optional[str] = None,
+        correlation_id: Optional[str] = None,
+        reason: Optional[str] = None,
         old_data: Optional[dict] = None,
         new_data: Optional[dict] = None,
         meta: Optional[dict] = None,
-        assignee_id: Optional[int] = None,
         audit_type: str = "fast",
     ) -> Optional[AuditLog]:
-        """
-        Create an audit log entry within the given session (same transaction).
-        meta: source (caller service), requested_by, domain-specific. Must be dict or None.
-        audit_type: fast, smart, or heavy.
-        """
         meta_safe = meta if isinstance(meta, dict) else {}
         entry = AuditLog(
             entity_type=entity_type,
             entity_id=entity_id,
+            event_type=event_type,
             action=action,
+            actor_id=actor_id,
+            actor_type=actor_type,
+            source_service=source_service or "database_service",
+            retention_class=retention_class or AuditRetentionClass.OPERATIONAL,
+            request_id=request_id,
+            correlation_id=correlation_id,
+            reason=reason,
             old_data=old_data,
             new_data=new_data,
             meta=meta_safe,
-            assignee_id=assignee_id,
             audit_type=audit_type,
         )
         return await self.repository.create(session=session, obj_in=entry)
@@ -91,21 +76,80 @@ class AuditLogService(BaseService):
         entity_type: str,
         entity_id: int,
         limit: Optional[int] = None,
+        order: str = "asc",
     ) -> List[AuditLog]:
-        """Get audit entries for an entity, ordered by created_at ascending.
-        limit=None: use default. limit=0: no limit. limit>0: cap at that value."""
+        """
+        Get audit entries for an entity.
+
+        To avoid dropping the latest history, limited reads are selected from the
+        newest side and then optionally reordered into ascending display order.
+        """
         if limit == 0:
             effective_limit = None
         elif limit is not None:
             effective_limit = limit
         else:
             effective_limit = AUDIT_FIND_BY_ENTITY_DEFAULT_LIMIT
-        stmt = (
+
+        desc_stmt = (
             select(AuditLog)
             .where(AuditLog.entity_type == entity_type, AuditLog.entity_id == entity_id)
-            .order_by(AuditLog.created_at.asc())
+            .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
         )
         if effective_limit is not None:
-            stmt = stmt.limit(effective_limit)
-        result = await session.execute(stmt)
-        return list(result.scalars().all())
+            desc_stmt = desc_stmt.limit(effective_limit)
+        result = await session.execute(desc_stmt)
+        items = list(result.scalars().all())
+
+        normalized_order = (order or "asc").lower()
+        if normalized_order == "desc":
+            return items
+        items.reverse()
+        return items
+
+    @db_session_manager
+    async def purge_before(
+        self,
+        *,
+        session,
+        before_iso: str,
+        retention_class: Optional[str] = None,
+        batch_size: int = 1000,
+    ) -> int:
+        cutoff = datetime.fromisoformat(before_iso.replace("Z", "+00:00"))
+        stmt = (
+            select(AuditLog.id)
+            .where(AuditLog.created_at < cutoff)
+            .order_by(AuditLog.created_at.asc(), AuditLog.id.asc())
+            .limit(max(1, batch_size))
+        )
+        if retention_class:
+            stmt = stmt.where(AuditLog.retention_class == retention_class)
+        ids = list((await session.execute(stmt)).scalars().all())
+        if not ids:
+            return 0
+        delete_stmt = delete(AuditLog).where(AuditLog.id.in_(ids))
+        result = await session.execute(delete_stmt)
+        return int(result.rowcount or 0)
+
+    @db_session_manager
+    async def purge_expired(
+        self,
+        *,
+        session,
+        batch_size: int = 1000,
+    ) -> int:
+        now_utc = datetime.now(timezone.utc)
+        deleted_total = 0
+        for retention_class, days in AUDIT_RETENTION_DAYS.items():
+            cutoff = now_utc - timedelta(days=days)
+            deleted = await self.purge_before(
+                session=session,
+                before_iso=cutoff.isoformat(),
+                retention_class=retention_class,
+                batch_size=max(1, batch_size - deleted_total),
+            )
+            deleted_total += deleted
+            if deleted_total >= batch_size:
+                break
+        return deleted_total

@@ -18,7 +18,7 @@ from utils.time_utils import now, TimeUtils
 
 from telegram import Update, Message
 from telegram.ext import ContextTypes
-from shared.schemas import UserSchema, AuditLogSchema, StorageFileSchema
+from shared.schemas import UserSchema, BotMessageRefSchema, StorageFileSchema
 
 if TYPE_CHECKING:
     from bot import Bot
@@ -47,6 +47,73 @@ class NotificationService(BaseService):
         self._chief_engineer_chat_id = self.bot.managers.headers.get("CHIEF_ENGINEER_CHAT_ID")
         self._reminder_scheduler_task = asyncio.create_task(self._run_reminder_scheduler())
         print("NotificationService initialized")
+
+    async def _upsert_message_ref(
+        self,
+        *,
+        entity_type: str,
+        entity_id: int,
+        chat_id: int,
+        message_id: int,
+        kind: str = "PRIMARY",
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        await self.bot.managers.database.bot_message_ref.upsert_message(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            chat_id=chat_id,
+            message_id=message_id,
+            kind=kind,
+            meta=meta or {},
+            model_class=BotMessageRefSchema,
+        )
+
+    async def _get_primary_message_ref(
+        self,
+        *,
+        entity_type: str,
+        entity_id: int,
+    ) -> Any:
+        result = await self.bot.managers.database.bot_message_ref.get_primary(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            model_class=BotMessageRefSchema,
+        )
+        return result.get("data") if result.get("success") else None
+
+    async def _list_message_refs(
+        self,
+        *,
+        entity_type: str,
+        entity_id: int,
+    ) -> list[Any]:
+        result = await self.bot.managers.database.bot_message_ref.list_by_entity(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            model_class=BotMessageRefSchema,
+        )
+        return result.get("data", []) if result.get("success") else []
+
+    async def _find_message_ref(
+        self,
+        *,
+        chat_id: int,
+        message_id: int,
+        entity_type: Optional[str] = None,
+    ) -> Any:
+        result = await self.bot.managers.database.bot_message_ref.find_by_message(
+            chat_id=chat_id,
+            message_id=message_id,
+            entity_type=entity_type,
+            model_class=BotMessageRefSchema,
+        )
+        return result.get("data") if result.get("success") else None
+
+    async def _delete_message_refs(self, *, entity_type: str, entity_id: int) -> None:
+        await self.bot.managers.database.bot_message_ref.delete_by_entity(
+            entity_type=entity_type,
+            entity_id=entity_id,
+        )
 
     def _compose_broadcast_text(self, title: str, message: str) -> str:
         return self.bot.get_text(
@@ -384,20 +451,15 @@ class NotificationService(BaseService):
                 parse_mode=ParseMode.HTML
             )
 
-            # Link the message ID to the ticket (для последующего edit/delete через сайт)
             if message and message.message_id:
-                updated = await self.bot.services.service_ticket.update_service_ticket(
-                    ticket.id,
-                    {"msid": message.message_id},
-                    _audit_context={
-                        "source": "bot_service",
-                        "assignee_id": 1,  # system
-                        "meta": {"msid": message.message_id, "user_id": ticket.user_id},
-                    },
+                await self._upsert_message_ref(
+                    entity_type="ServiceTicket",
+                    entity_id=ticket.id,
+                    chat_id=int(self._admin_chat_id),
+                    message_id=message.message_id,
+                    kind="PRIMARY",
+                    meta={"user_id": ticket.user_id},
                 )
-                if updated is None:
-                    print(f"Failed to save msid for service_ticket {ticket.id}")
-                    return {"success": False, "error": "msid_update_failed"}
             return {"success": True, "error": None}
         except Exception as e:
             print(f"Error sending ticket notification to admin chat: {e}")
@@ -421,7 +483,12 @@ class NotificationService(BaseService):
                 return {"success": False, "error": "ticket_not_found"}
             if not self._admin_chat_id:
                 return {"success": True, "error": None}
-            if not ticket.msid:
+            primary_ref = await self._get_primary_message_ref(
+                entity_type="ServiceTicket",
+                entity_id=ticket.id,
+            )
+            message_id = getattr(primary_ref, "message_id", None) or getattr(ticket, "msid", None)
+            if not message_id:
                 return {"success": True, "error": None}
 
             user = await self.bot.services.user.get_user_by_id(ticket.user_id)
@@ -456,7 +523,7 @@ class NotificationService(BaseService):
             ]
             await self.bot.managers.message.edit_message(
                 chat_id=self._admin_chat_id,
-                message_id=ticket.msid,
+                message_id=message_id,
                 text="ticket_to_admin_chat",
                 payload=payload,
             )
@@ -481,9 +548,18 @@ class NotificationService(BaseService):
             reply_to_message = update.message.reply_to_message
             user_id = update.message.from_user.id if update.message.from_user else None
 
-            ticket = await self.bot.services.service_ticket.get_service_ticket_by_msid(
-                reply_to_message.message_id
+            ticket = None
+            message_ref = await self._find_message_ref(
+                chat_id=update.effective_chat.id,
+                message_id=reply_to_message.message_id,
+                entity_type="ServiceTicket",
             )
+            if message_ref is not None:
+                ticket = await self.bot.services.service_ticket.get_service_ticket_by_id(message_ref.entity_id)
+            if not ticket:
+                ticket = await self.bot.services.service_ticket.get_service_ticket_by_msid(
+                    reply_to_message.message_id
+                )
             if not ticket:
                 return False
 
@@ -524,6 +600,14 @@ class NotificationService(BaseService):
         await self.ensure_user_exists(user_id)
         log = await self.bot.services.service_ticket.update_service_ticket_status(ticket.id, ServiceTicketStatus.IN_PROGRESS, update.message.message_id, user_id)
         if log is not None:
+            await self._upsert_message_ref(
+                entity_type="ServiceTicket",
+                entity_id=ticket.id,
+                chat_id=update.effective_chat.id,
+                message_id=update.message.message_id,
+                kind="REPLY",
+                meta={"status": ServiceTicketStatus.IN_PROGRESS, "user_id": user_id},
+            )
             await self.bot.managers.message.reply_message(
                 update, context, "ticket_accepted", payload=[str(ticket.id)]
             )
@@ -535,6 +619,14 @@ class NotificationService(BaseService):
             ticket.id, ServiceTicketStatus.ASSIGNED, update.message.message_id, user_id, assignee=assignee
         )
         if log is not None:
+            await self._upsert_message_ref(
+                entity_type="ServiceTicket",
+                entity_id=ticket.id,
+                chat_id=update.effective_chat.id,
+                message_id=update.message.message_id,
+                kind="REPLY",
+                meta={"status": ServiceTicketStatus.ASSIGNED, "user_id": user_id, "assignee": assignee},
+            )
             await self.bot.managers.message.reply_message(
                 update, context, "ticket_assigned", payload=[str(ticket.id), assignee]
             )
@@ -544,6 +636,14 @@ class NotificationService(BaseService):
         await self.ensure_user_exists(user_id)
         log = await self.bot.services.service_ticket.update_service_ticket_status(ticket.id, ServiceTicketStatus.COMPLETED, update.message.message_id, user_id)
         if log is not None:
+            await self._upsert_message_ref(
+                entity_type="ServiceTicket",
+                entity_id=ticket.id,
+                chat_id=update.effective_chat.id,
+                message_id=update.message.message_id,
+                kind="REPLY",
+                meta={"status": ServiceTicketStatus.COMPLETED, "user_id": user_id},
+            )
             await self.bot.managers.message.reply_message(
                 update, context, "ticket_completed", payload=[str(ticket.id)]
             )
@@ -573,14 +673,20 @@ class NotificationService(BaseService):
             )
             await self.bot.services.stats.force_update_stats()
             await self._delete_all_ticket_replies(ticket)
-            if self._admin_chat_id and ticket.msid:
+            primary_ref = await self._get_primary_message_ref(
+                entity_type="ServiceTicket",
+                entity_id=ticket.id,
+            )
+            primary_message_id = getattr(primary_ref, "message_id", None) or getattr(ticket, "msid", None)
+            if self._admin_chat_id and primary_message_id:
                 try:
                     await self.bot.managers.message.delete_message(
                         chat_id=self._admin_chat_id,
-                        message_id=ticket.msid,
+                        message_id=primary_message_id,
                     )
                 except Exception as e:
-                    print(f"Error deleting ticket message (msid={ticket.msid}): {e}")
+                    print(f"Error deleting ticket message (msid={primary_message_id}): {e}")
+                await self._delete_message_refs(entity_type="ServiceTicket", entity_id=ticket.id)
                 admin_text = self.bot.get_text("ticket_completed_admin", [ticket_id])
                 await self.bot.application.bot.send_message(
                     chat_id=self._admin_chat_id,
@@ -654,21 +760,10 @@ class NotificationService(BaseService):
             if not self._admin_chat_id:
                 return {"success": True, "error": None}
 
-            message_ids_to_delete = set()
-            if ticket.msid:
+            refs = await self._list_message_refs(entity_type="ServiceTicket", entity_id=ticket.id)
+            message_ids_to_delete = {ref.message_id for ref in refs}
+            if not message_ids_to_delete and ticket.msid:
                 message_ids_to_delete.add(ticket.msid)
-
-            result = await self.bot.managers.database.audit_log.find_by_entity(
-                entity_type="ServiceTicket",
-                entity_id=ticket.id,
-                model_class=AuditLogSchema,
-            )
-            ticket_logs = result.get("data", []) if result.get("success") else []
-            for log in ticket_logs:
-                meta = log.meta or {}
-                log_msid = meta.get("msid")
-                if log_msid:
-                    message_ids_to_delete.add(log_msid)
 
             for message_id in message_ids_to_delete:
                 try:
@@ -678,6 +773,7 @@ class NotificationService(BaseService):
                     )
                 except Exception:
                     pass
+            await self._delete_message_refs(entity_type="ServiceTicket", entity_id=ticket.id)
             admin_text = self.bot.get_text("ticket_deleted_admin", [ticket.id])
             await self.bot.application.bot.send_message(
                 chat_id=self._admin_chat_id,
@@ -705,27 +801,11 @@ class NotificationService(BaseService):
             if not self._admin_chat_id:
                 return
 
-            # Получаем все audit entries для тикета
-            result = await self.bot.managers.database.audit_log.find_by_entity(
-                entity_type="ServiceTicket",
-                entity_id=ticket.id,
-                model_class=AuditLogSchema,
-            )
-            ticket_logs = result.get("data", []) if result.get("success") else []
-
-            if not ticket_logs:
+            refs = await self._list_message_refs(entity_type="ServiceTicket", entity_id=ticket.id)
+            if not refs:
                 return
 
-            # Собираем все message_id из meta.msid (кроме исходного сообщения тикета)
-            original_msid = ticket.msid
-            message_ids_to_delete = set()
-
-            for log in ticket_logs:
-                meta = log.meta or {}
-                log_msid = meta.get("msid")
-                # Исключаем исходное сообщение тикета и None значения
-                if log_msid and log_msid != original_msid:
-                    message_ids_to_delete.add(log_msid)
+            message_ids_to_delete = {ref.message_id for ref in refs if getattr(ref, "kind", "") != "PRIMARY"}
             
             if not message_ids_to_delete:
                 return
@@ -788,13 +868,15 @@ class NotificationService(BaseService):
             )
             if message and message.message_id:
                 try:
-                    await self.bot.managers.database.guest_parking.update(
+                    await self._upsert_message_ref(
+                        entity_type="GuestParkingRequest",
                         entity_id=req_id,
-                        update_data={"msid": message.message_id},
-                        _audit_context={"source": "bot_service", "assignee_id": 1},
+                        chat_id=int(self._admin_chat_id),
+                        message_id=message.message_id,
+                        kind="PRIMARY",
                     )
                 except Exception as upd_e:
-                    print(f"Error saving msid for guest parking {req_id}: {upd_e}")
+                    print(f"Error saving message ref for guest parking {req_id}: {upd_e}")
         except Exception as e:
             print(f"Error notifying admin about guest parking request: {e}")
 
@@ -923,14 +1005,16 @@ class NotificationService(BaseService):
                 parse_mode=ParseMode.HTML,
             )
             if message and message.message_id:
-                upd = await self.bot.managers.database.guest_parking.update(
+                upd = await self.bot.managers.database.bot_message_ref.upsert_message(
+                    entity_type="GuestParkingRequest",
                     entity_id=req_id_val,
-                    update_data={"msid": message.message_id},
-                    _audit_context={"source": "bot_service", "assignee_id": 1},
+                    chat_id=int(self._admin_chat_id),
+                    message_id=message.message_id,
+                    kind="PRIMARY",
                 )
                 if not upd.get("success"):
-                    print(f"Failed to save msid for guest_parking {req_id_val}: {upd.get('error')}")
-                    return {"success": False, "error": upd.get("error", "msid_update_failed")}
+                    print(f"Failed to save message ref for guest_parking {req_id_val}: {upd.get('error')}")
+                    return {"success": False, "error": upd.get("error", "message_ref_update_failed")}
             return {"success": True, "error": None}
         except Exception as e:
             print(f"Error notifying new guest parking {req_id}: {e}")
@@ -943,7 +1027,11 @@ class NotificationService(BaseService):
             if not resp.get("success") or not resp.get("data"):
                 return {"success": False, "error": "request_not_found"}
             req = resp["data"]
-            msid = req.get("msid") if isinstance(req, dict) else getattr(req, "msid", None)
+            primary_ref = await self._get_primary_message_ref(
+                entity_type="GuestParkingRequest",
+                entity_id=req_id,
+            )
+            msid = getattr(primary_ref, "message_id", None) or (req.get("msid") if isinstance(req, dict) else getattr(req, "msid", None))
             if not msid:
                 return {"success": True, "error": None}
             if not self._admin_chat_id:
@@ -1008,13 +1096,18 @@ class NotificationService(BaseService):
             if not resp.get("success") or not resp.get("data"):
                 return {"success": True, "error": None}
             req = resp["data"]
-            msid = req.get("msid") if isinstance(req, dict) else getattr(req, "msid", None)
+            primary_ref = await self._get_primary_message_ref(
+                entity_type="GuestParkingRequest",
+                entity_id=req_id,
+            )
+            msid = getattr(primary_ref, "message_id", None) or (req.get("msid") if isinstance(req, dict) else getattr(req, "msid", None))
             if not msid or not self._admin_chat_id:
                 return {"success": True, "error": None}
             await self.bot.managers.message.delete_message(
                 chat_id=self._admin_chat_id,
                 message_id=msid,
             )
+            await self._delete_message_refs(entity_type="GuestParkingRequest", entity_id=req_id)
             admin_text = self.bot.get_text("guest_parking_deleted_admin", [req_id])
             await self.bot.application.bot.send_message(
                 chat_id=self._admin_chat_id,

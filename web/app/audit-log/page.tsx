@@ -25,6 +25,8 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
   Space: "Помещение",
   SpaceView: "Просмотр",
   PollAnswer: "Опрос",
+  GuestParkingSettings: "Настройки парковки",
+  StorageFile: "Файл",
 }
 
 const ACTION_LABELS: Record<string, string> = {
@@ -50,6 +52,8 @@ function getEntityListUrl(entityType: string): string | null {
       return "/spaces"
     case "PollAnswer":
       return "/spaces"
+    case "StorageFile":
+      return "/file-storage"
     default:
       return null
   }
@@ -159,12 +163,22 @@ export default function AuditLogPage() {
       },
     },
     {
-      accessorKey: "assignee_display",
-      header: "Исполнитель",
-      meta: auditLogColumnMeta.assignee_display,
+      accessorKey: "actor_display",
+      header: "Кто изменил",
+      meta: auditLogColumnMeta.actor_display,
       cell: ({ row }) => (
         <span className="text-sm text-muted-foreground">
-          {row.original.assignee_display ?? "—"}
+          {row.original.actor_display ?? row.original.source_service ?? "—"}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "source_service",
+      header: "Источник",
+      meta: auditLogColumnMeta.source_service,
+      cell: ({ row }) => (
+        <span className="text-sm text-muted-foreground">
+          {row.original.source_service ?? "—"}
         </span>
       ),
     },
@@ -204,7 +218,7 @@ export default function AuditLogPage() {
             }}
             contextMenuActions={{
               getCopyText: (row) =>
-                `#${row.original.id} ${row.original.entity_type} #${row.original.entity_id} ${row.original.action} ${row.original.assignee_display ?? ""} ${row.original.created_at ?? ""}`,
+                `#${row.original.id} ${row.original.entity_type} #${row.original.entity_id} ${row.original.action} ${row.original.actor_display ?? ""} ${row.original.created_at ?? ""}`,
             }}
             serverPagination
             totalRowCount={total}

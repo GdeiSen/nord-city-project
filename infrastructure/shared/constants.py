@@ -143,6 +143,18 @@ class StorageFileCategory:
     TEMP = "TEMP"
 
 
+class AuditActorType:
+    USER = "USER"
+    SYSTEM = "SYSTEM"
+    SERVICE = "SERVICE"
+
+
+class AuditRetentionClass:
+    CRITICAL = "CRITICAL"
+    OPERATIONAL = "OPERATIONAL"
+    TECHNICAL = "TECHNICAL"
+
+
 # Entity types (model __name__) that should be audited
 AUDITED_ENTITY_TYPES = frozenset(
     {
@@ -154,6 +166,7 @@ AUDITED_ENTITY_TYPES = frozenset(
         "Space",
         "SpaceView",
         "GuestParkingRequest",
+        "GuestParkingSettings",
         "StorageFile",
     }
 )
@@ -174,15 +187,36 @@ AUDIT_HEAVY_MAX_JSON_BYTES = 100_000
 
 # Per-entity audit mode. Default: fast. ServiceTicket: smart.
 AUDIT_ENTITY_MODES: dict[str, str] = {
-    "User": AUDIT_MODE_FAST,
-    "Feedback": AUDIT_MODE_FAST,
-    "Object": AUDIT_MODE_FAST,
-    "PollAnswer": AUDIT_MODE_FAST,
+    "User": AUDIT_MODE_SMART,
+    "Feedback": AUDIT_MODE_SMART,
+    "Object": AUDIT_MODE_SMART,
+    "PollAnswer": AUDIT_MODE_SMART,
     "ServiceTicket": AUDIT_MODE_SMART,
-    "Space": AUDIT_MODE_FAST,
-    "SpaceView": AUDIT_MODE_FAST,
-    "GuestParkingRequest": AUDIT_MODE_FAST,
+    "Space": AUDIT_MODE_SMART,
+    "SpaceView": AUDIT_MODE_SMART,
+    "GuestParkingRequest": AUDIT_MODE_SMART,
+    "GuestParkingSettings": AUDIT_MODE_SMART,
     "StorageFile": AUDIT_MODE_FAST,
+}
+
+# Retention policy by entity type.
+AUDIT_ENTITY_RETENTION_CLASS: dict[str, str] = {
+    "User": AuditRetentionClass.CRITICAL,
+    "Object": AuditRetentionClass.CRITICAL,
+    "Space": AuditRetentionClass.CRITICAL,
+    "GuestParkingSettings": AuditRetentionClass.CRITICAL,
+    "ServiceTicket": AuditRetentionClass.OPERATIONAL,
+    "GuestParkingRequest": AuditRetentionClass.OPERATIONAL,
+    "Feedback": AuditRetentionClass.OPERATIONAL,
+    "PollAnswer": AuditRetentionClass.OPERATIONAL,
+    "SpaceView": AuditRetentionClass.TECHNICAL,
+    "StorageFile": AuditRetentionClass.TECHNICAL,
+}
+
+AUDIT_RETENTION_DAYS: dict[str, int] = {
+    AuditRetentionClass.CRITICAL: 365,
+    AuditRetentionClass.OPERATIONAL: 180,
+    AuditRetentionClass.TECHNICAL: 45,
 }
 
 ASSIGNEE_SYSTEM = 1

@@ -282,23 +282,33 @@ export interface ServiceTicket extends BaseEntity {
  * Universal audit log entry for tracking data changes across all entities
  *
  * @interface AuditLogEntry
- * @extends BaseEntity
  */
-export interface AuditLogEntry extends BaseEntity {
+export interface AuditLogEntry {
+  id: number;
+  created_at: string;
   /** Entity type (e.g. ServiceTicket, User) */
   entity_type: string;
   /** Entity ID */
   entity_id: number;
+  /** Event type: ENTITY_CHANGE, STATE_CHANGE, etc. */
+  event_type: string;
   /** Action: create, update, delete */
   action: string;
+  /** Actor/user/service that caused the change */
+  actor_id?: number;
+  actor_type?: "USER" | "SYSTEM" | "SERVICE";
+  actor_display?: string;
+  source_service?: string;
+  retention_class?: "CRITICAL" | "OPERATIONAL" | "TECHNICAL";
+  request_id?: string;
+  correlation_id?: string;
+  reason?: string;
   /** Previous state (for update/delete) */
   old_data?: Record<string, unknown>;
   /** New state (for create/update) */
   new_data?: Record<string, unknown>;
-  /** Domain-specific metadata (msid, assignee, type, etc.) */
+  /** Domain-specific metadata */
   meta?: Record<string, unknown>;
-  /** Assignee: user id, 1=system, or service identifier */
-  assignee_id?: number;
 }
 
 /**

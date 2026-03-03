@@ -46,7 +46,8 @@ SORT_COLUMN_MAP: Dict[Tuple[str, str], str] = {
     ("Feedback", "feedback"): "answer",
     # AuditLog
     ("AuditLog", "created"): "created_at",
-    ("AuditLog", "assignee_display"): "assignee_id",
+    ("AuditLog", "actor_display"): "actor_id",
+    ("AuditLog", "assignee_display"): "actor_id",
     # GuestParkingRequest
     ("GuestParkingRequest", "arrival"): "arrival_date",
     ("GuestParkingRequest", "user"): "user_id",
@@ -93,11 +94,10 @@ class GenericRepository:
         """
         try:
             session.add(obj_in)
-            await session.commit()
+            await session.flush()
             await session.refresh(obj_in)
             return obj_in
         except Exception as e:
-            await session.rollback()
             logger.error(f"Error creating {self.model.__name__}: {e}", exc_info=True)
             raise
 
@@ -390,11 +390,10 @@ class GenericRepository:
         try:
             # Merge updates the object state and re-attaches it to the session.
             updated_obj = await session.merge(obj_in)
-            await session.commit()
-            await session.refresh(obj_in)
+            await session.flush()
+            await session.refresh(updated_obj)
             return updated_obj
         except Exception as e:
-            await session.rollback()
             logger.error(f"Error updating {self.model.__name__}: {e}", exc_info=True)
             raise
 
@@ -413,11 +412,10 @@ class GenericRepository:
             obj = await self.get_by_id(session, entity_id=entity_id)
             if obj:
                 await session.delete(obj)
-                await session.commit()
+                await session.flush()
                 return True
             return False
         except Exception as e:
-            await session.rollback()
             logger.error(f"Error deleting {self.model.__name__} with id {entity_id}: {e}", exc_info=True)
             raise
 

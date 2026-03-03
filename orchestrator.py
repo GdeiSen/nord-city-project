@@ -10,7 +10,7 @@ Usage
 -----
     python orchestrator.py                    # start ALL services, stream logs
     python orchestrator.py --services db,web  # start selected services
-    python orchestrator.py --services site    # site + dependencies (web, db, bot, storage)
+    python orchestrator.py --services site    # site + dependencies (web, db, audit, bot, storage)
     python orchestrator.py --service db       # start a SINGLE service in foreground
     python orchestrator.py --background       # run in background, logs → logs/
     python orchestrator.py --kill             # stop (ports + state)
@@ -21,6 +21,7 @@ Usage
 Services
 --------
     db    — Database Service   (FastAPI HTTP RPC, port 8001)
+    audit — Audit Service      (FastAPI HTTP RPC, port 8005)
     web   — Web Service        (FastAPI REST API, port 8003)
     bot   — Bot Service        (Telegram bot, port 8002)
     storage — Storage Service  (MinIO-backed file gateway, port 8004)
@@ -154,6 +155,16 @@ SERVICES: Dict[str, ServiceInfo] = {
         health_url="http://127.0.0.1:{port}/health",
         depends_on=["db"],
     ),
+    "audit": ServiceInfo(
+        name="Audit Service",
+        alias="audit",
+        description="FastAPI HTTP RPC — audit operations",
+        working_dir=INFRASTRUCTURE_ROOT / "services" / "audit_service" / "src",
+        command=[sys.executable, "main.py"],
+        port=8005,
+        health_url="http://127.0.0.1:{port}/health",
+        depends_on=["db"],
+    ),
     "storage": ServiceInfo(
         name="Storage Service",
         alias="storage",
@@ -171,7 +182,7 @@ SERVICES: Dict[str, ServiceInfo] = {
         command=[sys.executable, "main.py"],
         port=8003,
         health_url="http://127.0.0.1:{port}/health",
-        depends_on=["db", "bot", "storage"],
+        depends_on=["db", "audit", "bot", "storage"],
     ),
     "site": ServiceInfo(
         name="Next.js Site",
@@ -237,6 +248,7 @@ def _update_ports_from_env():
     """Refresh port values from loaded environment variables."""
     for key, env_var, default in [
         ("db", "DATABASE_SERVICE_PORT", "8001"),
+        ("audit", "AUDIT_SERVICE_PORT", "8005"),
         ("web", "WEB_SERVICE_PORT", "8003"),
         ("bot", "BOT_SERVICE_PORT", "8002"),
         ("storage", "STORAGE_SERVICE_PORT", "8004"),
@@ -866,6 +878,7 @@ def _build_parser() -> argparse.ArgumentParser:
         epilog="""
 Services:
   db    — Database Service   (port 8001)
+  audit — Audit Service      (port 8005)
   web   — Web Service       (port 8003)
   bot   — Bot Service       (port 8002)
   storage — Storage Service (port 8004)
