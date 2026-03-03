@@ -100,11 +100,11 @@ function JsonBlock({
   return (
     <div className="space-y-2">
       <p className="text-sm font-medium">{title}</p>
-      <div className="min-w-0 max-w-full overflow-hidden rounded-md border bg-muted/20">
-        <div className="max-h-80 min-w-0 max-w-full overflow-x-scroll overflow-y-auto">
-          <pre className="inline-block min-w-full max-w-none p-3 text-xs leading-5 whitespace-pre align-top">
+      <div className="w-full max-w-full overflow-hidden rounded-md border bg-muted/20">
+        <div className="max-h-80 w-full max-w-full overflow-x-auto overflow-y-auto">
+          <pre className="m-0 w-max min-w-full max-w-none p-3 text-xs leading-5 whitespace-pre">
             <code
-              className="inline-block min-w-full max-w-none"
+              className="block w-max min-w-full max-w-none"
               dangerouslySetInnerHTML={{
                 __html: getHighlightedJsonHtml(value),
               }}
@@ -151,7 +151,7 @@ export function AuditEntrySheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="flex min-w-0 !w-[min(92vw,72rem)] max-w-[min(92vw,72rem)] flex-col gap-0 p-0 sm:!max-w-[min(92vw,72rem)]"
+        className="flex min-w-0 flex-col gap-0 p-0 sm:!max-w-xl"
       >
         <SheetHeader className="space-y-2 border-b pb-4">
           <SheetTitle>
