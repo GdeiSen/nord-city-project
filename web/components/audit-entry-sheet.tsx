@@ -6,7 +6,6 @@ import type { ReactNode } from "react"
 import type { AuditLogEntry } from "@/types"
 import { formatDate } from "@/lib/date-utils"
 import { Badge } from "@/components/ui/badge"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import {
   Sheet,
@@ -98,18 +97,20 @@ function JsonBlock({
   if (!value || Object.keys(value).length === 0) return null
 
   return (
-    <div className="space-y-2">
+    <div className="min-w-0 max-w-full space-y-2">
       <p className="text-sm font-medium">{title}</p>
-      <div className="w-full max-w-full overflow-hidden rounded-md border bg-muted/20">
-        <div className="max-h-80 w-full max-w-full overflow-x-auto overflow-y-auto">
-          <pre className="m-0 w-max min-w-full max-w-none p-3 text-xs leading-5 whitespace-pre">
-            <code
-              className="block w-max min-w-full max-w-none"
-              dangerouslySetInnerHTML={{
-                __html: getHighlightedJsonHtml(value),
-              }}
-            />
-          </pre>
+      <div className="min-w-0 max-w-full overflow-hidden rounded-md border bg-muted/20">
+        <div className="max-h-80 min-w-0 max-w-full overflow-x-auto overflow-y-auto">
+          <div className="inline-block min-w-full align-top">
+            <pre className="m-0 inline-block min-w-full p-3 text-xs leading-5 whitespace-pre">
+              <code
+                className="block"
+                dangerouslySetInnerHTML={{
+                  __html: getHighlightedJsonHtml(value),
+                }}
+              />
+            </pre>
+          </div>
         </div>
       </div>
     </div>
@@ -151,7 +152,7 @@ export function AuditEntrySheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="flex min-w-0 flex-col gap-0 p-0 sm:!max-w-xl"
+        className="flex w-3/4 min-w-0 overflow-x-hidden flex-col gap-0 p-0 sm:max-w-xl"
       >
         <SheetHeader className="space-y-2 border-b pb-4">
           <SheetTitle>
@@ -164,9 +165,9 @@ export function AuditEntrySheet({
           </SheetDescription>
         </SheetHeader>
 
-        <ScrollArea className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
           {entry ? (
-            <div className="min-w-0 max-w-full space-y-6 p-4">
+            <div className="min-w-0 max-w-full overflow-x-hidden space-y-6 p-4">
               <div className="flex flex-wrap gap-2">
                 <Badge variant={entry.action === "delete" ? "destructive" : entry.action === "create" ? "default" : "secondary"}>
                   {ACTION_LABELS[entry.action] ?? entry.action}
@@ -243,7 +244,7 @@ export function AuditEntrySheet({
               Выберите запись в таблице, чтобы посмотреть детали.
             </div>
           )}
-        </ScrollArea>
+        </div>
       </SheetContent>
     </Sheet>
   )
