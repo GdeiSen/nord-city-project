@@ -31,12 +31,6 @@ class ServiceTicketService(BaseService):
             return result["data"]
         return None
 
-    async def get_service_ticket_by_msid(self, msid: int) -> Optional[ServiceTicketSchema]:
-        result = await self.bot.managers.database.service_ticket.get_by_msid(msid=msid, model_class=ServiceTicketSchema)
-        if result["success"]:
-            return result["data"]
-        return None
-
     async def get_all_service_tickets(self) -> List[ServiceTicketSchema]:
         result = await self.bot.managers.database.service_ticket.get_all(model_class=ServiceTicketSchema)
         if result["success"]:
@@ -65,7 +59,7 @@ class ServiceTicketService(BaseService):
         self,
         service_ticket_id: int,
         status: str,
-        msid: int,
+        reply_message_id: int,
         user_id: int,
         assignee: Optional[str] = None,
     ) -> Optional[ServiceTicketSchema]:
@@ -73,7 +67,7 @@ class ServiceTicketService(BaseService):
         ASSIGNED: status stays ASSIGNED, meta records who it was assigned to.
         IN_PROGRESS: set when 'принято'."""
         try:
-            meta: Dict[str, Any] = {"reply_message_id": msid, "user_id": user_id}
+            meta: Dict[str, Any] = {"reply_message_id": reply_message_id, "user_id": user_id}
             if assignee:
                 meta["assignee"] = assignee
             result = await self.bot.managers.database.service_ticket.update(

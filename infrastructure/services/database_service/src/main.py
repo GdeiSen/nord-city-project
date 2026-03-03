@@ -23,6 +23,7 @@ from shared.schemas.rpc import get_rpc_schema
 from models.user import User
 from models.user_auth import UserAuth
 from models.feedback import Feedback
+from models.dynamic_dialog_binding import DynamicDialogBinding
 from models.object import Object
 from models.poll_answer import PollAnswer
 from models.service_ticket import ServiceTicket
@@ -40,6 +41,7 @@ from services.user_service import UserService
 from services.auth_service import AuthService
 from services.otp_service import OtpService
 from services.feedback_service import FeedbackService
+from services.dynamic_dialog_binding_service import DynamicDialogBindingService
 from services.object_service import ObjectService
 from services.poll_service import PollService
 from services.space_service import SpaceService
@@ -81,7 +83,7 @@ def _register_resources():
     logger.info("Registering database models and services...")
 
     models_to_register = [
-        User, UserAuth, Feedback, Object, PollAnswer,
+        User, UserAuth, DynamicDialogBinding, Feedback, Object, PollAnswer,
         ServiceTicket, GuestParkingRequest, GuestParkingSettings, AuditLog, Space, SpaceView, OtpCode,
         StorageFile, BotMessageRef,
     ]
@@ -91,6 +93,7 @@ def _register_resources():
     services_to_register = {
         "user": UserService,
         "auth": AuthService,
+        "dynamic_dialog_binding": DynamicDialogBindingService,
         "feedback": FeedbackService,
         "object": ObjectService,
         "poll": PollService,

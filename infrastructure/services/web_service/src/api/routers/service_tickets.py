@@ -1,6 +1,6 @@
 import logging
 import json
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
@@ -198,23 +198,6 @@ async def export_service_tickets(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="service-tickets.csv"'},
     )
-
-
-@router.get("/msid/{msid}", response_model=List[ServiceTicketResponse])
-async def get_service_tickets_by_msid(msid: int):
-    """Must be registered BEFORE /{entity_id} to avoid path conflict."""
-    response = await db_client.service_ticket.find(
-        filters={"msid": msid},
-        model_class=ServiceTicketSchema,
-    )
-    if not response.get("success"):
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=response.get("error", "Failed to find service tickets"),
-        )
-    items = response.get("data", [])
-    return await enrich_service_tickets_with_users_and_objects(items)
-
 
 @router.get("/{entity_id}", response_model=ServiceTicketResponse)
 async def get_service_ticket_by_id(entity_id: int):

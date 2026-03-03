@@ -193,14 +193,21 @@ class _UserProxy(_CRUDProxy):
         )
 
 
+class _DynamicDialogBindingProxy(_CRUDProxy):
+    """Canonical DDID registry proxy."""
+
+    async def get_by_ddid(self, *, ddid: str, model_class: Any = None) -> Dict[str, Any]:
+        return await self._call("get_by_ddid", _model_class=model_class, ddid=ddid)
+
+    async def ensure_binding(self, *, ddid: str, model_class: Any = None) -> Dict[str, Any]:
+        return await self._call("ensure_binding", _model_class=model_class, ddid=ddid)
+
+
 class _ServiceTicketProxy(_CRUDProxy):
     """Service ticket proxy with additional methods."""
 
     async def get_stats(self, *, model_class: Any = None) -> Dict[str, Any]:
         return await self._call("get_stats", _model_class=model_class)
-
-    async def get_by_msid(self, *, msid: Any, model_class: Any = None) -> Dict[str, Any]:
-        return await self._call("get_by_msid", _model_class=model_class, msid=msid)
 
 
 class _AuditLogProxy(_CRUDProxy):
@@ -570,6 +577,7 @@ class DatabaseClient:
         # --- Explicit service proxies ---
         self.user = _UserProxy(self._http, "user")
         self.auth = _CRUDProxy(self._http, "auth")
+        self.dynamic_dialog_binding = _DynamicDialogBindingProxy(self._http, "dynamic_dialog_binding")
         self.feedback = _CRUDProxy(self._http, "feedback")
         self.object = _ObjectProxy(self._http, "object")
         self.poll = _CRUDProxy(self._http, "poll")

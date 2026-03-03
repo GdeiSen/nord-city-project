@@ -94,7 +94,6 @@ async def service_callback(
                 description=None,
                 location=None,
                 status="NEW",
-                msid=None
             )
             
             active_dialog = bot.managers.storage.get(context, Variables.ACTIVE_DYN_DIALOG)
@@ -244,6 +243,5 @@ async def service_callback(
         bot.managers.storage.set(context, Variables.USER_SERVICE_TICKET, service_ticket)
 
     return CallbackResult.continue_()
-
 
 

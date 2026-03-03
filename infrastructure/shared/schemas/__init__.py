@@ -17,3 +17,4 @@ from .otp_code import OtpCodeSchema
 from .enrichment import UserSummary, ObjectSummary
 from .storage_file import StorageFileSchema
 from .bot_message_ref import BotMessageRefSchema
+from .dynamic_dialog_binding import DynamicDialogBindingSchema

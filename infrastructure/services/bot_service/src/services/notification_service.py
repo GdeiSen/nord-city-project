@@ -487,7 +487,7 @@ class NotificationService(BaseService):
                 entity_type="ServiceTicket",
                 entity_id=ticket.id,
             )
-            message_id = getattr(primary_ref, "message_id", None) or getattr(ticket, "msid", None)
+            message_id = getattr(primary_ref, "message_id", None)
             if not message_id:
                 return {"success": True, "error": None}
 
@@ -556,10 +556,6 @@ class NotificationService(BaseService):
             )
             if message_ref is not None:
                 ticket = await self.bot.services.service_ticket.get_service_ticket_by_id(message_ref.entity_id)
-            if not ticket:
-                ticket = await self.bot.services.service_ticket.get_service_ticket_by_msid(
-                    reply_to_message.message_id
-                )
             if not ticket:
                 return False
 
@@ -677,7 +673,7 @@ class NotificationService(BaseService):
                 entity_type="ServiceTicket",
                 entity_id=ticket.id,
             )
-            primary_message_id = getattr(primary_ref, "message_id", None) or getattr(ticket, "msid", None)
+            primary_message_id = getattr(primary_ref, "message_id", None)
             if self._admin_chat_id and primary_message_id:
                 try:
                     await self.bot.managers.message.delete_message(
@@ -685,7 +681,7 @@ class NotificationService(BaseService):
                         message_id=primary_message_id,
                     )
                 except Exception as e:
-                    print(f"Error deleting ticket message (msid={primary_message_id}): {e}")
+                    print(f"Error deleting ticket message (message_id={primary_message_id}): {e}")
                 await self._delete_message_refs(entity_type="ServiceTicket", entity_id=ticket.id)
                 admin_text = self.bot.get_text("ticket_completed_admin", [ticket_id])
                 await self.bot.application.bot.send_message(
@@ -762,8 +758,6 @@ class NotificationService(BaseService):
 
             refs = await self._list_message_refs(entity_type="ServiceTicket", entity_id=ticket.id)
             message_ids_to_delete = {ref.message_id for ref in refs}
-            if not message_ids_to_delete and ticket.msid:
-                message_ids_to_delete.add(ticket.msid)
 
             for message_id in message_ids_to_delete:
                 try:
@@ -791,11 +785,11 @@ class NotificationService(BaseService):
         """
         Удаляет все reply-сообщения на исходное сообщение тикета.
         
-        Собирает все message_id из логов тикета и удаляет соответствующие сообщения
+        Собирает все message_id из bot_message_refs и удаляет соответствующие сообщения
         из админ-чата, кроме исходного сообщения тикета.
 
         Args:
-            ticket: Объект тикета с информацией о msid (исходное сообщение).
+            ticket: Объект тикета, для которого уже существуют ссылки в bot_message_refs.
         """
         try:
             if not self._admin_chat_id:

@@ -56,7 +56,8 @@ payload = {
 
 ```python
 db_client.user           # CRUD + get_by_username, get_by_ids
-db_client.service_ticket # CRUD + get_stats, get_by_msid
+db_client.dynamic_dialog_binding # CRUD + get_by_ddid, ensure_binding
+db_client.service_ticket # CRUD + get_stats
 db_client.object         # CRUD + get_by_ids
 db_client.space          # CRUD + get_by_object_id
 db_client.feedback       # CRUD

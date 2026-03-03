@@ -12,6 +12,8 @@
   7. Создание таблицы guest_parking_settings
   8. Создание таблицы storage_files
   9. Рефакторинг аудита (новые поля audit_log + bot_message_refs)
+  10. Перенос legacy service_tickets.msid в bot_message_refs и удаление колонки
+  11. Создание реестра DDID и связывание feedbacks / poll_answers / service_tickets
 
 Использование:
     Из корня проекта:
@@ -56,6 +58,11 @@ from models.guest_parking_settings import GuestParkingSettings
 from models.audit_log import AuditLog
 from models.storage_file import StorageFile
 from models.bot_message_ref import BotMessageRef
+from models.dynamic_dialog_binding import DynamicDialogBinding
+from shared.utils.ddid_utils import normalize_ddid, parse_ddid
+
+DDID_TABLES = ("feedbacks", "poll_answers", "service_tickets")
+PLACEHOLDER_DDID = "0000-0000-0000"
 
 
 def get_db_url() -> str:
@@ -253,38 +260,263 @@ async def step9_migrate_audit(engine):
     print("  [OK] audit_log обновлен, bot_message_refs создана")
 
 
+async def step10_drop_service_ticket_msid(engine):
+    """Перенос legacy service_tickets.msid в bot_message_refs и удаление колонки."""
+    async with engine.begin() as conn:
+        column_exists = await conn.scalar(
+            text(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_name = 'service_tickets' AND column_name = 'msid'
+                )
+                """
+            )
+        )
+        if not column_exists:
+            print("  [OK] Колонка service_tickets.msid уже отсутствует")
+            return
+
+        pending_backfill = await conn.scalar(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM service_tickets st
+                WHERE st.msid IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM bot_message_refs bmr
+                      WHERE bmr.entity_type = 'ServiceTicket'
+                        AND bmr.entity_id = st.id
+                        AND bmr.kind = 'PRIMARY'
+                  )
+                """
+            )
+        )
+        pending_backfill = int(pending_backfill or 0)
+
+        inserted = 0
+        if pending_backfill > 0:
+            admin_chat_id_raw = os.getenv("ADMIN_CHAT_ID")
+            if not admin_chat_id_raw:
+                raise RuntimeError(
+                    "Для переноса service_tickets.msid требуется ADMIN_CHAT_ID, "
+                    "потому что найдены тикеты без PRIMARY-ссылки в bot_message_refs."
+                )
+            try:
+                admin_chat_id = int(str(admin_chat_id_raw).strip())
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError("ADMIN_CHAT_ID должен быть целым числом") from exc
+
+            result = await conn.execute(
+                text(
+                    """
+                    INSERT INTO bot_message_refs (
+                        entity_type,
+                        entity_id,
+                        chat_id,
+                        message_id,
+                        kind,
+                        meta
+                    )
+                    SELECT
+                        'ServiceTicket',
+                        st.id,
+                        :admin_chat_id,
+                        st.msid,
+                        'PRIMARY',
+                        json_build_object('source', 'service_ticket_msid_migration')
+                    FROM service_tickets st
+                    WHERE st.msid IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM bot_message_refs bmr
+                          WHERE bmr.entity_type = 'ServiceTicket'
+                            AND bmr.entity_id = st.id
+                            AND bmr.kind = 'PRIMARY'
+                      )
+                    ON CONFLICT (chat_id, message_id) DO NOTHING
+                    """
+                ),
+                {"admin_chat_id": admin_chat_id},
+            )
+            inserted = result.rowcount or 0
+
+        await conn.execute(text("ALTER TABLE service_tickets DROP COLUMN IF EXISTS msid"))
+
+    if pending_backfill > 0:
+        print(f"  [OK] Перенесено PRIMARY message refs: {inserted}")
+    print("  [OK] Колонка service_tickets.msid удалена или отсутствовала")
+
+
+def _normalize_existing_ddid(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return PLACEHOLDER_DDID
+    return normalize_ddid(raw)
+
+
+async def _normalize_table_ddids(conn, table_name: str) -> int:
+    result = await conn.execute(text(f"SELECT DISTINCT ddid FROM {table_name}"))
+    changed = 0
+    for row in result:
+        raw_ddid = row[0]
+        if raw_ddid is None:
+            continue
+        normalized = _normalize_existing_ddid(raw_ddid)
+        if normalized == raw_ddid:
+            continue
+        await conn.execute(
+            text(f"UPDATE {table_name} SET ddid = :normalized WHERE ddid = :raw_ddid"),
+            {"normalized": normalized, "raw_ddid": raw_ddid},
+        )
+        changed += 1
+    return changed
+
+
+async def _backfill_dynamic_dialog_bindings(conn) -> int:
+    result = await conn.execute(
+        text(
+            """
+            SELECT ddid FROM feedbacks
+            UNION
+            SELECT ddid FROM poll_answers
+            UNION
+            SELECT ddid FROM service_tickets
+            """
+        )
+    )
+    inserted = 0
+    for row in result:
+        ddid = row[0]
+        if ddid is None:
+            continue
+        normalized = _normalize_existing_ddid(ddid)
+        dialog_id, sequence_id, item_id = parse_ddid(normalized)
+        insert_result = await conn.execute(
+            text(
+                """
+                INSERT INTO dynamic_dialog_bindings (ddid, dialog_id, sequence_id, item_id)
+                VALUES (:ddid, :dialog_id, :sequence_id, :item_id)
+                ON CONFLICT (ddid) DO NOTHING
+                """
+            ),
+            {
+                "ddid": normalized,
+                "dialog_id": dialog_id,
+                "sequence_id": sequence_id,
+                "item_id": item_id,
+            },
+        )
+        inserted += insert_result.rowcount or 0
+    return inserted
+
+
+async def _ensure_ddid_fk(conn, *, table_name: str, constraint_name: str) -> None:
+    await conn.execute(
+        text(
+            f"""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint
+                    WHERE conname = '{constraint_name}'
+                ) THEN
+                    ALTER TABLE {table_name}
+                    ADD CONSTRAINT {constraint_name}
+                    FOREIGN KEY (ddid)
+                    REFERENCES dynamic_dialog_bindings(ddid)
+                    ON UPDATE RESTRICT
+                    ON DELETE RESTRICT;
+                END IF;
+            END $$;
+            """
+        )
+    )
+
+
+async def step11_add_dynamic_dialog_bindings(engine):
+    """Создание реестра DDID и внешних ключей на canonical DDID."""
+    async with engine.begin() as conn:
+        await conn.run_sync(
+            lambda c: DynamicDialogBinding.__table__.create(c, checkfirst=True)
+        )
+
+        normalized_tables: dict[str, int] = {}
+        for table_name in DDID_TABLES:
+            normalized_tables[table_name] = await _normalize_table_ddids(conn, table_name)
+
+        inserted = await _backfill_dynamic_dialog_bindings(conn)
+
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_feedbacks_ddid ON feedbacks (ddid)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_poll_answers_ddid ON poll_answers (ddid)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_service_tickets_ddid ON service_tickets (ddid)"))
+
+        await _ensure_ddid_fk(
+            conn,
+            table_name="feedbacks",
+            constraint_name="fk_feedbacks_ddid_dynamic_dialog_bindings",
+        )
+        await _ensure_ddid_fk(
+            conn,
+            table_name="poll_answers",
+            constraint_name="fk_poll_answers_ddid_dynamic_dialog_bindings",
+        )
+        await _ensure_ddid_fk(
+            conn,
+            table_name="service_tickets",
+            constraint_name="fk_service_tickets_ddid_dynamic_dialog_bindings",
+        )
+
+    print("  [OK] Таблица dynamic_dialog_bindings создана или уже существует")
+    print(
+        "  [OK] Нормализация ddid: "
+        + ", ".join(f"{table}={count}" for table, count in normalized_tables.items())
+    )
+    print(f"  [OK] Backfill DDID-реестра: {inserted}")
+    print("  [OK] Внешние ключи ddid настроены для feedbacks, poll_answers и service_tickets")
+
+
 async def run_all():
     url = get_db_url()
     engine = create_async_engine(url, echo=False)
 
     print("\n=== Миграция Nord City: старая → новая версия ===\n")
 
-    print("Шаг 1/9: Создание таблицы guest_parking_requests...")
+    print("Шаг 1/11: Создание таблицы guest_parking_requests...")
     await step1_create_guest_parking(engine)
 
-    print("\nШаг 2/9: Миграция TIMESTAMP → TIMESTAMPTZ...")
+    print("\nШаг 2/11: Миграция TIMESTAMP → TIMESTAMPTZ...")
     await step2_migrate_timestamptz(engine)
 
-    print("\nШаг 3/9: Добавление колонки msid...")
+    print("\nШаг 3/11: Добавление колонки msid...")
     await step3_add_msid(engine)
 
-    print("\nШаг 4/9: Удаление колонки reminder_sent...")
+    print("\nШаг 4/11: Удаление колонки reminder_sent...")
     await step4_drop_reminder_sent(engine)
 
-    print("\nШаг 5/9: Удаление колонки reminder_sent_at (логика в кэше)...")
+    print("\nШаг 5/11: Удаление колонки reminder_sent_at (логика в кэше)...")
     await step5_drop_reminder_sent_at(engine)
 
-    print("\nШаг 6/9: Удаление колонки driver_phone...")
+    print("\nШаг 6/11: Удаление колонки driver_phone...")
     await step6_drop_driver_phone(engine)
 
-    print("\nШаг 7/9: Создание таблицы guest_parking_settings...")
+    print("\nШаг 7/11: Создание таблицы guest_parking_settings...")
     await step7_create_guest_parking_settings(engine)
 
-    print("\nШаг 8/9: Создание таблицы storage_files...")
+    print("\nШаг 8/11: Создание таблицы storage_files...")
     await step8_create_storage_files(engine)
 
-    print("\nШаг 9/9: Рефакторинг аудита...")
+    print("\nШаг 9/11: Рефакторинг аудита...")
     await step9_migrate_audit(engine)
+
+    print("\nШаг 10/11: Удаление legacy service_tickets.msid...")
+    await step10_drop_service_ticket_msid(engine)
+
+    print("\nШаг 11/11: Создание DDID-реестра...")
+    await step11_add_dynamic_dialog_bindings(engine)
 
     await engine.dispose()
     print("\n=== Миграция успешно завершена ===\n")

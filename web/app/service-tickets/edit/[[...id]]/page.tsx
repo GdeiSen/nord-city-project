@@ -97,7 +97,7 @@ export default function ServiceTicketEditPage() {
       const payload: Record<string, unknown> = {}
       const fields = [
         "user_id", "object_id", "description", "location", "image", "attachment_urls", "status", "ddid",
-        "answer", "header", "details", "msid", "meta",
+        "answer", "header", "details", "meta",
       ] as const
       for (const key of fields) {
         let val: unknown = (formData as any)[key]

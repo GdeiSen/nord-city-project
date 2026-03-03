@@ -18,7 +18,6 @@ class ServiceTicketResponse(BaseModel):
     attachment_urls: List[str] = []
     status: str = "NEW"
     ddid: Optional[str] = None
-    msid: Optional[int] = None
     answer: Optional[str] = None
     header: Optional[str] = None
     details: Optional[str] = None
@@ -46,7 +45,6 @@ class CreateServiceTicketRequest(BaseModel):
     details: Optional[str] = None
     priority: int = 1
     category: Optional[str] = None
-    msid: Optional[int] = None
     meta: Optional[str] = None
 
 
@@ -68,7 +66,6 @@ class UpdateServiceTicketBody(BaseModel):
     details: Optional[str] = None
     priority: Optional[int] = None
     category: Optional[str] = None
-    msid: Optional[int] = None
     meta: Optional[str] = None
 
 

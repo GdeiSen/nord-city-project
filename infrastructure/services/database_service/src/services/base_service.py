@@ -8,6 +8,7 @@ from database.database_manager import DatabaseManager
 from shared.clients.audit_client import audit_client
 from shared.utils.converter import Converter
 from shared.utils.audit_diff import compute_smart_diff
+from shared.utils.ddid_utils import normalize_ddid
 
 from shared.constants import (
     AUDITED_ENTITY_TYPES,
@@ -25,6 +26,9 @@ from shared.constants import (
 ModelType = TypeVar('ModelType', bound=DeclarativeBase)
 
 logger = logging.getLogger(__name__)
+
+DDID_REGISTRY_MODEL_NAME = "DynamicDialogBinding"
+DDID_PLACEHOLDER = "0000-0000-0000"
 
 def db_session_manager(func):
     """
@@ -87,6 +91,42 @@ class BaseService:
     def _get_audit_context(self, kwargs: dict) -> Optional[dict]:
         """Extract and remove _audit_context from kwargs (actor_id/source/meta/request ids)."""
         return kwargs.pop("_audit_context", None)
+
+    async def _ensure_ddid_binding_for_instance(self, *, session, model_instance: ModelType) -> None:
+        if self.model_class.__name__ == DDID_REGISTRY_MODEL_NAME:
+            return
+        if not hasattr(model_instance, "ddid"):
+            return
+        ddid_value = getattr(model_instance, "ddid", None)
+        if ddid_value is None:
+            return
+        ddid_text = str(ddid_value).strip() or DDID_PLACEHOLDER
+        try:
+            ddid_service = self.db_manager.services.get("dynamic_dialog_binding")
+        except KeyError as exc:
+            raise RuntimeError("dynamic_dialog_binding service is not registered") from exc
+        normalized = normalize_ddid(ddid_text)
+        setattr(model_instance, "ddid", normalized)
+        await ddid_service.ensure_binding(session=session, ddid=normalized)
+
+    async def _ensure_ddid_binding_for_update_data(self, *, session, update_data: Dict[str, Any]) -> Dict[str, Any]:
+        if self.model_class.__name__ == DDID_REGISTRY_MODEL_NAME:
+            return update_data
+        if "ddid" not in update_data:
+            return update_data
+        ddid_value = update_data.get("ddid")
+        if ddid_value is None:
+            return update_data
+        ddid_text = str(ddid_value).strip() or DDID_PLACEHOLDER
+        try:
+            ddid_service = self.db_manager.services.get("dynamic_dialog_binding")
+        except KeyError as exc:
+            raise RuntimeError("dynamic_dialog_binding service is not registered") from exc
+        normalized = normalize_ddid(ddid_text)
+        update_data = dict(update_data)
+        update_data["ddid"] = normalized
+        await ddid_service.ensure_binding(session=session, ddid=normalized)
+        return update_data
 
     def _normalize_audit_context(self, audit_context: Optional[dict]) -> dict:
         ctx = dict(audit_context or {})
@@ -214,6 +254,8 @@ class BaseService:
         if isinstance(model_instance, dict):
             model_instance = Converter.from_dict(self.model_class, model_instance)
 
+        await self._ensure_ddid_binding_for_instance(session=session, model_instance=model_instance)
+
         created_instance = await self.repository.create(session=session, obj_in=model_instance)
         if created_instance is None:
             raise Exception(f"Failed to create new {self.model_class.__name__} in the database.")
@@ -272,6 +314,7 @@ class BaseService:
             return None
 
         update_data = Converter.normalize_for_model(self.model_class, update_data)
+        update_data = await self._ensure_ddid_binding_for_update_data(session=session, update_data=update_data)
         old_data = Converter.to_dict(existing_model)
 
         # Apply updates from the dictionary to the model instance

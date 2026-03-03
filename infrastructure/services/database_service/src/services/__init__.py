@@ -6,6 +6,7 @@ Exports all service classes for the Database Service
 from .user_service import UserService
 from .auth_service import AuthService
 from .feedback_service import FeedbackService
+from .dynamic_dialog_binding_service import DynamicDialogBindingService
 from .poll_service import PollService
 from .service_ticket_service import ServiceTicketService
 from .object_service import ObjectService
@@ -18,6 +19,7 @@ __all__ = [
     
     # Content services
     "FeedbackService",
+    "DynamicDialogBindingService",
     "PollService",
     
     # Business services

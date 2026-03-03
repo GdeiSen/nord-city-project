@@ -71,11 +71,6 @@ class ServiceTicketService(BaseService):
     #     pass
 
     @db_session_manager
-    async def get_by_msid(self, *, session, msid: int) -> ServiceTicket | None:
-        results = await self.repository.find(session=session, msid=msid)
-        return results[0] if results else None
-
-    @db_session_manager
     async def create(self, *, session, model_instance, **kwargs):
         created = await super().create(session=session, model_instance=model_instance, **kwargs)
         await self._sync_ticket_files(session=session, ticket=created)
