@@ -397,8 +397,8 @@ async def _backfill_dynamic_dialog_bindings(conn) -> int:
         insert_result = await conn.execute(
             text(
                 """
-                INSERT INTO dynamic_dialog_bindings (ddid, dialog_id, sequence_id, item_id)
-                VALUES (:ddid, :dialog_id, :sequence_id, :item_id)
+                INSERT INTO dynamic_dialog_bindings (id, ddid, dialog_id, sequence_id, item_id)
+                VALUES (nextval('dynamic_dialog_bindings_id_seq'::regclass), :ddid, :dialog_id, :sequence_id, :item_id)
                 ON CONFLICT (ddid) DO NOTHING
                 """
             ),
@@ -442,6 +442,27 @@ async def step11_add_dynamic_dialog_bindings(engine):
     async with engine.begin() as conn:
         await conn.run_sync(
             lambda c: DynamicDialogBinding.__table__.create(c, checkfirst=True)
+        )
+        await conn.execute(text("CREATE SEQUENCE IF NOT EXISTS dynamic_dialog_bindings_id_seq"))
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE dynamic_dialog_bindings
+                ALTER COLUMN id
+                SET DEFAULT nextval('dynamic_dialog_bindings_id_seq'::regclass)
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                SELECT setval(
+                    'dynamic_dialog_bindings_id_seq',
+                    COALESCE((SELECT MAX(id) FROM dynamic_dialog_bindings), 1),
+                    EXISTS (SELECT 1 FROM dynamic_dialog_bindings)
+                )
+                """
+            )
         )
 
         normalized_tables: dict[str, int] = {}

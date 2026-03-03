@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Integer, Sequence, String, UniqueConstraint, func
+from sqlalchemy import DateTime, Integer, Sequence, String, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -15,7 +15,12 @@ if TYPE_CHECKING:
 class DynamicDialogBinding(Base):
     __tablename__ = "dynamic_dialog_bindings"
 
-    id: Mapped[int] = mapped_column(Integer, Sequence("dynamic_dialog_bindings_id_seq"), primary_key=True)
+    id: Mapped[int] = mapped_column(
+        Integer,
+        Sequence("dynamic_dialog_bindings_id_seq"),
+        primary_key=True,
+        server_default=text("nextval('dynamic_dialog_bindings_id_seq'::regclass)"),
+    )
     ddid: Mapped[str] = mapped_column(String(14), nullable=False, unique=True)
     dialog_id: Mapped[int] = mapped_column(Integer, nullable=False)
     sequence_id: Mapped[int] = mapped_column(Integer, nullable=False)
