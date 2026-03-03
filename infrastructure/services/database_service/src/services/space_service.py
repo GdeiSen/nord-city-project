@@ -4,10 +4,8 @@ from typing import List
 from database.database_manager import DatabaseManager
 from models.space import Space
 from shared.utils.storage_utils import (
-    extract_storage_path,
     get_removed_storage_paths,
 )
-from shared.clients.storage_client import storage_client
 from shared.constants import StorageFileCategory
 from .base_service import BaseService, db_session_manager
 
@@ -73,6 +71,7 @@ class SpaceService(BaseService):
         if "photos" in update_data or "object_id" in update_data:
             existing = await self.repository.get_by_id(session=session, entity_id=entity_id)
             new_list = list(existing.photos) if existing and existing.photos else []
+            storage_svc = self.db_manager.services.get("storage_file")
             next_object_id = None
             if existing and getattr(existing, "object_id", None) is not None:
                 next_object_id = int(existing.object_id)
@@ -83,13 +82,19 @@ class SpaceService(BaseService):
                 old_photos = list(existing.photos) if existing.photos else []
                 new_photos = update_data.get("photos")
                 new_list = list(new_photos) if new_photos else []
-                for path in get_removed_storage_paths(old_photos, new_list):
-                    try:
-                        await storage_client.connect()
-                        await storage_client.delete(path)
-                        logger.info("Cleaned up orphaned storage file: %s", path)
-                    except Exception as e:
-                        logger.warning("Failed to cleanup storage file %s: %s", path, e)
+                if storage_svc is not None:
+                    for path in get_removed_storage_paths(old_photos, new_list):
+                        try:
+                            await storage_svc.delete_file(
+                                session=session,
+                                storage_path=path,
+                                remove_reference=False,
+                                expected_entity_type="Space",
+                                expected_entity_id=int(entity_id),
+                            )
+                            logger.info("Cleaned up orphaned storage file: %s", path)
+                        except Exception as e:
+                            logger.warning("Failed to cleanup storage file %s: %s", path, e)
             await self._sync_space_files(
                 session=session,
                 entity_id=int(entity_id),
@@ -102,16 +107,21 @@ class SpaceService(BaseService):
     async def delete(self, *, session, entity_id, **kwargs):
         """Override to cleanup storage files when space is deleted."""
         existing = await self.repository.get_by_id(session=session, entity_id=entity_id)
+        storage_svc = self.db_manager.services.get("storage_file")
         if existing and existing.photos:
             for url in existing.photos:
-                path = extract_storage_path(str(url) if url else "")
-                if path:
+                if storage_svc is not None:
                     try:
-                        await storage_client.connect()
-                        await storage_client.delete(path)
-                        logger.info("Cleaned up storage file on delete: %s", path)
+                        await storage_svc.delete_file(
+                            session=session,
+                            storage_path=str(url or ""),
+                            remove_reference=False,
+                            expected_entity_type="Space",
+                            expected_entity_id=int(entity_id),
+                        )
+                        logger.info("Cleaned up storage file on delete: %s", url)
                     except Exception as e:
-                        logger.warning("Failed to cleanup storage file %s: %s", path, e)
+                        logger.warning("Failed to cleanup storage file %s: %s", url, e)
         await self._sync_space_files(
             session=session,
             entity_id=int(entity_id),

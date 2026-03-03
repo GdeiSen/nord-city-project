@@ -545,6 +545,26 @@ class _StorageFileProxy(_CRUDProxy):
             meta_updates=meta_updates or {},
         )
 
+    async def delete_file(
+        self,
+        *,
+        storage_path: str,
+        remove_reference: bool = True,
+        expected_entity_type: Optional[str] = None,
+        expected_entity_id: Optional[int] = None,
+        model_class: Any = None,
+        _audit_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "delete_file",
+            _model_class=model_class,
+            storage_path=storage_path,
+            remove_reference=remove_reference,
+            expected_entity_type=expected_entity_type,
+            expected_entity_id=expected_entity_id,
+            _audit_context=_audit_context,
+        )
+
 
 # ---------------------------------------------------------------------------
 # Main client

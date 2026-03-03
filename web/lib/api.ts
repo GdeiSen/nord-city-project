@@ -291,12 +291,47 @@ async function uploadStorageFile(
   return completeData
 }
 
+function extractStoragePath(value: string): string {
+  const candidate = String(value || "").trim()
+  if (!candidate) return ""
+
+  try {
+    const parsed = new URL(candidate)
+    const match = parsed.pathname.match(/\/storage\/(.+)$/)
+    if (match?.[1]) {
+      return decodeURIComponent(match[1])
+    }
+  } catch {
+    // value may already be a raw path
+  }
+
+  return candidate.replace(/^\/+/, "").replace(/^storage\//, "")
+}
+
+async function deleteStorageFile(fileUrlOrPath: string): Promise<void> {
+  const path = extractStoragePath(fileUrlOrPath)
+  if (!path) return
+
+  const encodedPath = path
+    .split("/")
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join("/")
+
+  await apiFetch<void>(`/storage/${encodedPath}`, {
+    method: "DELETE",
+  })
+}
+
 export const storageApi = {
   async upload(
     file: File,
     options: { category?: string } = {}
   ): Promise<UploadedStorageFile> {
     return uploadStorageFile(file, options)
+  },
+  async delete(fileUrlOrPath: string): Promise<void> {
+    return deleteStorageFile(fileUrlOrPath)
   },
 }
 

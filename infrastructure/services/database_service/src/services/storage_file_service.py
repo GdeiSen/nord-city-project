@@ -1,3 +1,5 @@
+import json
+import logging
 import mimetypes
 from pathlib import Path
 from typing import Optional
@@ -5,11 +7,19 @@ from typing import Optional
 from sqlalchemy import select
 
 from database.database_manager import DatabaseManager
+from models.guest_parking_settings import GuestParkingSettings
+from models.object import Object
+from models.service_ticket import ServiceTicket
+from models.space import Space
 from models.storage_file import StorageFile
+from shared.clients.storage_client import storage_client
 from shared.constants import StorageFileCategory, StorageFileKind
+from shared.utils.converter import Converter
 from shared.utils.storage_utils import STORAGE_PATH_PATTERN, extract_storage_path
 
 from .base_service import BaseService, db_session_manager
+
+logger = logging.getLogger(__name__)
 
 
 class StorageFileService(BaseService):
@@ -76,6 +86,89 @@ class StorageFileService(BaseService):
             return current or None
         current.update(updates)
         return current or None
+
+    @classmethod
+    def _remove_url_from_list(cls, urls: list | None, target_path: str) -> list[str]:
+        cleaned: list[str] = []
+        for item in urls or []:
+            candidate = str(item or "").strip()
+            if not candidate:
+                continue
+            if cls._normalize_path(candidate) == target_path:
+                continue
+            if candidate not in cleaned:
+                cleaned.append(candidate)
+        return cleaned
+
+    async def _detach_bound_reference(self, *, session, item: StorageFile) -> None:
+        entity_type = str(item.entity_type or "").strip()
+        entity_id = item.entity_id
+        if not entity_type or entity_id is None:
+            return
+
+        if entity_type == "Object":
+            entity = await session.get(Object, int(entity_id))
+            if entity is None:
+                return
+            entity.photos = self._remove_url_from_list(list(entity.photos or []), item.storage_path)
+            await self.db_manager.repositories.get(Object).update(session=session, obj_in=entity)
+            return
+
+        if entity_type == "Space":
+            entity = await session.get(Space, int(entity_id))
+            if entity is None:
+                return
+            entity.photos = self._remove_url_from_list(list(entity.photos or []), item.storage_path)
+            await self.db_manager.repositories.get(Space).update(session=session, obj_in=entity)
+            return
+
+        if entity_type == "GuestParkingSettings":
+            entity = await session.get(GuestParkingSettings, int(entity_id))
+            if entity is None:
+                return
+            entity.route_images = self._remove_url_from_list(list(entity.route_images or []), item.storage_path)
+            await self.db_manager.repositories.get(GuestParkingSettings).update(session=session, obj_in=entity)
+            return
+
+        if entity_type == "ServiceTicket":
+            entity = await session.get(ServiceTicket, int(entity_id))
+            if entity is None:
+                return
+
+            next_image = str(entity.image or "").strip() or None
+            if next_image and self._normalize_path(next_image) == item.storage_path:
+                next_image = None
+
+            meta_dict: dict = {}
+            if isinstance(entity.meta, dict):
+                meta_dict = dict(entity.meta)
+            elif isinstance(entity.meta, str) and entity.meta.strip():
+                try:
+                    parsed = json.loads(entity.meta)
+                    if isinstance(parsed, dict):
+                        meta_dict = parsed
+                except (TypeError, ValueError):
+                    meta_dict = {}
+
+            attachments = meta_dict.get("attachments") if isinstance(meta_dict, dict) else []
+            next_attachments = self._remove_url_from_list(
+                list(attachments) if isinstance(attachments, list) else [],
+                item.storage_path,
+            )
+            if next_attachments:
+                meta_dict["attachments"] = next_attachments
+            else:
+                meta_dict.pop("attachments", None)
+
+            entity.image = next_image
+            entity.meta = json.dumps(meta_dict, ensure_ascii=False) if meta_dict else None
+            await self.db_manager.repositories.get(ServiceTicket).update(session=session, obj_in=entity)
+            return
+
+        raise ValueError(
+            f"Cannot safely detach storage file bound to unsupported entity "
+            f"{entity_type}#{entity_id}"
+        )
 
     async def _register_upload(
         self,
@@ -315,3 +408,69 @@ class StorageFileService(BaseService):
 
         item.meta = merged_meta
         return await self.repository.update(session=session, obj_in=item)
+
+    @db_session_manager
+    async def delete_file(
+        self,
+        *,
+        session,
+        storage_path: str,
+        remove_reference: bool = True,
+        expected_entity_type: str | None = None,
+        expected_entity_id: int | None = None,
+        **kwargs,
+    ) -> bool:
+        audit_context = self._get_audit_context(kwargs)
+        path = self._normalize_path(storage_path)
+        if not path:
+            return False
+
+        item = await session.scalar(
+            select(StorageFile).where(StorageFile.storage_path == path)
+        )
+
+        if item is None:
+            try:
+                await storage_client.connect()
+                await storage_client.delete(path)
+            except Exception as exc:
+                logger.warning("Failed to cleanup missing registry file %s: %s", path, exc)
+            return False
+
+        is_expected_binding = (
+            bool(expected_entity_type)
+            and item.entity_type == expected_entity_type
+            and expected_entity_id is not None
+            and item.entity_id == int(expected_entity_id)
+        )
+
+        if item.entity_type and item.entity_id is not None:
+            if remove_reference:
+                await self._detach_bound_reference(session=session, item=item)
+            elif not is_expected_binding:
+                raise ValueError(
+                    f"Storage file {path} is still bound to "
+                    f"{item.entity_type}#{item.entity_id}"
+                )
+
+        old_data = Converter.to_dict(item)
+
+        await storage_client.connect()
+        try:
+            await storage_client.delete(path)
+        except Exception as exc:
+            if "not found" not in str(exc).lower():
+                raise
+            logger.info("Storage object %s was already absent during delete.", path)
+
+        deleted = await self.repository.delete(session=session, entity_id=int(item.id))
+        if deleted and old_data is not None:
+            await self._write_audit(
+                session,
+                int(item.id),
+                "delete",
+                old_data=old_data,
+                new_data=None,
+                audit_context=audit_context,
+            )
+        return bool(deleted)

@@ -170,6 +170,7 @@ export default function NotificationsPage() {
                     label="Вложения"
                     description="Поддерживаются изображения и документы: PDF, DOCX, TXT, MD, Excel."
                     category="SYSTEM"
+                    deleteOnRemove
                   />
 
                   <div className="flex justify-end pt-4">

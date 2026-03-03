@@ -1,8 +1,9 @@
 "use client"
 
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useState } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
+import { AuditEntrySheet } from "@/components/audit-entry-sheet"
 import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { Badge } from "@/components/ui/badge"
@@ -14,7 +15,7 @@ import { DataTable, createSelectColumn } from "@/components/data-table"
 import { PageHeader } from "@/components/page-header"
 import { useServerPaginatedData, useFilterPickerData } from "@/hooks"
 import { Toaster } from "@/components/ui/sonner"
-import { toast } from "sonner"
+import type { AuditLogEntry } from "@/types"
 
 const ENTITY_TYPE_LABELS: Record<string, string> = {
   ServiceTicket: "Заявка",
@@ -79,7 +80,6 @@ function getEntityDetailUrl(entityType: string, entityId: number): string | null
 }
 
 export default function AuditLogPage() {
-  const router = useRouter()
   const filterPickerData = useFilterPickerData({})
   const {
     data: entries,
@@ -87,15 +87,16 @@ export default function AuditLogPage() {
     loading,
     serverParams,
     setServerParams,
-    refetch,
-  } = useServerPaginatedData<any>({
+  } = useServerPaginatedData<AuditLogEntry>({
     api: auditLogApi,
     errorMessage: "Не удалось загрузить журнал аудита",
     initialParams: { sort: "created:desc" },
   })
+  const [selectedEntry, setSelectedEntry] = useState<AuditLogEntry | null>(null)
+  const [isEntrySheetOpen, setIsEntrySheetOpen] = useState(false)
 
-  const columns: ColumnDef<any>[] = [
-    createSelectColumn<any>(),
+  const columns: ColumnDef<AuditLogEntry>[] = [
+    createSelectColumn<AuditLogEntry>(),
     {
       accessorKey: "id",
       header: "ID",
@@ -213,8 +214,8 @@ export default function AuditLogPage() {
             loading={loading}
             loadingMessage="Загрузка журнала аудита..."
             onRowClick={(row) => {
-              const url = getEntityDetailUrl(row.original.entity_type, row.original.entity_id)
-              if (url) router.push(url)
+              setSelectedEntry(row.original)
+              setIsEntrySheetOpen(true)
             }}
             contextMenuActions={{
               getCopyText: (row) =>
@@ -227,6 +228,16 @@ export default function AuditLogPage() {
           />
         </div>
       </SidebarInset>
+      <AuditEntrySheet
+        entry={selectedEntry}
+        open={isEntrySheetOpen}
+        onOpenChange={(open) => {
+          setIsEntrySheetOpen(open)
+          if (!open) {
+            setSelectedEntry(null)
+          }
+        }}
+      />
       <Toaster />
     </>
   )

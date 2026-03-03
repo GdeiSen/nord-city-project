@@ -7,11 +7,11 @@ Storage router.
 import logging
 import os
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
-from api.dependencies import get_current_user
+from api.dependencies import get_audit_context, get_current_user, get_optional_current_user
 from shared.clients.database_client import db_client
 from shared.clients.storage_client import storage_client
 from shared.constants import Roles, StorageFileCategory
@@ -97,6 +97,34 @@ async def _serve_file(file_path: str):
 @router.get("/storage/{file_path:path}")
 async def serve_storage(file_path: str):
     return await _serve_file(file_path)
+
+
+@router.delete("/storage/{file_path:path}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_storage_file(
+    file_path: str,
+    request: Request,
+    _: dict = Depends(_require_admin),
+):
+    if not file_path or ".." in file_path:
+        raise HTTPException(status_code=400, detail="Invalid path")
+
+    path = file_path.lstrip("/")
+    if path.startswith("storage/"):
+        path = path[8:].lstrip("/")
+    if not path:
+        raise HTTPException(status_code=400, detail="Invalid path")
+
+    response = await db_client.storage_file.delete_file(
+        storage_path=path,
+        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+    )
+    if not response.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=response.get("error", "Не удалось удалить файл"),
+        )
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 async def _create_presigned_upload(

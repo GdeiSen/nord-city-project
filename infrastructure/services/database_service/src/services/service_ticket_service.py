@@ -6,6 +6,7 @@ from models.service_ticket import ServiceTicket
 from .base_service import BaseService, db_session_manager
 from shared.schemas.service_tickets_stats import ServiceTicketsStatsSchema
 from shared.constants import ServiceTicketStatus, StorageFileCategory
+from shared.utils.storage_utils import get_removed_storage_paths
 
 IN_PROGRESS_STATUSES = (
     ServiceTicketStatus.IN_PROGRESS,
@@ -78,12 +79,24 @@ class ServiceTicketService(BaseService):
 
     @db_session_manager
     async def update(self, *, session, entity_id, update_data, **kwargs):
+        existing = await self.repository.get_by_id(session=session, entity_id=entity_id)
+        old_urls = self._extract_attachment_urls(existing) if existing is not None else []
         updated = await super().update(
             session=session,
             entity_id=entity_id,
             update_data=update_data,
             **kwargs,
         )
+        storage_svc = self.db_manager.services.get("storage_file")
+        if storage_svc is not None and updated is not None:
+            for path in get_removed_storage_paths(old_urls, self._extract_attachment_urls(updated)):
+                await storage_svc.delete_file(
+                    session=session,
+                    storage_path=path,
+                    remove_reference=False,
+                    expected_entity_type="ServiceTicket",
+                    expected_entity_id=int(entity_id),
+                )
         await self._sync_ticket_files(session=session, ticket=updated)
         return updated
 
@@ -92,13 +105,14 @@ class ServiceTicketService(BaseService):
         existing = await self.repository.get_by_id(session=session, entity_id=entity_id)
         storage_svc = self.db_manager.services.get("storage_file")
         if storage_svc is not None and existing is not None:
-            await storage_svc._bind_files(
-                session=session,
-                entity_type="ServiceTicket",
-                entity_id=int(entity_id),
-                urls=[],
-                category=StorageFileCategory.DEFAULT,
-            )
+            for path in get_removed_storage_paths(self._extract_attachment_urls(existing), []):
+                await storage_svc.delete_file(
+                    session=session,
+                    storage_path=path,
+                    remove_reference=False,
+                    expected_entity_type="ServiceTicket",
+                    expected_entity_id=int(entity_id),
+                )
         return await super().delete(session=session, entity_id=entity_id, **kwargs)
 
     @db_session_manager

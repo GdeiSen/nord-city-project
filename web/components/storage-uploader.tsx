@@ -45,6 +45,7 @@ export interface StorageUploaderProps {
   category?: string
   maxItems?: number
   acceptedKinds?: StorageUploadKind[]
+  deleteOnRemove?: boolean
 }
 
 function getFileExtension(name: string): string {
@@ -72,9 +73,11 @@ export function StorageUploader({
   category = "DEFAULT",
   maxItems = 10,
   acceptedKinds = ["image", "document"],
+  deleteOnRemove = false,
 }: StorageUploaderProps) {
   const urls = value ?? []
   const [uploading, setUploading] = React.useState(false)
+  const [removingIndex, setRemovingIndex] = React.useState<number | null>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
 
   const acceptedTokens = React.useMemo(
@@ -154,6 +157,35 @@ export function StorageUploader({
     event.target.value = ""
   }
 
+  const handleRemove = React.useCallback(
+    async (index: number) => {
+      const nextUrls = urls.filter((_, itemIndex) => itemIndex !== index)
+      const targetUrl = urls[index]
+      if (!targetUrl) {
+        onChange(nextUrls)
+        return
+      }
+
+      if (!deleteOnRemove) {
+        onChange(nextUrls)
+        return
+      }
+
+      setRemovingIndex(index)
+      try {
+        await storageApi.delete(targetUrl)
+        onChange(nextUrls)
+      } catch (error: any) {
+        toast.error("Не удалось удалить файл", {
+          description: error?.message ?? "Попробуйте еще раз.",
+        })
+      } finally {
+        setRemovingIndex(null)
+      }
+    },
+    [deleteOnRemove, onChange, urls]
+  )
+
   return (
     <div className={cn("w-full min-w-0 max-w-full space-y-3", className)}>
       {label && <Label className="font-medium">{label}</Label>}
@@ -213,7 +245,10 @@ export function StorageUploader({
                     variant="ghost"
                     size="icon"
                     className="h-8 w-8"
-                    onClick={() => onChange(urls.filter((_, itemIndex) => itemIndex !== index))}
+                    disabled={uploading || removingIndex === index}
+                    onClick={() => {
+                      void handleRemove(index)
+                    }}
                   >
                     <IconTrash className="h-4 w-4" />
                   </Button>

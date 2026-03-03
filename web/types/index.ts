@@ -300,6 +300,7 @@ export interface AuditLogEntry {
   actor_display?: string;
   source_service?: string;
   retention_class?: "CRITICAL" | "OPERATIONAL" | "TECHNICAL";
+  audit_type?: "fast" | "smart" | "heavy" | string;
   request_id?: string;
   correlation_id?: string;
   reason?: string;
