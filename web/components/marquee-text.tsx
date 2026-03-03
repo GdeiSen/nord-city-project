@@ -10,6 +10,7 @@ export interface MarqueeTextProps {
   className?: string
   textClassName?: string
   title?: string
+  maxWidthPx?: number
 }
 
 export function MarqueeText({
@@ -17,11 +18,13 @@ export function MarqueeText({
   className,
   textClassName,
   title,
+  maxWidthPx = 360,
 }: MarqueeTextProps) {
   const value = text == null ? "" : String(text)
   const [animationsDisabled] = useMarqueeAnimationsDisabled()
   const containerRef = React.useRef<HTMLDivElement>(null)
   const contentRef = React.useRef<HTMLSpanElement>(null)
+  const [contentWidth, setContentWidth] = React.useState(0)
   const [overflowOffset, setOverflowOffset] = React.useState(0)
 
   React.useEffect(() => {
@@ -31,8 +34,9 @@ export function MarqueeText({
 
     const measure = () => {
       const containerWidth = containerRef.current?.clientWidth ?? 0
-      const contentWidth = contentRef.current?.scrollWidth ?? 0
-      const nextOffset = Math.max(0, Math.ceil(contentWidth - containerWidth))
+      const nextContentWidth = contentRef.current?.scrollWidth ?? 0
+      const nextOffset = Math.max(0, Math.ceil(nextContentWidth - containerWidth))
+      setContentWidth(nextContentWidth)
       setOverflowOffset(nextOffset)
     }
 
@@ -56,22 +60,39 @@ export function MarqueeText({
   const hasOverflow = overflowOffset > 8
   const shouldAnimate = hasOverflow && !animationsDisabled
   const animationDuration = `${Math.min(18, Math.max(7, overflowOffset / 26))}s`
+  const clampedWidth = contentWidth > 0 ? Math.min(contentWidth, maxWidthPx) : null
+  const animationStyle = shouldAnimate
+    ? ({
+        ["--marquee-shift" as string]: `-${overflowOffset}px`,
+        ["--marquee-duration" as string]: animationDuration,
+      } as React.CSSProperties)
+    : undefined
 
   return (
     <div
       ref={containerRef}
       className={cn("relative min-w-0 max-w-full overflow-hidden", className)}
       title={title ?? value}
+      style={
+        clampedWidth
+          ? ({
+              width: `${clampedWidth}px`,
+              maxWidth: "100%",
+            } as React.CSSProperties)
+          : undefined
+      }
     >
       {shouldAnimate && (
         <>
           <span
             aria-hidden
-            className="pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-gradient-to-r from-background via-background/90 to-transparent"
+            className="pointer-events-none absolute inset-y-0 left-0 z-10 w-6 animate-marquee-left-fade bg-gradient-to-r from-background via-background/90 to-transparent"
+            style={animationStyle}
           />
           <span
             aria-hidden
-            className="pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-gradient-to-l from-background via-background/90 to-transparent"
+            className="pointer-events-none absolute inset-y-0 right-0 z-10 w-6 animate-marquee-right-fade bg-gradient-to-l from-background via-background/90 to-transparent"
+            style={animationStyle}
           />
         </>
       )}
@@ -85,14 +106,7 @@ export function MarqueeText({
             : "max-w-full truncate",
           textClassName
         )}
-        style={
-          shouldAnimate
-            ? ({
-                ["--marquee-shift" as string]: `-${overflowOffset}px`,
-                ["--marquee-duration" as string]: animationDuration,
-              } as React.CSSProperties)
-            : undefined
-        }
+        style={animationStyle}
       >
         {value}
       </span>

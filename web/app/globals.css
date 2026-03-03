@@ -156,3 +156,44 @@
 .animate-marquee-bounce {
   animation: marquee-bounce var(--marquee-duration, 10s) ease-in-out infinite;
 }
+
+@keyframes marquee-left-fade {
+  0%,
+  12% {
+    opacity: 0;
+  }
+
+  18%,
+  94% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-marquee-left-fade {
+  animation: marquee-left-fade var(--marquee-duration, 10s) ease-in-out infinite;
+}
+
+@keyframes marquee-right-fade {
+  0%,
+  44% {
+    opacity: 1;
+  }
+
+  50%,
+  62% {
+    opacity: 0;
+  }
+
+  68%,
+  100% {
+    opacity: 1;
+  }
+}
+
+.animate-marquee-right-fade {
+  animation: marquee-right-fade var(--marquee-duration, 10s) ease-in-out infinite;
+}

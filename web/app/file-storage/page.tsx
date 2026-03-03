@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { ColumnDef } from "@tanstack/react-table"
 
 import { AppSidebar } from "@/components/app-sidebar"
@@ -13,6 +14,36 @@ import { formatDate } from "@/lib/date-utils"
 import { storageFileApi } from "@/lib/api"
 import { storageFileColumnMeta } from "@/lib/table-configs"
 import { StorageFile } from "@/types"
+
+function getEntityDetailUrl(entityType?: string, entityId?: number): string | null {
+  if (!entityType || entityId == null) {
+    return null
+  }
+
+  switch (entityType) {
+    case "ServiceTicket":
+      return `/service-tickets/${entityId}`
+    case "GuestParkingRequest":
+      return `/guest-parking/${entityId}`
+    case "User":
+      return `/users/${entityId}`
+    case "Feedback":
+      return `/feedbacks/${entityId}`
+    case "Object":
+    case "Space":
+      return `/spaces/${entityId}`
+    default:
+      return null
+  }
+}
+
+function getEntityLabel(entityType?: string, entityId?: number): string {
+  if (!entityType || entityId == null) {
+    return "Не привязан"
+  }
+
+  return `${entityType} #${entityId}`
+}
 
 export default function FileStoragePage() {
   const {
@@ -44,14 +75,19 @@ export default function FileStoragePage() {
             href={row.original.public_url}
             target="_blank"
             rel="noreferrer"
-            className="block truncate font-medium text-primary hover:underline"
+            className="block text-primary hover:underline"
             onClick={(event) => event.stopPropagation()}
           >
-            {row.original.original_name}
+            <MarqueeText
+              text={row.original.original_name}
+              textClassName="font-medium"
+              maxWidthPx={320}
+            />
           </a>
           <MarqueeText
             text={row.original.storage_path}
             textClassName="text-xs text-muted-foreground"
+            maxWidthPx={420}
           />
         </div>
       ),
@@ -71,17 +107,37 @@ export default function FileStoragePage() {
       header: "Сущность",
       meta: storageFileColumnMeta.entity_type,
       cell: ({ row }) => {
+        const label = getEntityLabel(row.original.entity_type, row.original.entity_id)
+        const url = getEntityDetailUrl(row.original.entity_type, row.original.entity_id)
+
         if (!row.original.entity_type || row.original.entity_id == null) {
           return <span className="text-muted-foreground">Не привязан</span>
         }
-        return `${row.original.entity_type} #${row.original.entity_id}`
+        if (!url) {
+          return <MarqueeText text={label} maxWidthPx={220} />
+        }
+
+        return (
+          <Link
+            href={url}
+            className="block text-primary hover:underline"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <MarqueeText text={label} maxWidthPx={220} />
+          </Link>
+        )
       },
     },
     {
       accessorKey: "content_type",
       header: "MIME",
       meta: storageFileColumnMeta.content_type,
-      cell: ({ row }) => row.original.content_type || row.original.extension || "—",
+      cell: ({ row }) => (
+        <MarqueeText
+          text={row.original.content_type || row.original.extension || "—"}
+          maxWidthPx={320}
+        />
+      ),
     },
     {
       accessorKey: "created_at",

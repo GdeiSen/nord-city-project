@@ -131,7 +131,7 @@ function getColumnLabel(column: Column<unknown, unknown>): string {
 
 function renderDataTableCellValue(content: React.ReactNode) {
   if (typeof content === "string" || typeof content === "number") {
-    return <MarqueeText text={String(content)} />
+    return <MarqueeText text={String(content)} maxWidthPx={340} />
   }
 
   return content
@@ -820,7 +820,7 @@ export function DataTable<TData>({
 
                         return (
                           <TableCell key={cell.id}>
-                            <div className="min-w-0 max-w-[26rem] overflow-hidden">
+                            <div className="min-w-0 overflow-hidden">
                               {renderDataTableCellValue(rendered)}
                             </div>
                           </TableCell>

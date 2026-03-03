@@ -131,15 +131,39 @@ class NotificationService(BaseService):
             f"Last error: {last_error}"
         )
 
+    async def _send_broadcast_document(
+        self,
+        *,
+        user_id: int,
+        document_ref: dict[str, Any],
+    ) -> None:
+        telegram_file_id = str(document_ref.get("telegram_file_id") or "").strip()
+        if telegram_file_id:
+            await self.bot.application.bot.send_document(
+                chat_id=user_id,
+                document=telegram_file_id,
+            )
+            return
+
+        attachment_url = str(document_ref.get("url") or "").strip()
+        filename, file_content = await self._download_broadcast_document(attachment_url)
+        message = await self.bot.application.bot.send_document(
+            chat_id=user_id,
+            document=InputFile(io.BytesIO(file_content), filename=filename),
+        )
+        uploaded_file_id = getattr(getattr(message, "document", None), "file_id", None)
+        if uploaded_file_id:
+            document_ref["telegram_file_id"] = uploaded_file_id
+
     async def _send_broadcast_to_user(
         self,
         *,
         user_id: int,
         text: str,
         image_urls: list[str],
-        prepared_documents: list[tuple[str, bytes]],
+        document_refs: list[dict[str, Any]],
     ) -> None:
-        if not image_urls and not prepared_documents:
+        if not image_urls and not document_refs:
             await self.bot.application.bot.send_message(
                 chat_id=user_id,
                 text=text,
@@ -164,10 +188,10 @@ class NotificationService(BaseService):
             parse_mode=ParseMode.HTML,
         )
 
-        for filename, file_content in prepared_documents:
-            await self.bot.application.bot.send_document(
-                chat_id=user_id,
-                document=InputFile(io.BytesIO(file_content), filename=filename),
+        for document_ref in document_refs:
+            await self._send_broadcast_document(
+                user_id=user_id,
+                document_ref=document_ref,
             )
 
     async def send_bulk_notification(
@@ -189,12 +213,13 @@ class NotificationService(BaseService):
 
         normalized_attachments = self._normalize_broadcast_attachments(attachment_urls)
         image_urls, document_urls = self._split_broadcast_attachments(normalized_attachments)
-        prepared_documents: list[tuple[str, bytes]] = []
-        try:
-            for document_url in document_urls:
-                prepared_documents.append(await self._download_broadcast_document(document_url))
-        except Exception as exc:
-            return {"success": False, "error": str(exc)}
+        document_refs: list[dict[str, Any]] = [
+            {
+                "url": document_url,
+                "telegram_file_id": None,
+            }
+            for document_url in document_urls
+        ]
         delivered_user_ids: list[int] = []
         failed_deliveries: list[dict[str, Any]] = []
 
@@ -204,7 +229,7 @@ class NotificationService(BaseService):
                     user_id=user_id,
                     text=text,
                     image_urls=image_urls,
-                    prepared_documents=prepared_documents,
+                    document_refs=document_refs,
                 )
                 delivered_user_ids.append(user_id)
             except Exception as exc:
