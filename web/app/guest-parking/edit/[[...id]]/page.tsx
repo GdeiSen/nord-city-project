@@ -289,7 +289,7 @@ export default function GuestParkingEditPage() {
             </BreadcrumbList>
           </Breadcrumb>
 
-          <div className="max-w-2xl space-y-6">
+          <div className="w-full min-w-0 max-w-2xl space-y-6">
             <div>
               <h1 className="text-2xl font-semibold">
                 {isEdit ? "Редактирование заявки" : "Создание заявки"}

@@ -1,13 +1,17 @@
 # ./services/notification_service.py
 import asyncio
+import io
 import json
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Dict, Any
 import re
 from urllib.parse import urlparse
+import httpx
 from telegram.constants import ParseMode
+from telegram import InputFile
 from shared.constants import Dialogs, ServiceTicketStatus, Roles
-from shared.utils.media_utils import to_public_media_url
+from shared.utils.media_utils import extract_media_path, to_public_media_url
 from .base_service import BaseService
 from datetime import datetime
 from utils.time_utils import now, TimeUtils
@@ -83,16 +87,59 @@ class NotificationService(BaseService):
 
         return images[:10], documents[:10]
 
+    def _get_broadcast_attachment_name(self, attachment_url: str) -> str:
+        raw_name = Path(urlparse(attachment_url).path).name or "attachment"
+        cleaned_name = re.sub(r"^(?:[a-f0-9]{32}_)+", "", raw_name, flags=re.IGNORECASE)
+        return cleaned_name or raw_name
+
+    def _get_internal_attachment_url(self, attachment_url: str) -> str | None:
+        path = extract_media_path(attachment_url)
+        if not path:
+            return None
+
+        storage_base = (
+            os.getenv("STORAGE_SERVICE_HTTP_URL")
+            or os.getenv("MEDIA_SERVICE_HTTP_URL")
+            or ""
+        ).strip().rstrip("/")
+        if not storage_base:
+            return None
+
+        return f"{storage_base}/storage/{path}"
+
+    async def _download_broadcast_document(self, attachment_url: str) -> tuple[str, bytes]:
+        candidates: list[str] = []
+        internal_url = self._get_internal_attachment_url(attachment_url)
+        if internal_url:
+            candidates.append(internal_url)
+        if attachment_url not in candidates:
+            candidates.append(attachment_url)
+
+        last_error: Exception | None = None
+
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            for candidate_url in candidates:
+                try:
+                    response = await client.get(candidate_url)
+                    response.raise_for_status()
+                    return self._get_broadcast_attachment_name(attachment_url), response.content
+                except Exception as exc:
+                    last_error = exc
+
+        raise RuntimeError(
+            f"Failed to download broadcast attachment: {attachment_url}. "
+            f"Last error: {last_error}"
+        )
+
     async def _send_broadcast_to_user(
         self,
         *,
         user_id: int,
         text: str,
-        attachment_urls: list[str],
+        image_urls: list[str],
+        prepared_documents: list[tuple[str, bytes]],
     ) -> None:
-        image_urls, document_urls = self._split_broadcast_attachments(attachment_urls)
-
-        if not image_urls and not document_urls:
+        if not image_urls and not prepared_documents:
             await self.bot.application.bot.send_message(
                 chat_id=user_id,
                 text=text,
@@ -117,10 +164,10 @@ class NotificationService(BaseService):
             parse_mode=ParseMode.HTML,
         )
 
-        for document_url in document_urls:
+        for filename, file_content in prepared_documents:
             await self.bot.application.bot.send_document(
                 chat_id=user_id,
-                document=document_url,
+                document=InputFile(io.BytesIO(file_content), filename=filename),
             )
 
     async def send_bulk_notification(
@@ -141,6 +188,13 @@ class NotificationService(BaseService):
             return {"success": False, "error": "empty_message"}
 
         normalized_attachments = self._normalize_broadcast_attachments(attachment_urls)
+        image_urls, document_urls = self._split_broadcast_attachments(normalized_attachments)
+        prepared_documents: list[tuple[str, bytes]] = []
+        try:
+            for document_url in document_urls:
+                prepared_documents.append(await self._download_broadcast_document(document_url))
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
         delivered_user_ids: list[int] = []
         failed_deliveries: list[dict[str, Any]] = []
 
@@ -149,7 +203,8 @@ class NotificationService(BaseService):
                 await self._send_broadcast_to_user(
                     user_id=user_id,
                     text=text,
-                    attachment_urls=normalized_attachments,
+                    image_urls=image_urls,
+                    prepared_documents=prepared_documents,
                 )
                 delivered_user_ids.append(user_id)
             except Exception as exc:

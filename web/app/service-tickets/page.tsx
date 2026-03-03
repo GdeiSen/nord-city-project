@@ -14,6 +14,7 @@ import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
 import { ColumnDef } from "@tanstack/react-table"
 import { DataTable, createSelectColumn } from "@/components/data-table"
+import { MarqueeText } from "@/components/marquee-text"
 import { serviceTicketColumnMeta } from "@/lib/table-configs"
 import { formatDate } from "@/lib/date-utils"
 import { PageHeader } from "@/components/page-header"
@@ -69,8 +70,14 @@ export default function ServiceTicketsPage() {
       meta: serviceTicketColumnMeta.ticket,
       cell: ({ row }) => (
         <div className="space-y-1">
-          <div className="font-medium">{row.original.description || "No description"}</div>
-          <div className="text-sm text-muted-foreground">{row.original.location || "No location"}</div>
+          <MarqueeText
+            text={row.original.description || "No description"}
+            textClassName="font-medium"
+          />
+          <MarqueeText
+            text={row.original.location || "No location"}
+            textClassName="text-sm text-muted-foreground"
+          />
         </div>
       ),
     },

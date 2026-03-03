@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/breadcrumb"
 import { RentalObject } from "@/types"
 import { rentalObjectApi } from "@/lib/api"
-import { MediaUploader } from "@/components/media-uploader"
+import { StorageUploader } from "@/components/storage-uploader"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -139,7 +139,7 @@ export default function RentalObjectEditPage() {
             </BreadcrumbList>
           </Breadcrumb>
 
-          <div className="max-w-2xl space-y-6">
+          <div className="w-full min-w-0 max-w-2xl space-y-6">
             <div>
               <h1 className="text-2xl font-semibold">{isEdit ? "Редактирование бизнес-центра" : "Новый бизнес-центр"}</h1>
               <p className="text-sm text-muted-foreground mt-1">
@@ -152,7 +152,7 @@ export default function RentalObjectEditPage() {
                   <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
                 </div>
               ) : (
-                <div className="grid gap-6">
+                <div className="grid min-w-0 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="name">Название</Label>
                     <Input
@@ -197,11 +197,13 @@ export default function RentalObjectEditPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <MediaUploader
+                  <StorageUploader
                     label="Фото и видео"
-                    description="Загрузите фотографии или короткие видео."
+                    description="Загрузите фотографии или короткие видео. Файлы хранятся в системе storage."
                     value={formData.photos ?? []}
                     onChange={handlePhotosChange}
+                    acceptedKinds={["image", "video"]}
+                    category="DEFAULT"
                   />
 
                   <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end pt-4">

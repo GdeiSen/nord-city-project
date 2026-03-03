@@ -112,7 +112,7 @@ export default function FeedbackEditPage() {
 
           {isEdit && (
             isSuperAdmin ? (
-            <div className="max-w-2xl space-y-6">
+            <div className="w-full min-w-0 max-w-2xl space-y-6">
               <div>
                 <h1 className="text-2xl font-semibold">Редактирование отзыва</h1>
                 <p className="text-sm text-muted-foreground mt-1">Изменение информации об отзыве.</p>
@@ -170,7 +170,7 @@ export default function FeedbackEditPage() {
               </div>
             </div>
             ) : (
-              <div className="max-w-2xl space-y-4 py-8">
+              <div className="w-full min-w-0 max-w-2xl space-y-4 py-8">
                 <p className="text-muted-foreground">Редактирование отзывов доступно только для Super Admin.</p>
                 <Link href="/feedbacks" className="text-sm text-primary hover:underline">
                   К списку отзывов
@@ -181,7 +181,7 @@ export default function FeedbackEditPage() {
 
           {!isEdit && (
             isSuperAdmin ? (
-              <div className="max-w-2xl space-y-6">
+              <div className="w-full min-w-0 max-w-2xl space-y-6">
                 <div>
                   <h1 className="text-2xl font-semibold">Создание отзыва</h1>
                   <p className="text-sm text-muted-foreground mt-1">Добавление нового отзыва от имени пользователя.</p>
@@ -230,7 +230,7 @@ export default function FeedbackEditPage() {
                 </div>
               </div>
             ) : (
-              <div className="max-w-2xl space-y-4 py-8">
+              <div className="w-full min-w-0 max-w-2xl space-y-4 py-8">
                 <p className="text-muted-foreground">Создание отзывов доступно только для Super Admin.</p>
                 <Link href="/feedbacks" className="text-sm text-primary hover:underline">
                   К списку отзывов

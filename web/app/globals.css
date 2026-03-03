@@ -136,3 +136,23 @@
 .animate-caret-blink {
   animation: caret-blink 1.25s ease-out infinite;
 }
+
+@keyframes marquee-bounce {
+  0%,
+  12% {
+    transform: translateX(0);
+  }
+
+  50%,
+  62% {
+    transform: translateX(var(--marquee-shift, 0));
+  }
+
+  100% {
+    transform: translateX(0);
+  }
+}
+
+.animate-marquee-bounce {
+  animation: marquee-bounce var(--marquee-duration, 10s) ease-in-out infinite;
+}

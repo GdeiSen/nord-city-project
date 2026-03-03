@@ -119,7 +119,7 @@ export default function NotificationsPage() {
               </AlertDescription>
             </Alert>
           ) : (
-            <div className="max-w-2xl space-y-6">
+            <div className="w-full min-w-0 max-w-2xl space-y-6">
               <div>
                 <h1 className="text-2xl font-semibold">Оповещение пользователей</h1>
                 <p className="text-sm text-muted-foreground mt-1">
@@ -128,7 +128,7 @@ export default function NotificationsPage() {
               </div>
 
               <form onSubmit={handleSubmit}>
-                <div className="grid gap-6">
+                <div className="grid min-w-0 gap-6">
                   <div className="space-y-3">
                     <Button
                       type="button"

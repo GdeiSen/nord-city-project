@@ -59,11 +59,8 @@ function isImageUrl(url: string): boolean {
 function getDisplayName(url: string): string {
   const tail = url.split("/").pop() || "file"
   const cleaned = tail.split("?")[0]
-  const parts = cleaned.split("_")
-  if (parts.length > 1) {
-    return parts.slice(1).join("_")
-  }
-  return cleaned
+  const normalized = cleaned.replace(/^(?:[a-f0-9]{32}_)+/i, "")
+  return normalized || cleaned
 }
 
 export function StorageUploader({
@@ -158,11 +155,11 @@ export function StorageUploader({
   }
 
   return (
-    <div className={cn("space-y-3", className)}>
+    <div className={cn("w-full min-w-0 max-w-full space-y-3", className)}>
       {label && <Label className="font-medium">{label}</Label>}
       {description && <p className="text-sm text-muted-foreground">{description}</p>}
 
-      <div className="rounded-md border border-input bg-transparent p-4">
+      <div className="w-full min-w-0 rounded-md border border-input bg-transparent p-4">
         <input
           ref={inputRef}
           type="file"
@@ -172,13 +169,13 @@ export function StorageUploader({
           className="hidden"
         />
 
-        <div className="flex flex-col gap-3">
+        <div className="flex min-w-0 max-w-full flex-col gap-3">
           <Button
             type="button"
             variant="outline"
             onClick={() => inputRef.current?.click()}
             disabled={uploading || urls.length >= maxItems}
-            className="justify-start"
+            className="max-w-full justify-start"
           >
             {uploading ? <Spinner className="size-4" /> : <IconFile className="h-4 w-4" />}
             {uploading ? "Загрузка..." : "Выбрать файлы"}
@@ -189,11 +186,11 @@ export function StorageUploader({
           </p>
 
           {urls.length > 0 && (
-            <div className="space-y-2">
+            <div className="min-w-0 max-w-full space-y-2">
               {urls.map((url, index) => (
                 <div
                   key={`${url}-${index}`}
-                  className="flex items-center gap-3 rounded-md border bg-muted/20 px-3 py-2"
+                  className="flex min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-md border bg-muted/20 px-3 py-2"
                 >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded bg-muted">
                     {isImageUrl(url) ? (
@@ -202,9 +199,14 @@ export function StorageUploader({
                       <IconFile className="h-4 w-4 text-muted-foreground" />
                     )}
                   </div>
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 max-w-full flex-1 overflow-hidden">
                     <p className="truncate text-sm font-medium">{getDisplayName(url)}</p>
-                    <p className="truncate text-xs text-muted-foreground">{url}</p>
+                    <p
+                      className="block max-w-full truncate text-xs text-muted-foreground"
+                      title={url}
+                    >
+                      {url}
+                    </p>
                   </div>
                   <Button
                     type="button"

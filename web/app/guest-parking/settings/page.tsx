@@ -5,8 +5,8 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 
 import { AppSidebar } from "@/components/app-sidebar"
-import { MediaUploader } from "@/components/media-uploader"
 import { SiteHeader } from "@/components/site-header"
+import { StorageUploader } from "@/components/storage-uploader"
 import { Button } from "@/components/ui/button"
 import {
   Breadcrumb,
@@ -93,7 +93,7 @@ export default function GuestParkingSettingsPage() {
           {!canEdit ? (
             <div className="text-sm text-destructive">Доступ только для администраторов.</div>
           ) : (
-            <div className="max-w-2xl space-y-6">
+            <div className="w-full min-w-0 max-w-2xl space-y-6">
               <div>
                 <h1 className="text-2xl font-semibold">Настройки гостевой парковки</h1>
                 <p className="text-sm text-muted-foreground mt-1">
@@ -106,12 +106,15 @@ export default function GuestParkingSettingsPage() {
                   <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
                 </div>
               ) : (
-                <div className="grid gap-6">
-                  <MediaUploader
+                <div className="grid min-w-0 gap-6">
+                  <StorageUploader
                     value={routeImages}
                     onChange={handleRouteImagesChange}
                     label="Изображения проезда"
-                    description="Не более двух изображений. Файлы загружаются в media service."
+                    description="Не более двух изображений. Файлы загружаются в систему storage."
+                    acceptedKinds={["image"]}
+                    category="SYSTEM"
+                    maxItems={2}
                   />
 
                   <div className="flex justify-end pt-4">

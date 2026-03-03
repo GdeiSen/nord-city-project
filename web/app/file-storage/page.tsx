@@ -4,6 +4,7 @@ import { ColumnDef } from "@tanstack/react-table"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { DataTable } from "@/components/data-table"
+import { MarqueeText } from "@/components/marquee-text"
 import { PageHeader } from "@/components/page-header"
 import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
@@ -48,7 +49,10 @@ export default function FileStoragePage() {
           >
             {row.original.original_name}
           </a>
-          <div className="truncate text-xs text-muted-foreground">{row.original.storage_path}</div>
+          <MarqueeText
+            text={row.original.storage_path}
+            textClassName="text-xs text-muted-foreground"
+          />
         </div>
       ),
     },

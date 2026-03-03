@@ -4,13 +4,16 @@ import * as React from "react"
 import { useTheme } from "next-themes"
 import { IconSun, IconMoon, IconDeviceLaptop } from "@tabler/icons-react"
 
+import { useMarqueeAnimationsDisabled } from "@/hooks/ui/use-marquee-animations"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Switch } from "@/components/ui/switch"
 
 /**
  * Theme toggle component for switching between light, dark, and system themes
@@ -31,6 +34,7 @@ import {
  */
 export function ThemeToggle() {
   const { setTheme, theme } = useTheme()
+  const [animationsDisabled, setAnimationsDisabled] = useMarqueeAnimationsDisabled()
   const [mounted, setMounted] = React.useState(false)
 
   // Avoid hydration mismatch
@@ -78,6 +82,25 @@ export function ThemeToggle() {
         >
           <IconDeviceLaptop className="mr-2 h-4 w-4" />
           <span>Системная</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={(event) => event.preventDefault()}
+          onClick={() => setAnimationsDisabled(!animationsDisabled)}
+          className="cursor-pointer justify-between gap-3"
+        >
+          <div className="space-y-0.5">
+            <div className="text-sm">Отключить анимации</div>
+            <div className="text-xs text-muted-foreground">
+              Бегущие строки в таблицах
+            </div>
+          </div>
+          <Switch
+            checked={animationsDisabled}
+            onCheckedChange={setAnimationsDisabled}
+            onClick={(event) => event.stopPropagation()}
+            aria-label="Отключить анимации"
+          />
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

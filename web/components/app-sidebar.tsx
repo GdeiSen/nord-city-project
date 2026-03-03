@@ -101,6 +101,9 @@ const data = {
       url: "/spaces",
       icon: IconBuildingSkyscraper,
     },
+  ],
+  
+  navSecondary: [
     {
       title: "Журнал аудита",
       url: "/audit-log",
@@ -112,8 +115,6 @@ const data = {
       icon: IconFile,
     },
   ],
-  
-  navSecondary: [],
 }
 
 /**

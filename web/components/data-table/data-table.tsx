@@ -45,6 +45,7 @@ import { useServerParamsSync } from "@/hooks/data-table/use-server-params-sync"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { MarqueeText } from "@/components/marquee-text"
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -126,6 +127,14 @@ function getColumnLabel(column: Column<unknown, unknown>): string {
   const meta = (column.columnDef as { meta?: DataTableColumnMeta })?.meta
   if (meta?.headerLabel) return meta.headerLabel
   return column.id
+}
+
+function renderDataTableCellValue(content: React.ReactNode) {
+  if (typeof content === "string" || typeof content === "number") {
+    return <MarqueeText text={String(content)} />
+  }
+
+  return content
 }
 
 /**
@@ -806,11 +815,17 @@ export function DataTable<TData>({
                         onRowClick(row as Row<TData>)
                       } : undefined}
                     >
-                      {row.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id}>
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </TableCell>
-                      ))}
+                      {row.getVisibleCells().map((cell) => {
+                        const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())
+
+                        return (
+                          <TableCell key={cell.id}>
+                            <div className="min-w-0 max-w-[26rem] overflow-hidden">
+                              {renderDataTableCellValue(rendered)}
+                            </div>
+                          </TableCell>
+                        )
+                      })}
                     </TableRow>
                   )
                   if (hasContextMenu) {
