@@ -1,15 +1,15 @@
 """
 MediaClient -- typed proxy for storage_service over HTTP.
 
-Uses HttpRpcClient under the hood. Provides explicit methods for
-upload, delete, and URL construction. Follows the same pattern as
-DatabaseClient and BotClient.
+Uses HttpRpcClient under the hood. Uploads are performed through
+presigned MinIO URLs so file bytes do not travel through RPC as base64.
 """
 
-import base64
-import os
 import logging
+import os
 from typing import Dict, Any, Optional
+
+import httpx
 
 from shared.clients.http_rpc_client import HttpRpcClient
 from shared.utils.media_utils import normalize_public_api_base
@@ -43,25 +43,51 @@ class _MediaProxy:
         content_type: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Upload a file. Params: file_content_b64, filename, content_type.
-        Returns {path, url} — url is relative; client adds base_url for full URL.
+        Upload a file through a presigned MinIO PUT URL.
+        This keeps storage_service as the control plane, but the file bytes
+        go directly to MinIO instead of traveling through RPC as base64.
         """
-        file_content_b64 = base64.b64encode(file_content).decode("ascii")
-        result = await self._call(
-            "upload",
-            file_content_b64=file_content_b64,
+        session = await self.create_upload_session(
             filename=filename,
-            content_type=content_type or "application/octet-stream",
+            content_type=content_type,
+            size_bytes=len(file_content),
         )
-        if not result.get("success"):
-            raise RuntimeError(result.get("error", "Upload failed"))
-        data = result.get("data") or {}
-        # Ensure url is full URL for external use
-        base_url = self._client.base_url
-        url = data.get("url", "")
-        if url and url.startswith("/"):
-            data["url"] = base_url + url
-        return data
+        upload_url = str(
+            session.get("internal_upload_url")
+            or session.get("upload_url")
+            or ""
+        ).strip()
+        if not upload_url:
+            raise RuntimeError("Upload session does not contain a valid URL")
+
+        headers = {
+            str(key): str(value)
+            for key, value in (session.get("headers") or {}).items()
+        }
+        if "Content-Type" not in headers and content_type:
+            headers["Content-Type"] = content_type
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.request(
+                str(session.get("method") or "PUT").upper(),
+                upload_url,
+                headers=headers,
+                content=file_content,
+            )
+        if not response.is_success:
+            raise RuntimeError(
+                f"Direct upload failed with status {response.status_code}"
+            )
+
+        return await self.complete_upload(
+            path=str(session.get("path") or ""),
+            original_name=str(session.get("original_name") or filename),
+            content_type=str(
+                session.get("content_type")
+                or content_type
+                or "application/octet-stream"
+            ),
+        )
 
     async def delete(self, path: str) -> bool:
         """
@@ -78,6 +104,49 @@ class _MediaProxy:
                 return False
             raise RuntimeError(result.get("error", "Delete failed"))
         return True
+
+    async def create_upload_session(
+        self,
+        *,
+        filename: str,
+        content_type: Optional[str] = None,
+        size_bytes: int = 0,
+    ) -> Dict[str, Any]:
+        result = await self._call(
+            "create_upload_session",
+            filename=filename,
+            content_type=content_type or "application/octet-stream",
+            size_bytes=int(size_bytes or 0),
+        )
+        if not result.get("success"):
+            raise RuntimeError(result.get("error", "Failed to create upload session"))
+        return result.get("data") or {}
+
+    async def complete_upload(
+        self,
+        *,
+        path: str,
+        original_name: str,
+        content_type: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        normalized_path = path.lstrip("/")
+        if normalized_path.startswith("media/"):
+            normalized_path = normalized_path[6:].lstrip("/")
+        if normalized_path.startswith("storage/"):
+            normalized_path = normalized_path[8:].lstrip("/")
+        result = await self._call(
+            "complete_upload",
+            path=normalized_path,
+            original_name=original_name,
+            content_type=content_type or "application/octet-stream",
+        )
+        if not result.get("success"):
+            raise RuntimeError(result.get("error", "Failed to complete upload"))
+        data = result.get("data") or {}
+        url = data.get("url", "")
+        if url and url.startswith("/"):
+            data["url"] = self._client.base_url + url
+        return data
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +249,34 @@ class MediaClient:
     async def delete(self, path: str) -> bool:
         """Delete a file by path. Returns True if deleted."""
         return await self.storage.delete(path=path)
+
+    async def create_upload_session(
+        self,
+        *,
+        filename: str,
+        content_type: Optional[str] = None,
+        size_bytes: int = 0,
+    ) -> Dict[str, Any]:
+        """Create a presigned upload session for direct upload to MinIO."""
+        return await self.storage.create_upload_session(
+            filename=filename,
+            content_type=content_type,
+            size_bytes=size_bytes,
+        )
+
+    async def complete_upload(
+        self,
+        *,
+        path: str,
+        original_name: str,
+        content_type: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Verify uploaded object in MinIO and return normalized payload."""
+        return await self.storage.complete_upload(
+            path=path,
+            original_name=original_name,
+            content_type=content_type,
+        )
 
     async def health_check(self) -> bool:
         """Check if the storage service is healthy."""

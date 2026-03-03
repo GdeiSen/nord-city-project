@@ -1,54 +1,52 @@
-# Nord City Media Service
+# Nord City Storage Service
 
-Сервис хранения и раздачи медиа-файлов (изображения, документы).
+MinIO-backed facade service for file storage and file delivery.
 
-## Назначение
+## Purpose
 
-- **Хранение** — файлы сохраняются на диск в настраиваемую директорию
-- **Раздача** — доступ к файлам по HTTP URL
-- **Загрузка** — приём файлов через API (proxy через web_service)
+- Stores files in `MinIO` (S3-compatible object storage)
+- Preserves the existing HTTP and RPC contract for the rest of the platform
+- Serves files through the same `/storage/{path}` and `/media/{path}` routes
+- Keeps `web_service`, `bot_service` and all shared clients compatible
+- Supports presigned direct uploads (`init -> PUT to MinIO -> complete`)
 
 ## API
 
-| Метод | Путь | Описание |
+| Method | Path | Description |
 |-------|------|----------|
-| POST | /internal/rpc | RPC‑эндпоинт для MediaClient (service=media, methods: upload, delete) |
-| POST | /upload | Загрузка файла (multipart, поле `file`) — для прямых запросов |
-| GET | /media/{path} | Получить файл по пути |
-| DELETE | /media/{path} | Удалить файл |
-| GET | /health | Проверка работоспособности |
+| POST | `/internal/rpc` | RPC endpoint for `MediaClient` / `storage_client` (`service=media|storage`, methods: `upload` (legacy), `create_upload_session`, `complete_upload`, `delete`) |
+| POST | `/upload` | Direct multipart upload |
+| GET | `/storage/{path}` | Stream file from MinIO |
+| GET | `/media/{path}` | Legacy alias |
+| DELETE | `/storage/{path}` | Delete file from MinIO |
+| DELETE | `/media/{path}` | Legacy alias |
+| GET | `/health` | Health check of MinIO connectivity and bucket availability |
 
-## Конфигурация (переменные окружения)
+## Environment
 
-| Переменная | По умолчанию | Описание |
+| Variable | Default | Description |
 |------------|--------------|----------|
-| MEDIA_SERVICE_PORT | 8004 | Порт HTTP-сервера |
-| MEDIA_SERVICE_HOST | 0.0.0.0 | Хост для биндинга |
-| MEDIA_STORAGE_DIR | infrastructure/media_storage | Директория хранения |
-| MEDIA_MAX_UPLOAD_SIZE | 10485760 | Макс. размер загрузки (10 MB) |
+| `MEDIA_SERVICE_PORT` / `STORAGE_SERVICE_PORT` | `8004` | HTTP port |
+| `MEDIA_SERVICE_HOST` / `STORAGE_SERVICE_HOST` | `0.0.0.0` | Bind host |
+| `STORAGE_MAX_UPLOAD_SIZE` | `26214400` | Max upload size in bytes |
+| `STORAGE_S3_ENDPOINT` | `127.0.0.1:9000` | MinIO endpoint |
+| `STORAGE_S3_PUBLIC_ENDPOINT` | same as `STORAGE_S3_ENDPOINT` | Public endpoint used in presigned URLs |
+| `STORAGE_S3_ACCESS_KEY` | `minioadmin` | MinIO access key |
+| `STORAGE_S3_SECRET_KEY` | `minioadmin` | MinIO secret key |
+| `STORAGE_S3_BUCKET` | `nord-city-storage` | Bucket for stored files |
+| `STORAGE_S3_SECURE` | `false` | Use HTTPS for MinIO connection |
+| `STORAGE_S3_PUBLIC_SECURE` | same as `STORAGE_S3_SECURE` | Use HTTPS in presigned URLs |
+| `STORAGE_S3_PRESIGNED_EXPIRY_SECONDS` | `900` | Presigned URL TTL |
+| `STORAGE_S3_AUTO_CREATE_BUCKET` | `true` | Create bucket automatically on startup |
+| `STORAGE_S3_REGION` | empty | Optional region |
 
-## Использование из web_service
+## Behaviour
 
-MediaClient построен на HttpRpcClient (как DatabaseClient) и обращается к `/internal/rpc`:
-
-```python
-from shared.clients.media_client import media_client
-
-# Загрузка (RPC: media.upload)
-result = await media_client.upload(
-    file_content=bytes_data,
-    filename="photo.jpg",
-    content_type="image/jpeg",
-)
-# result: {"path": "uuid_photo.jpg", "url": "http://host:8004/media/uuid_photo.jpg"}
-
-# Удаление (RPC: media.delete)
-await media_client.delete("uuid_photo.jpg")
-
-# Конструкция URL по пути
-url = media_client.get_media_url("uuid_photo.jpg")
-```
-
-## Загрузка через web API
-
-Клиент (frontend) загружает файлы через `POST /api/v1/media/upload` (с авторизацией Admin/Super Admin). Ответ содержит полный URL для отображения.
+- `storage_service` is now the permanent file gateway of the platform.
+- Files are stored in MinIO as objects.
+- `storage_path` remains the object key and stays compatible with `storage_files.storage_path`.
+- Public URLs still point to `web_service` (`/api/v1/storage/...`) rather than exposing MinIO directly.
+- `storage_files` in the database remains the source of metadata and relations.
+- Browser uploads can now go directly to MinIO via presigned PUT URLs returned by `web_service`.
+- For direct browser uploads, the MinIO bucket must allow CORS for your site origin.
+- Ubuntu bootstrap script: `/Users/orca/Local/nord-city-project/infrastructure/scripts/setup_minio_service.py`

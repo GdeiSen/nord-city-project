@@ -200,6 +200,17 @@ export interface UploadedStorageFile {
   kind?: string
 }
 
+interface StorageUploadSession {
+  path: string
+  upload_url: string
+  method?: string
+  headers?: Record<string, string>
+  content_type?: string
+  expires_in?: number
+  original_name?: string
+  category?: string
+}
+
 async function uploadStorageFile(
   file: File,
   options: { category?: string; endpoint?: string } = {}
@@ -209,29 +220,76 @@ async function uploadStorageFile(
   if (token) {
     headers["Authorization"] = `Bearer ${token}`
   }
-  const formData = new FormData()
-  formData.append("file", file)
-  formData.append("category", options.category || "DEFAULT")
-
-  const res = await fetch(`${API_BASE}${options.endpoint || "/storage/upload"}`, {
+  headers["Content-Type"] = "application/json"
+  const baseEndpoint = options.endpoint || "/storage"
+  const initRes = await fetch(`${API_BASE}${baseEndpoint}/uploads/init`, {
     method: "POST",
     headers,
-    body: formData,
+    body: JSON.stringify({
+      filename: file.name || "file",
+      content_type: file.type || "application/octet-stream",
+      size_bytes: file.size || 0,
+      category: options.category || "DEFAULT",
+    }),
   })
-
-  const text = await res.text()
-  let data: any
+  const initText = await initRes.text()
+  let initData: StorageUploadSession | any
   try {
-    data = text ? JSON.parse(text) : null
+    initData = initText ? JSON.parse(initText) : null
   } catch {
-    throw new Error(res.statusText || "Upload failed")
+    throw new Error(initRes.statusText || "Upload init failed")
   }
 
-  if (!res.ok) {
-    const msg = typeof data?.detail === "string" ? data.detail : data?.detail?.msg ?? res.statusText
+  if (!initRes.ok) {
+    const msg =
+      typeof initData?.detail === "string"
+        ? initData.detail
+        : initData?.detail?.msg ?? initRes.statusText
     throw new Error(msg)
   }
-  return data
+
+  const uploadHeaders = new Headers(initData?.headers || {})
+  if (!uploadHeaders.has("Content-Type")) {
+    uploadHeaders.set("Content-Type", file.type || "application/octet-stream")
+  }
+  const uploadRes = await fetch(String(initData?.upload_url || ""), {
+    method: String(initData?.method || "PUT").toUpperCase(),
+    headers: uploadHeaders,
+    body: file,
+  })
+
+  if (!uploadRes.ok) {
+    const uploadText = await uploadRes.text().catch(() => "")
+    throw new Error(uploadText || uploadRes.statusText || "Direct upload failed")
+  }
+
+  const completeRes = await fetch(`${API_BASE}${baseEndpoint}/uploads/complete`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      path: initData?.path,
+      original_name: initData?.original_name || file.name || "file",
+      content_type: initData?.content_type || file.type || "application/octet-stream",
+      category: initData?.category || options.category || "DEFAULT",
+    }),
+  })
+  const completeText = await completeRes.text()
+  let completeData: any
+  try {
+    completeData = completeText ? JSON.parse(completeText) : null
+  } catch {
+    throw new Error(completeRes.statusText || "Upload finalize failed")
+  }
+
+  if (!completeRes.ok) {
+    const msg =
+      typeof completeData?.detail === "string"
+        ? completeData.detail
+        : completeData?.detail?.msg ?? completeRes.statusText
+    throw new Error(msg)
+  }
+
+  return completeData
 }
 
 // Legacy media upload (kept for existing image-only forms)
@@ -239,7 +297,7 @@ export const mediaApi = {
   async upload(file: File): Promise<{ path: string; url: string }> {
     const result = await uploadStorageFile(file, {
       category: "DEFAULT",
-      endpoint: "/media/upload",
+      endpoint: "/media",
     })
     return {
       path: result.path,

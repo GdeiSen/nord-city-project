@@ -23,7 +23,7 @@ Services
     db    — Database Service   (FastAPI HTTP RPC, port 8001)
     web   — Web Service        (FastAPI REST API, port 8003)
     bot   — Bot Service        (Telegram bot, port 8002)
-    media — Media Service      (file storage & serving, port 8004)
+    media — Storage Service    (MinIO-backed file gateway, port 8004)
     site  — Next.js Frontend   (port 3000)
 
 Notes
@@ -155,9 +155,9 @@ SERVICES: Dict[str, ServiceInfo] = {
         depends_on=["db"],
     ),
     "media": ServiceInfo(
-        name="Media Service",
+        name="Storage Service",
         alias="media",
-        description="Media storage and serving",
+        description="MinIO-backed storage gateway",
         working_dir=INFRASTRUCTURE_ROOT / "services" / "media_service" / "src",
         command=[sys.executable, "main.py"],
         port=8004,
