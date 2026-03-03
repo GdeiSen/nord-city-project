@@ -64,6 +64,57 @@ from shared.utils.ddid_utils import normalize_ddid, parse_ddid
 DDID_TABLES = ("feedbacks", "poll_answers", "service_tickets")
 PLACEHOLDER_DDID = "0000-0000-0000"
 
+AUDIT_TRIGGER_REBUILD_SQL = """
+DO $$
+DECLARE
+    trigger_rec record;
+BEGIN
+    FOR trigger_rec IN
+        SELECT tg.tgname
+        FROM pg_trigger tg
+        JOIN pg_class cls ON cls.oid = tg.tgrelid
+        JOIN pg_namespace ns ON ns.oid = cls.relnamespace
+        WHERE cls.relname = 'audit_log'
+          AND ns.nspname = current_schema()
+          AND NOT tg.tgisinternal
+    LOOP
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I.%I', trigger_rec.tgname, current_schema(), 'audit_log');
+    END LOOP;
+END $$;
+
+CREATE OR REPLACE FUNCTION audit_log_fill_defaults_trigger()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    NEW.event_type := COALESCE(NULLIF(NEW.event_type, ''), 'ENTITY_CHANGE');
+    NEW.source_service := COALESCE(NULLIF(NEW.source_service, ''), 'database_service');
+    NEW.retention_class := COALESCE(NULLIF(NEW.retention_class, ''), 'OPERATIONAL');
+
+    IF NEW.actor_type IS NULL OR NEW.actor_type = '' THEN
+        NEW.actor_type := CASE
+            WHEN NEW.actor_id IS NOT NULL AND NEW.actor_id > 1 THEN 'USER'
+            WHEN COALESCE(NEW.source_service, 'database_service') NOT IN ('database_service', 'web_service') THEN 'SERVICE'
+            ELSE 'SYSTEM'
+        END;
+    END IF;
+
+    IF NEW.meta IS NULL THEN
+        NEW.meta := '{}'::json;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_audit_log_fill_defaults ON audit_log;
+
+CREATE TRIGGER trg_audit_log_fill_defaults
+BEFORE INSERT ON audit_log
+FOR EACH ROW
+EXECUTE FUNCTION audit_log_fill_defaults_trigger();
+"""
+
 
 def get_db_url() -> str:
     host = os.getenv("DB_HOST", "127.0.0.1")
@@ -257,6 +308,7 @@ async def step9_migrate_audit(engine):
         ))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audit_log_created ON audit_log (created_at)"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audit_log_actor_created ON audit_log (actor_id, created_at)"))
+        await conn.execute(text(AUDIT_TRIGGER_REBUILD_SQL))
     print("  [OK] audit_log обновлен, bot_message_refs создана")
 
 
