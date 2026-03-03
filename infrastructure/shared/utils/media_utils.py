@@ -12,6 +12,19 @@ MEDIA_PATH_PATTERN = re.compile(r"^[a-f0-9]{32}_.+$")
 STORAGE_URL_MARKERS = ("/storage/", "/media/")
 
 
+def normalize_public_api_base(base_url: str | None) -> str:
+    """
+    Normalize public API base URL for browser/Telegram use.
+    Adds https:// when env provides a bare host like "nord-city.online/api/v1".
+    """
+    base = str(base_url or "").strip().rstrip("/")
+    if not base:
+        return ""
+    if not re.match(r"^https?://", base, re.IGNORECASE):
+        base = f"https://{base}"
+    return base
+
+
 def is_media_service_url(url: str, base_url: str | None = None) -> bool:
     """
     Check if URL points to our storage service.
@@ -62,9 +75,9 @@ def to_public_media_url(url: str) -> str | None:
         path = url.split("/")[-1]
     if not path:
         return None
-    base = os.getenv("PUBLIC_API_BASE_URL", "").rstrip("/")
+    base = normalize_public_api_base(os.getenv("PUBLIC_API_BASE_URL", ""))
     if not base:
-        base = os.getenv("NEXT_PUBLIC_API_URL", "").rstrip("/")
+        base = normalize_public_api_base(os.getenv("NEXT_PUBLIC_API_URL", ""))
     if not base:
         return None
     return f"{base}/storage/{path}"
