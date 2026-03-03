@@ -7,7 +7,7 @@ from sqlalchemy import select
 from database.database_manager import DatabaseManager
 from models.storage_file import StorageFile
 from shared.constants import StorageFileCategory, StorageFileKind
-from shared.utils.media_utils import MEDIA_PATH_PATTERN, extract_media_path
+from shared.utils.storage_utils import STORAGE_PATH_PATTERN, extract_storage_path
 
 from .base_service import BaseService, db_session_manager
 
@@ -26,17 +26,15 @@ class StorageFileService(BaseService):
         if not candidate:
             return None
 
-        path = extract_media_path(candidate)
+        path = extract_storage_path(candidate)
         if path:
             return path
 
         fallback = candidate.lstrip("/")
-        if fallback.startswith("media/"):
-            fallback = fallback[6:].lstrip("/")
         if fallback.startswith("storage/"):
             fallback = fallback[8:].lstrip("/")
 
-        return fallback if fallback and MEDIA_PATH_PATTERN.match(fallback) else None
+        return fallback if fallback and STORAGE_PATH_PATTERN.match(fallback) else None
 
     @staticmethod
     def _infer_kind(original_name: str, content_type: str | None = None) -> str:

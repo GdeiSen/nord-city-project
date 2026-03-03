@@ -4,7 +4,7 @@
 
 1. **database_service** всегда возвращает `Converter.to_dict(result)` → JSON/dict по HTTP
 2. **db_client._call** при переданном `_model_class` преобразует `result["data"]` из dict в модель
-3. **bot_client**, **media_client** не передают entity-объекты, только простые payload
+3. **bot_client**, **storage_client** не передают entity-объекты, только простые payload
 
 ---
 

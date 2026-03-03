@@ -3,8 +3,11 @@ from typing import List
 
 from database.database_manager import DatabaseManager
 from models.space import Space
-from shared.utils.media_utils import get_removed_media_paths, extract_media_path
-from shared.clients.media_client import media_client
+from shared.utils.storage_utils import (
+    extract_storage_path,
+    get_removed_storage_paths,
+)
+from shared.clients.storage_client import storage_client
 from shared.constants import StorageFileCategory
 from .base_service import BaseService, db_session_manager
 
@@ -15,7 +18,7 @@ class SpaceService(BaseService):
     """
     Service for space (rental area)-related business logic.
     Inherits all standard CRUD operations from BaseService.
-    Cleans up orphaned media files when photos are updated or entity is deleted.
+    Cleans up orphaned storage files when photos are updated or entity is deleted.
     """
     model_class = Space
 
@@ -66,7 +69,7 @@ class SpaceService(BaseService):
 
     @db_session_manager
     async def update(self, *, session, entity_id, update_data, **kwargs):
-        """Override to cleanup media files that are no longer referenced."""
+        """Override to cleanup storage files that are no longer referenced."""
         if "photos" in update_data or "object_id" in update_data:
             existing = await self.repository.get_by_id(session=session, entity_id=entity_id)
             new_list = list(existing.photos) if existing and existing.photos else []
@@ -80,13 +83,13 @@ class SpaceService(BaseService):
                 old_photos = list(existing.photos) if existing.photos else []
                 new_photos = update_data.get("photos")
                 new_list = list(new_photos) if new_photos else []
-                for path in get_removed_media_paths(old_photos, new_list):
+                for path in get_removed_storage_paths(old_photos, new_list):
                     try:
-                        await media_client.connect()
-                        await media_client.delete(path)
-                        logger.info("Cleaned up orphaned media: %s", path)
+                        await storage_client.connect()
+                        await storage_client.delete(path)
+                        logger.info("Cleaned up orphaned storage file: %s", path)
                     except Exception as e:
-                        logger.warning("Failed to cleanup media %s: %s", path, e)
+                        logger.warning("Failed to cleanup storage file %s: %s", path, e)
             await self._sync_space_files(
                 session=session,
                 entity_id=int(entity_id),
@@ -97,18 +100,18 @@ class SpaceService(BaseService):
 
     @db_session_manager
     async def delete(self, *, session, entity_id, **kwargs):
-        """Override to cleanup media files when space is deleted."""
+        """Override to cleanup storage files when space is deleted."""
         existing = await self.repository.get_by_id(session=session, entity_id=entity_id)
         if existing and existing.photos:
             for url in existing.photos:
-                path = extract_media_path(str(url) if url else "")
+                path = extract_storage_path(str(url) if url else "")
                 if path:
                     try:
-                        await media_client.connect()
-                        await media_client.delete(path)
-                        logger.info("Cleaned up media on delete: %s", path)
+                        await storage_client.connect()
+                        await storage_client.delete(path)
+                        logger.info("Cleaned up storage file on delete: %s", path)
                     except Exception as e:
-                        logger.warning("Failed to cleanup media %s: %s", path, e)
+                        logger.warning("Failed to cleanup storage file %s: %s", path, e)
         await self._sync_space_files(
             session=session,
             entity_id=int(entity_id),

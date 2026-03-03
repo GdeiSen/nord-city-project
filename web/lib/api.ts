@@ -213,7 +213,7 @@ interface StorageUploadSession {
 
 async function uploadStorageFile(
   file: File,
-  options: { category?: string; endpoint?: string } = {}
+  options: { category?: string } = {}
 ): Promise<UploadedStorageFile> {
   const token = typeof window !== "undefined" ? getToken() : null
   const headers: Record<string, string> = {}
@@ -221,8 +221,7 @@ async function uploadStorageFile(
     headers["Authorization"] = `Bearer ${token}`
   }
   headers["Content-Type"] = "application/json"
-  const baseEndpoint = options.endpoint || "/storage"
-  const initRes = await fetch(`${API_BASE}${baseEndpoint}/uploads/init`, {
+  const initRes = await fetch(`${API_BASE}/storage/uploads/init`, {
     method: "POST",
     headers,
     body: JSON.stringify({
@@ -263,7 +262,7 @@ async function uploadStorageFile(
     throw new Error(uploadText || uploadRes.statusText || "Direct upload failed")
   }
 
-  const completeRes = await fetch(`${API_BASE}${baseEndpoint}/uploads/complete`, {
+  const completeRes = await fetch(`${API_BASE}/storage/uploads/complete`, {
     method: "POST",
     headers,
     body: JSON.stringify({
@@ -290,20 +289,6 @@ async function uploadStorageFile(
   }
 
   return completeData
-}
-
-// Legacy media upload (kept for existing image-only forms)
-export const mediaApi = {
-  async upload(file: File): Promise<{ path: string; url: string }> {
-    const result = await uploadStorageFile(file, {
-      category: "DEFAULT",
-      endpoint: "/media",
-    })
-    return {
-      path: result.path,
-      url: result.url,
-    }
-  },
 }
 
 export const storageApi = {

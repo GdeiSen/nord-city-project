@@ -3,11 +3,11 @@
 ## Архитектура
 
 ```
-┌─────────────────┐     HTTP RPC      ┌─────────────────────┐     HTTP RPC      ┌──────────────────┐
-│   web_service   │ ◄───────────────► │  database_service   │                   │  media_service   │
-│   (FastAPI)     │                   │  (FastAPI)          │ ◄───────────────► │  (FastAPI)       │
-│   :8000         │                   │  :8001              │                   │  :8004           │
-└────────┬────────┘                   └─────────────────────┘                   └──────────────────┘
+┌─────────────────┐     HTTP RPC      ┌─────────────────────┐     HTTP RPC      ┌───────────────────┐
+│   web_service   │ ◄───────────────► │  database_service   │                   │  storage_service  │
+│   (FastAPI)     │                   │  (FastAPI)          │ ◄───────────────► │  (FastAPI)        │
+│   :8000         │                   │  :8001              │                   │  :8004            │
+└────────┬────────┘                   └─────────────────────┘                   └───────────────────┘
          │                                       ▲
          │ HTTP RPC                              │ HTTP RPC
          ▼                                       │
@@ -211,12 +211,13 @@ bot_client.telegram_auth.send_otp_code(user_id=456)
 
 ---
 
-## 6. MediaClient — вызовы media_service
+## 6. StorageClient — вызовы storage_service
 
-**Файл:** `shared/clients/media_client.py`
+**Файл:** `shared/clients/storage_client.py`
 
-- Загрузка файла: base64 в params
-- Ответ: `{path, url}`
+- Создание presigned upload session: RPC `create_upload_session`
+- Завершение upload: RPC `complete_upload`
+- Удаление файла: RPC `delete`
 
 Доменные модели не участвуют.
 

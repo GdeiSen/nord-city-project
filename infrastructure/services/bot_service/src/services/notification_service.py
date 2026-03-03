@@ -11,7 +11,7 @@ import httpx
 from telegram.constants import ParseMode
 from telegram import InputFile
 from shared.constants import Dialogs, ServiceTicketStatus, Roles
-from shared.utils.media_utils import extract_media_path, to_public_media_url
+from shared.utils.storage_utils import extract_storage_path, to_public_storage_url
 from .base_service import BaseService
 from datetime import datetime
 from utils.time_utils import now, TimeUtils
@@ -60,7 +60,7 @@ class NotificationService(BaseService):
     def _normalize_broadcast_attachments(self, attachment_urls: list[str] | None) -> list[str]:
         attachments: list[str] = []
         for raw_url in attachment_urls or []:
-            normalized = to_public_media_url(raw_url) or str(raw_url or "").strip()
+            normalized = to_public_storage_url(raw_url) or str(raw_url or "").strip()
             if normalized.startswith("http://") or normalized.startswith("https://"):
                 attachments.append(normalized)
         seen: set[str] = set()
@@ -93,15 +93,11 @@ class NotificationService(BaseService):
         return cleaned_name or raw_name
 
     def _get_internal_attachment_url(self, attachment_url: str) -> str | None:
-        path = extract_media_path(attachment_url)
+        path = extract_storage_path(attachment_url)
         if not path:
             return None
 
-        storage_base = (
-            os.getenv("STORAGE_SERVICE_HTTP_URL")
-            or os.getenv("MEDIA_SERVICE_HTTP_URL")
-            or ""
-        ).strip().rstrip("/")
+        storage_base = os.getenv("STORAGE_SERVICE_HTTP_URL", "").strip().rstrip("/")
         if not storage_base:
             return None
 
@@ -198,7 +194,7 @@ class NotificationService(BaseService):
         document_refs: list[dict[str, Any]] = []
 
         for document_url in document_urls:
-            storage_path = extract_media_path(document_url)
+            storage_path = extract_storage_path(document_url)
             telegram_file_id = await self._get_storage_file_telegram_file_id(storage_path)
             document_refs.append(
                 {

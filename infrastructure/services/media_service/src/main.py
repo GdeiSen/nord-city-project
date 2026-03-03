@@ -2,23 +2,21 @@
 Nord City Storage Service
 =========================
 HTTP facade over MinIO (S3-compatible storage).
-The public HTTP/RPC API stays compatible with the existing storage/media layer.
 """
 
-import base64
-import io
 import logging
 import mimetypes
 import os
 import signal
 import sys
 import uuid
+from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict
 
 import uvicorn
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from minio import Minio
@@ -87,8 +85,6 @@ def _safe_filename(original: str) -> str:
 
 def _normalize_object_name(value: str) -> str:
     path = str(value or "").strip().lstrip("/")
-    if path.startswith("media/"):
-        path = path[6:].lstrip("/")
     if path.startswith("storage/"):
         path = path[8:].lstrip("/")
     if not path or ".." in path or path.endswith("/"):
@@ -141,7 +137,7 @@ def _build_file_payload(unique_name: str, original_name: str, content_type: str,
 
 
 class MinioStorageBackend:
-    """Thin adapter around MinIO preserving the old storage service contract."""
+    """Thin adapter around MinIO for the storage_service contract."""
 
     def __init__(self, cfg):
         self.cfg = cfg
@@ -183,34 +179,6 @@ class MinioStorageBackend:
                 "bucket_exists": False,
                 "error": str(exc),
             }
-
-    def upload_bytes(
-        self,
-        *,
-        content: bytes,
-        filename: str,
-        content_type: str | None = None,
-    ) -> Dict[str, Any]:
-        if len(content) > self.cfg.max_upload_size:
-            raise ValueError(f"File too large. Max size: {self.cfg.max_upload_size} bytes")
-
-        safe = _safe_filename(filename)
-        object_name = f"{uuid.uuid4().hex}_{safe}"
-        detected_content_type = _detect_content_type(filename, content_type)
-
-        try:
-            self.client.put_object(
-                bucket_name=self.cfg.s3_bucket,
-                object_name=object_name,
-                data=io.BytesIO(content),
-                length=len(content),
-                content_type=detected_content_type,
-            )
-        except S3Error as exc:
-            logger.error("Failed to upload object %s to MinIO: %s", object_name, exc, exc_info=True)
-            raise RuntimeError("Failed to store file") from exc
-
-        return _build_file_payload(object_name, filename, detected_content_type, len(content))
 
     def create_upload_session(
         self,
@@ -331,18 +299,6 @@ class MinioStorageBackend:
         return {"deleted": True, "path": object_name}
 
 
-def _do_upload(file_content_b64: str, filename: str, content_type: str | None = None) -> Dict[str, Any]:
-    try:
-        content = base64.b64decode(file_content_b64)
-    except Exception as exc:
-        raise ValueError(f"Invalid base64: {exc}") from exc
-    return _get_backend().upload_bytes(
-        content=content,
-        filename=filename,
-        content_type=content_type,
-    )
-
-
 def _do_delete(path: str) -> Dict[str, Any]:
     object_name = _normalize_object_name(path)
     return _get_backend().delete_object(object_name)
@@ -365,20 +321,12 @@ async def _rpc_handler(request: dict) -> dict:
     method = request.get("method")
     params = request.get("params", {})
 
-    if service not in {"media", "storage"}:
+    if service != "storage":
         return {"success": False, "data": None, "error": f"Unknown service: {service}"}
     if not method:
         return {"success": False, "data": None, "error": "Missing method"}
 
     try:
-        if method == "upload":
-            file_content_b64 = params.get("file_content_b64")
-            filename = params.get("filename", "file")
-            content_type = params.get("content_type")
-            if not file_content_b64:
-                return {"success": False, "data": None, "error": "Missing file_content_b64"}
-            result = _do_upload(file_content_b64, filename, content_type)
-            return {"success": True, "data": result, "error": None}
         if method == "create_upload_session":
             filename = params.get("filename", "file")
             content_type = params.get("content_type")
@@ -417,8 +365,9 @@ async def _rpc_handler(request: dict) -> dict:
         return {"success": False, "data": None, "error": str(exc)}
 
 
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    del app
     _get_backend().ensure_ready()
     logger.info(
         "Storage backend ready: endpoint=%s bucket=%s secure=%s",
@@ -426,31 +375,15 @@ async def startup_event():
         _get_config().s3_bucket,
         _get_config().s3_secure,
     )
+    yield
+
+
+app.router.lifespan_context = lifespan
 
 
 @app.post("/internal/rpc", response_model=RPCResponse)
 async def rpc_endpoint(request: RPCRequest):
     return await _rpc_handler(request.model_dump())
-
-
-@app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
-    content = await file.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="Empty file")
-
-    try:
-        result = _get_backend().upload_bytes(
-            content=content,
-            filename=file.filename or "file",
-            content_type=file.content_type,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=413, detail=str(exc))
-    except RuntimeError as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-    return JSONResponse(content=result)
 
 
 async def _serve_file(file_path: str):
@@ -461,11 +394,6 @@ async def _serve_file(file_path: str):
 
 @app.get("/storage/{file_path:path}")
 async def serve_storage(file_path: str):
-    return await _serve_file(file_path)
-
-
-@app.get("/media/{file_path:path}")
-async def serve_media(file_path: str):
     return await _serve_file(file_path)
 
 
@@ -482,11 +410,6 @@ async def _delete_file(file_path: str):
 
 @app.delete("/storage/{file_path:path}")
 async def delete_storage(file_path: str):
-    return await _delete_file(file_path)
-
-
-@app.delete("/media/{file_path:path}")
-async def delete_media(file_path: str):
     return await _delete_file(file_path)
 
 
@@ -515,7 +438,7 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, signal_handler)
 
     cfg = get_config()
-    host = os.getenv("STORAGE_SERVICE_HOST") or os.getenv("MEDIA_SERVICE_HOST", "0.0.0.0")
+    host = os.getenv("STORAGE_SERVICE_HOST", "0.0.0.0")
     port = cfg.service.port
 
     logger.info("Starting Storage Service on %s:%s", host, port)

@@ -182,7 +182,7 @@ async def _rpc_handler(request: dict) -> dict:
 
 from contextlib import asynccontextmanager
 
-from shared.clients.media_client import media_client
+from shared.clients.storage_client import storage_client
 
 
 @asynccontextmanager
@@ -196,14 +196,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Guest parking reminder cache init failed: %s", e)
     try:
-        await media_client.connect()
-        logger.info("Media client connected for cleanup.")
+        await storage_client.connect()
+        logger.info("Storage client connected for cleanup.")
     except Exception as e:
-        logger.warning("Media client not available (cleanup will be skipped): %s", e)
+        logger.warning("Storage client not available (cleanup will be skipped): %s", e)
     logger.info("Database Service ready.")
     yield
     logger.info("Shutting down Database Service...")
-    await media_client.disconnect()
+    await storage_client.disconnect()
     await db_manager.db_connection.close()
     logger.info("Database Service stopped.")
 

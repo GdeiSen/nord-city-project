@@ -9,10 +9,10 @@ from api.schemas.notifications import (
 )
 from shared.clients.bot_client import bot_client
 from shared.clients.database_client import db_client
-from shared.clients.media_client import media_client
+from shared.clients.storage_client import storage_client
 from shared.constants import Roles
 from shared.schemas.user import UserSchema
-from shared.utils.media_utils import MEDIA_PATH_PATTERN, extract_media_path
+from shared.utils.storage_utils import STORAGE_PATH_PATTERN, extract_storage_path
 
 logger = logging.getLogger(__name__)
 
@@ -40,24 +40,24 @@ def _normalize_attachment_urls(attachment_urls: list[str]) -> list[str]:
         if not candidate:
             continue
 
-        media_path = extract_media_path(candidate)
-        if media_path is None:
+        storage_path = extract_storage_path(candidate)
+        if storage_path is None:
             fallback_path = candidate.lstrip("/")
-            if fallback_path.startswith("media/"):
-                fallback_path = fallback_path[6:].lstrip("/")
-            if fallback_path and MEDIA_PATH_PATTERN.match(fallback_path):
-                media_path = fallback_path
+            if fallback_path.startswith("storage/"):
+                fallback_path = fallback_path[8:].lstrip("/")
+            if fallback_path and STORAGE_PATH_PATTERN.match(fallback_path):
+                storage_path = fallback_path
 
-        if media_path is None:
+        if storage_path is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Можно прикреплять только файлы, загруженные через storage service.",
             )
 
-        if media_path in seen_paths:
+        if storage_path in seen_paths:
             continue
-        seen_paths.add(media_path)
-        normalized_urls.append(media_client.get_media_url(media_path))
+        seen_paths.add(storage_path)
+        normalized_urls.append(storage_client.get_storage_url(storage_path))
 
     return normalized_urls
 

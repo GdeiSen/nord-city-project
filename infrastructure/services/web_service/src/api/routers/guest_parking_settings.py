@@ -6,10 +6,10 @@ from api.schemas.guest_parking_settings import (
     UpdateGuestParkingSettingsBody,
 )
 from shared.clients.database_client import db_client
-from shared.clients.media_client import media_client
+from shared.clients.storage_client import storage_client
 from shared.constants import Roles
 from shared.schemas.guest_parking_settings import GuestParkingSettingsSchema
-from shared.utils.media_utils import MEDIA_PATH_PATTERN, extract_media_path
+from shared.utils.storage_utils import STORAGE_PATH_PATTERN, extract_storage_path
 
 router = APIRouter(prefix="/guest-parking-settings", tags=["Guest Parking Settings"])
 
@@ -32,28 +32,28 @@ def _normalize_route_images(route_images: list[str]) -> list[str]:
         candidate = str(raw_url or "").strip()
         if not candidate:
             continue
-        media_path = extract_media_path(candidate)
-        if media_path is None:
+        storage_path = extract_storage_path(candidate)
+        if storage_path is None:
             fallback_path = candidate.lstrip("/")
-            if fallback_path.startswith("media/"):
-                fallback_path = fallback_path[6:].lstrip("/")
-            if fallback_path and MEDIA_PATH_PATTERN.match(fallback_path):
-                media_path = fallback_path
-        if media_path is None:
+            if fallback_path.startswith("storage/"):
+                fallback_path = fallback_path[8:].lstrip("/")
+            if fallback_path and STORAGE_PATH_PATTERN.match(fallback_path):
+                storage_path = fallback_path
+        if storage_path is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Можно использовать только изображения, загруженные в media service.",
+                detail="Можно использовать только изображения, загруженные в storage service.",
             )
-        lower_path = media_path.lower()
+        lower_path = storage_path.lower()
         if not lower_path.endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Для схемы проезда допускаются только изображения (JPG, PNG, GIF, WebP).",
             )
-        if media_path in seen_paths:
+        if storage_path in seen_paths:
             continue
-        seen_paths.add(media_path)
-        normalized.append(media_client.get_media_url(media_path))
+        seen_paths.add(storage_path)
+        normalized.append(storage_client.get_storage_url(storage_path))
 
     return normalized[:2]
 

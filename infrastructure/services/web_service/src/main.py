@@ -14,7 +14,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../../../'))
 
 from shared.clients.database_client import db_client
 from shared.clients.bot_client import bot_client
-from shared.clients.media_client import media_client
+from shared.clients.storage_client import storage_client
 from config import get_config
 from api.routers import (
     users_router,
@@ -28,7 +28,7 @@ from api.routers import (
     audit_log_router,
     rental_spaces_router,
     space_views_router,
-    media_router,
+    storage_router,
     notifications_router,
     storage_files_router,
 )
@@ -56,13 +56,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to connect bot client during startup: {e}", exc_info=True)
     try:
-        await media_client.connect()
-        logger.info("Media client connected.")
+        await storage_client.connect()
+        logger.info("Storage client connected.")
     except Exception as e:
-        logger.warning(f"Failed to connect media client during startup: {e}", exc_info=True)
+        logger.warning(f"Failed to connect storage client during startup: {e}", exc_info=True)
     yield
     logger.info("WebService shutting down...")
-    await media_client.disconnect()
+    await storage_client.disconnect()
     await bot_client.disconnect()
     await db_client.disconnect()
     logger.info("Clients disconnected.")
@@ -119,7 +119,7 @@ app.include_router(guest_parking_settings_router, prefix=API_PREFIX)
 app.include_router(audit_log_router, prefix=API_PREFIX)
 app.include_router(rental_spaces_router, prefix=API_PREFIX)
 app.include_router(space_views_router, prefix=API_PREFIX)
-app.include_router(media_router, prefix=API_PREFIX)
+app.include_router(storage_router, prefix=API_PREFIX)
 app.include_router(notifications_router, prefix=API_PREFIX)
 app.include_router(storage_files_router, prefix=API_PREFIX)
 
