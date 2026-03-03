@@ -50,7 +50,7 @@ def get_db_url() -> str:
     return f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{name}"
 
 
-REBUILD_SQL = """
+DROP_USER_TRIGGERS_SQL = """
 DO $$
 DECLARE
     trigger_rec record;
@@ -67,7 +67,9 @@ BEGIN
         EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I.%I', trigger_rec.tgname, current_schema(), 'audit_log');
     END LOOP;
 END $$;
+"""
 
+CREATE_TRIGGER_FUNCTION_SQL = """
 CREATE OR REPLACE FUNCTION audit_log_fill_defaults_trigger()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -92,9 +94,11 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+"""
 
-DROP TRIGGER IF EXISTS trg_audit_log_fill_defaults ON audit_log;
+DROP_TRIGGER_SQL = "DROP TRIGGER IF EXISTS trg_audit_log_fill_defaults ON audit_log"
 
+CREATE_TRIGGER_SQL = """
 CREATE TRIGGER trg_audit_log_fill_defaults
 BEFORE INSERT ON audit_log
 FOR EACH ROW
@@ -106,7 +110,10 @@ async def run_migration():
     engine = create_async_engine(get_db_url(), echo=False)
     try:
         async with engine.begin() as conn:
-            await conn.execute(text(REBUILD_SQL))
+            await conn.execute(text(DROP_USER_TRIGGERS_SQL))
+            await conn.execute(text(CREATE_TRIGGER_FUNCTION_SQL))
+            await conn.execute(text(DROP_TRIGGER_SQL))
+            await conn.execute(text(CREATE_TRIGGER_SQL))
         print("Пользовательские trigger-ы audit_log пересозданы под actor_id.")
     finally:
         await engine.dispose()

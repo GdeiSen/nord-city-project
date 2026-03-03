@@ -64,7 +64,7 @@ from shared.utils.ddid_utils import normalize_ddid, parse_ddid
 DDID_TABLES = ("feedbacks", "poll_answers", "service_tickets")
 PLACEHOLDER_DDID = "0000-0000-0000"
 
-AUDIT_TRIGGER_REBUILD_SQL = """
+AUDIT_TRIGGER_DROP_USER_TRIGGERS_SQL = """
 DO $$
 DECLARE
     trigger_rec record;
@@ -81,7 +81,9 @@ BEGIN
         EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I.%I', trigger_rec.tgname, current_schema(), 'audit_log');
     END LOOP;
 END $$;
+"""
 
+AUDIT_TRIGGER_CREATE_FUNCTION_SQL = """
 CREATE OR REPLACE FUNCTION audit_log_fill_defaults_trigger()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -106,9 +108,11 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+"""
 
-DROP TRIGGER IF EXISTS trg_audit_log_fill_defaults ON audit_log;
+AUDIT_TRIGGER_DROP_SQL = "DROP TRIGGER IF EXISTS trg_audit_log_fill_defaults ON audit_log"
 
+AUDIT_TRIGGER_CREATE_SQL = """
 CREATE TRIGGER trg_audit_log_fill_defaults
 BEFORE INSERT ON audit_log
 FOR EACH ROW
@@ -308,7 +312,10 @@ async def step9_migrate_audit(engine):
         ))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audit_log_created ON audit_log (created_at)"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audit_log_actor_created ON audit_log (actor_id, created_at)"))
-        await conn.execute(text(AUDIT_TRIGGER_REBUILD_SQL))
+        await conn.execute(text(AUDIT_TRIGGER_DROP_USER_TRIGGERS_SQL))
+        await conn.execute(text(AUDIT_TRIGGER_CREATE_FUNCTION_SQL))
+        await conn.execute(text(AUDIT_TRIGGER_DROP_SQL))
+        await conn.execute(text(AUDIT_TRIGGER_CREATE_SQL))
     print("  [OK] audit_log обновлен, bot_message_refs создана")
 
 
