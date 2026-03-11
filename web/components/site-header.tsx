@@ -58,6 +58,10 @@ export function SiteHeader() {
         return 'Настройки парковки'
       case '/feedbacks':
         return 'Отзывы пользователей'
+      case '/polls':
+        return 'Опросы'
+      case '/polls/settings':
+        return 'Настройки опроса'
       case '/notifications':
         return 'Оповещения пользователей'
       case '/spaces':
@@ -108,6 +112,18 @@ export function SiteHeader() {
           </a>
           <span className="mx-2">/</span>
           <span>Ссылки ролей</span>
+        </div>
+      )
+    }
+
+    if (segments[0] === 'polls' && segments[1] === 'settings') {
+      return (
+        <div className="flex items-center text-sm text-muted-foreground">
+          <a href="/polls" className="hover:text-foreground">
+            Опросы
+          </a>
+          <span className="mx-2">/</span>
+          <span>Настройки</span>
         </div>
       )
     }

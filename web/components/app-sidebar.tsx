@@ -7,6 +7,7 @@ import {
   IconTicket,
   IconCar,
   IconMessageCircle,
+  IconChartBar,
   IconBell,
   IconBuildingSkyscraper,
   IconHistory,
@@ -91,6 +92,11 @@ const data = {
       title: "Отзывы",
       url: "/feedbacks",
       icon: IconMessageCircle,
+    },
+    {
+      title: "Опросы",
+      url: "/polls",
+      icon: IconChartBar,
     },
     {
       title: "Оповещения",

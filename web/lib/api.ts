@@ -433,6 +433,12 @@ export interface UserRoleLinksResponse {
   links: UserRoleLinkItem[]
 }
 
+export interface PollGoogleFormSettings {
+  locale: string
+  poll_header: string
+  google_form_url: string
+}
+
 // Resource APIs
 const userBase = createCrudApi<any>("/users")
 export const userApi = {
@@ -492,6 +498,23 @@ const feedbackBase = createCrudApi<any>("/feedbacks")
 export const feedbackApi = {
   ...feedbackBase,
   ...createExportApi("/feedbacks"),
+}
+const pollBase = createCrudApi<any>("/polls")
+export const pollApi = {
+  ...pollBase,
+  async getAll(): Promise<any[]> {
+    const res = await apiFetch<any[]>("/polls/")
+    return Array.isArray(res) ? res : []
+  },
+  async getGoogleFormSettings(): Promise<PollGoogleFormSettings> {
+    return apiFetch<PollGoogleFormSettings>("/polls/settings/google-form")
+  },
+  async updateGoogleFormSettings(googleFormUrl: string): Promise<PollGoogleFormSettings> {
+    return apiFetch<PollGoogleFormSettings>("/polls/settings/google-form", {
+      method: "PUT",
+      body: JSON.stringify({ google_form_url: googleFormUrl }),
+    })
+  },
 }
 export const rentalObjectApi = createCrudApi<any>("/rental-objects")
 
