@@ -1,7 +1,9 @@
 import logging
+import os
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from pydantic import BaseModel
 
 from shared.clients.database_client import db_client
 from shared.constants import Roles
@@ -34,6 +36,68 @@ ROLE_LABELS = {
     Roles.ADMIN: "Администратор",
     Roles.SUPER_ADMIN: "Super Admin",
 }
+
+
+class UserRoleLinkItem(BaseModel):
+    role_code: str
+    role_id: int
+    token: str
+    title: str
+    description: str
+    url: str
+
+
+class UserRoleLinksResponse(BaseModel):
+    bot_username: str
+    links: List[UserRoleLinkItem]
+
+
+def _get_env_required(name: str, default: str = "") -> str:
+    value = os.getenv(name, default).strip()
+    if not value:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Не задана переменная окружения {name}.",
+        )
+    return value
+
+
+def _normalize_bot_username(username: str) -> str:
+    return username.strip().lstrip("@")
+
+
+def _build_role_links_payload() -> UserRoleLinksResponse:
+    bot_username = _normalize_bot_username(_get_env_required("BOT_USERNAME"))
+    lpr_token = _get_env_required("BOT_DEEP_LINK_LPR_TOKEN", "lpr")
+    ma_token = _get_env_required("BOT_DEEP_LINK_MA_TOKEN", "ma")
+
+    return UserRoleLinksResponse(
+        bot_username=bot_username,
+        links=[
+            UserRoleLinkItem(
+                role_code="LPR",
+                role_id=Roles.LPR,
+                token=lpr_token,
+                title="Ссылка LPR",
+                description=(
+                    "Выдает роль LPR для арендаторов: полный пользовательский сценарий "
+                    "бота (заявки, опросы, обратная связь и профиль)."
+                ),
+                url=f"https://t.me/{bot_username}?start={lpr_token}",
+            ),
+            UserRoleLinkItem(
+                role_code="MA",
+                role_id=Roles.MA,
+                token=ma_token,
+                title="Ссылка MA",
+                description=(
+                    "Выдает роль MA с сокращенным пользовательским меню "
+                    "(профиль, обслуживание, гостевая парковка, свободные площади)."
+                ),
+                url=f"https://t.me/{bot_username}?start={ma_token}",
+            ),
+        ],
+    )
 
 
 def _get_user_export_value(col_id: str):
@@ -153,6 +217,16 @@ async def export_users(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="users.csv"'},
     )
+
+
+@router.get("/role-links", response_model=UserRoleLinksResponse)
+async def get_user_role_links(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != Roles.SUPER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Только Super Admin может просматривать ссылки ролей.",
+        )
+    return _build_role_links_payload()
 
 
 @router.get("/{entity_id}", response_model=UserResponse)

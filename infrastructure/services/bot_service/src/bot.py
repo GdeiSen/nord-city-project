@@ -392,7 +392,21 @@ class Bot:
     async def handle_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # --- This command handling logic remains the same ---
         try:
-            command = update.message.text[1:]
+            if update.message is None or not update.message.text:
+                return
+
+            raw_text = update.message.text.strip()
+            if not raw_text.startswith("/"):
+                return
+
+            command_token = raw_text.split()[0]
+            command = command_token[1:].split("@", 1)[0]
+
+            if command == "start":
+                start_payload = " ".join(getattr(context, "args", [])).strip()
+                if context.user_data is not None:
+                    context.user_data["start_payload"] = start_payload
+
             dialog_map = {
                 "start": Dialogs.START,
                 "menu": Dialogs.MENU,

@@ -419,11 +419,28 @@ function createExportApi(basePath: string) {
   }
 }
 
+export interface UserRoleLinkItem {
+  role_code: string
+  role_id: number
+  token: string
+  title: string
+  description: string
+  url: string
+}
+
+export interface UserRoleLinksResponse {
+  bot_username: string
+  links: UserRoleLinkItem[]
+}
+
 // Resource APIs
 const userBase = createCrudApi<any>("/users")
 export const userApi = {
   ...userBase,
   ...createExportApi("/users"),
+  async getRoleLinks(): Promise<UserRoleLinksResponse> {
+    return apiFetch<UserRoleLinksResponse>("/users/role-links")
+  },
 }
 const serviceTicketBase = createCrudApi<any>("/service-tickets")
 export const serviceTicketApi = {

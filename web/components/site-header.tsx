@@ -48,6 +48,8 @@ export function SiteHeader() {
         return 'Панель управления'
       case '/users':
         return 'Пользователи'
+      case '/users/role-links':
+        return 'Ссылки ролей пользователей'
       case '/service-tickets':
         return 'Заявки на обслуживание'
       case '/guest-parking':
@@ -96,6 +98,18 @@ export function SiteHeader() {
 
     if (segments.length === 1) {
       return null
+    }
+
+    if (segments[0] === 'users' && segments[1] === 'role-links') {
+      return (
+        <div className="flex items-center text-sm text-muted-foreground">
+          <a href="/users" className="hover:text-foreground">
+            Пользователи
+          </a>
+          <span className="mx-2">/</span>
+          <span>Ссылки ролей</span>
+        </div>
+      )
     }
 
     // Handle nested routes like /spaces/[id]

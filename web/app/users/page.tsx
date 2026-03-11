@@ -6,9 +6,10 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { Badge } from "@/components/ui/badge"
-import { IconUserPlus } from "@tabler/icons-react"
+import { Button } from "@/components/ui/button"
+import { IconSettings, IconUserPlus } from "@tabler/icons-react"
 import { User, USER_ROLES, ROLE_LABELS, ROLE_BADGE_VARIANTS } from "@/types"
-import { userApi, rentalObjectApi } from "@/lib/api"
+import { userApi } from "@/lib/api"
 import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
 import { ColumnDef } from "@tanstack/react-table"
@@ -132,9 +133,25 @@ export default function UsersPage() {
           <PageHeader
             title="Пользователи"
             description="Управление пользователями системы"
-            buttonText={canCreateUser ? "Добавить пользователя" : undefined}
-            onButtonClick={canCreateUser ? () => router.push("/users/edit") : undefined}
-            buttonIcon={canCreateUser ? <IconUserPlus className="h-4 w-4" /> : undefined}
+            actions={
+              canCreateUser ? (
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => router.push("/users/role-links")}
+                    aria-label="Ссылки ролей пользователей"
+                  >
+                    <IconSettings className="h-4 w-4" />
+                  </Button>
+                  <Button type="button" onClick={() => router.push("/users/edit")}>
+                    <IconUserPlus className="h-4 w-4" />
+                    Добавить пользователя
+                  </Button>
+                </div>
+              ) : undefined
+            }
           />
 
           <DataTable
