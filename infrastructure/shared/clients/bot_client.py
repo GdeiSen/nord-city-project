@@ -92,6 +92,18 @@ class _NotificationProxy(_BotServiceProxy):
         )
 
 
+class _LocalizationProxy(_BotServiceProxy):
+    """Proxy for localization management methods in bot_service."""
+
+    async def get_localization(self) -> Dict[str, Any]:
+        """Fetch current localization object from bot runtime."""
+        return await self._call("get_localization")
+
+    async def update_localization(self, *, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update localization object in bot runtime and persist to JSON."""
+        return await self._call("update_localization", data=data)
+
+
 # ---------------------------------------------------------------------------
 # Main client
 # ---------------------------------------------------------------------------
@@ -123,6 +135,7 @@ class BotClient:
         # --- Explicit service proxies ---
         self.telegram_auth = _TelegramAuthProxy(self._http, "telegram_auth")
         self.notification = _NotificationProxy(self._http, "notification")
+        self.localization = _LocalizationProxy(self._http, "localization")
 
         self._is_initialized = True
 

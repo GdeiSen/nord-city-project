@@ -335,6 +335,23 @@ export const storageApi = {
   },
 }
 
+export interface LocalizationData {
+  [locale: string]: Record<string, string>
+}
+
+export const localizationApi = {
+  async get(): Promise<LocalizationData> {
+    return apiFetch<LocalizationData>("/localization/")
+  },
+
+  async update(data: LocalizationData): Promise<LocalizationData> {
+    return apiFetch<LocalizationData>("/localization/", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+  },
+}
+
 export interface SendNotificationPayload {
   role_ids: number[]
   user_ids: number[]

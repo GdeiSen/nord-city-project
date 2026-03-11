@@ -13,6 +13,7 @@ from .space_views import router as space_views_router
 from .storage import router as storage_router
 from .notifications import router as notifications_router
 from .storage_files import router as storage_files_router
+from .localization import router as localization_router
 
 __all__ = [
     "users_router",
@@ -29,4 +30,5 @@ __all__ = [
     "storage_router",
     "notifications_router",
     "storage_files_router",
+    "localization_router",
 ]

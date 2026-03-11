@@ -60,6 +60,8 @@ export function SiteHeader() {
         return 'Оповещения пользователей'
       case '/spaces':
         return 'Бизнес-центры'
+      case '/localization':
+        return 'Локализация бота'
       case '/file-storage':
         return 'Хранилище файлов'
       default:

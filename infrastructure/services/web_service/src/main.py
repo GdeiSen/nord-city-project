@@ -32,6 +32,7 @@ from api.routers import (
     storage_router,
     notifications_router,
     storage_files_router,
+    localization_router,
 )
 
 # Configure logging
@@ -129,6 +130,7 @@ app.include_router(space_views_router, prefix=API_PREFIX)
 app.include_router(storage_router, prefix=API_PREFIX)
 app.include_router(notifications_router, prefix=API_PREFIX)
 app.include_router(storage_files_router, prefix=API_PREFIX)
+app.include_router(localization_router, prefix=API_PREFIX)
 
 
 # --- Service-level endpoints (outside /api/v1) ---

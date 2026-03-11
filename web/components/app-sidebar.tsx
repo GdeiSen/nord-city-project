@@ -11,6 +11,7 @@ import {
   IconBuildingSkyscraper,
   IconHistory,
   IconFile,
+  IconLanguage,
 } from "@tabler/icons-react"
 
 import { NavMain } from "@/components/nav-main"
@@ -100,6 +101,11 @@ const data = {
       title: "Бизнес-центры",
       url: "/spaces",
       icon: IconBuildingSkyscraper,
+    },
+    {
+      title: "Локализация бота",
+      url: "/localization",
+      icon: IconLanguage,
     },
   ],
   

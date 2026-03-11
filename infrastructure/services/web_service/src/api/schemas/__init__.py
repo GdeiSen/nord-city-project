@@ -20,3 +20,4 @@ from .rental_spaces import SpaceResponse, CreateSpaceRequest, UpdateSpaceBody
 from .space_views import SpaceViewResponse, CreateSpaceViewRequest, UpdateSpaceViewBody
 from .notifications import NotificationBroadcastRequest, NotificationBroadcastResponse
 from .guest_parking_settings import GuestParkingSettingsResponse, UpdateGuestParkingSettingsBody
+from .localization import LocalizationDocument
