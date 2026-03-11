@@ -17,12 +17,14 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { SidebarInset } from "@/components/ui/sidebar"
-import { Textarea } from "@/components/ui/textarea"
 import { Toaster } from "@/components/ui/sonner"
 import { useCanEdit } from "@/hooks"
 import { localizationApi, type LocalizationData } from "@/lib/api"
 
 type LocaleValues = Record<string, string>
+
+const TEMPLATE_TOKEN_HTML =
+  '<span class="rounded bg-amber-400/15 px-1 text-amber-300">{?}</span>'
 
 function cloneLocalization(data: LocalizationData): LocalizationData {
   const next: LocalizationData = {}
@@ -41,11 +43,15 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;")
 }
 
+function highlightTemplateTokens(value: string): string {
+  return escapeHtml(value).replace(/\{\?\}/g, TEMPLATE_TOKEN_HTML)
+}
+
 function buildPreviewHtml(value: string): string {
   const rawValue = String(value ?? "")
   const hasHtml = /<\/?[a-z][\s\S]*>/i.test(rawValue)
   if (!hasHtml) {
-    return escapeHtml(rawValue).replace(/\n/g, "<br/>")
+    return highlightTemplateTokens(rawValue).replace(/\n/g, "<br/>")
   }
 
   if (typeof window === "undefined") {
@@ -67,7 +73,67 @@ function buildPreviewHtml(value: string): string {
       }
     }
   })
-  return doc.body.innerHTML
+  return doc.body.innerHTML.replace(/\{\?\}/g, TEMPLATE_TOKEN_HTML)
+}
+
+function CodeValueInput({
+  value,
+  onChange,
+  disabled = false,
+}: {
+  value: string
+  onChange: (nextValue: string) => void
+  disabled?: boolean
+}) {
+  const preRef = React.useRef<HTMLPreElement | null>(null)
+  const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
+
+  const syncScroll = React.useCallback(() => {
+    const pre = preRef.current
+    const textarea = textareaRef.current
+    if (!pre || !textarea) return
+    pre.scrollTop = textarea.scrollTop
+    pre.scrollLeft = textarea.scrollLeft
+  }, [])
+
+  const adjustHeight = React.useCallback(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    textarea.style.height = "0px"
+    textarea.style.height = `${Math.max(textarea.scrollHeight, 38)}px`
+    syncScroll()
+  }, [syncScroll])
+
+  React.useEffect(() => {
+    adjustHeight()
+  }, [value, adjustHeight])
+
+  const highlightedValue = React.useMemo(() => {
+    const prepared = highlightTemplateTokens(String(value || ""))
+    return prepared || "&nbsp;"
+  }, [value])
+
+  return (
+    <div className="relative">
+      <pre
+        ref={preRef}
+        className="m-0 min-h-[38px] overflow-hidden whitespace-pre-wrap break-words px-2 py-1.5 font-mono text-[13px] leading-6 text-slate-200"
+        dangerouslySetInnerHTML={{ __html: highlightedValue }}
+      />
+      <textarea
+        ref={textareaRef}
+        value={value}
+        disabled={disabled}
+        spellCheck={false}
+        onChange={(event) => {
+          onChange(event.target.value)
+          requestAnimationFrame(adjustHeight)
+        }}
+        onScroll={syncScroll}
+        className="absolute inset-0 w-full resize-none overflow-hidden border-0 bg-transparent px-2 py-1.5 font-mono text-[13px] leading-6 text-transparent caret-slate-100 outline-none focus:bg-slate-900/20 disabled:cursor-not-allowed"
+      />
+    </div>
+  )
 }
 
 export default function LocalizationPage() {
@@ -217,34 +283,39 @@ export default function LocalizationPage() {
               <div className="space-y-1">
                 <h1 className="text-2xl font-semibold">Редактор локализации</h1>
                 <p className="text-sm text-muted-foreground">
-                  Редактируйте значения сообщений бота. Имена ключей зафиксированы и не изменяются.
+                  Компактный режим редактирования в стиле code editor. Плейсхолдеры <code>{"{?}"}</code>{" "}
+                  подсвечены.
                 </p>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <div className="relative w-full min-w-[240px] max-w-md">
+                <div className="relative min-w-[220px] max-w-md flex-1">
                   <IconSearch className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
                     placeholder="Поиск по ключу или значению"
-                    className="pl-8"
+                    className="h-9 pl-8"
                   />
                 </div>
 
                 <Button
                   type="button"
+                  size="sm"
                   variant="outline"
+                  className="h-9 px-3"
                   onClick={() => setPreviewMode((current) => !current)}
                   disabled={loading || !!errorMessage}
                 >
                   {previewMode ? <IconCode className="h-4 w-4" /> : <IconEye className="h-4 w-4" />}
-                  {previewMode ? "Режим JSON" : "Режим предпросмотра"}
+                  {previewMode ? "JSON" : "Просмотр"}
                 </Button>
 
                 <Button
                   type="button"
+                  size="sm"
                   variant="outline"
+                  className="h-9 px-3"
                   onClick={loadLocalization}
                   disabled={loading || saving}
                 >
@@ -254,19 +325,27 @@ export default function LocalizationPage() {
 
                 <Button
                   type="button"
+                  size="sm"
                   variant="outline"
+                  className="h-9 px-3"
                   onClick={handleReset}
                   disabled={!hasChanges || loading || saving}
                 >
                   Сбросить
                 </Button>
 
-                <Button type="button" onClick={handleSave} disabled={!hasChanges || loading || saving}>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-9 px-3"
+                  onClick={handleSave}
+                  disabled={!hasChanges || loading || saving}
+                >
                   <IconDeviceFloppy className="h-4 w-4" />
                   {saving ? "Сохранение..." : "Сохранить"}
                 </Button>
 
-                <Badge variant={hasChanges ? "default" : "secondary"}>
+                <Badge variant={hasChanges ? "default" : "secondary"} className="h-9 px-3 text-sm">
                   Изменено: {changedKeysCount}
                 </Badge>
               </div>
@@ -278,6 +357,7 @@ export default function LocalizationPage() {
                       key={locale}
                       type="button"
                       size="sm"
+                      className="h-8 px-3"
                       variant={activeLocale === locale ? "default" : "outline"}
                       onClick={() => setActiveLocale(locale)}
                     >
@@ -293,72 +373,66 @@ export default function LocalizationPage() {
                   <AlertDescription>{errorMessage}</AlertDescription>
                 </Alert>
               ) : (
-                <div className="rounded-lg border">
-                  <div className="border-b px-4 py-2 text-sm text-muted-foreground">
-                    {activeLocale || "Локаль не выбрана"}
+                <div className="overflow-hidden rounded-md border border-slate-700 bg-slate-950/95">
+                  <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2 text-xs font-mono text-slate-400">
+                    <span>{activeLocale || "Локаль не выбрана"}</span>
+                    <span>{filteredKeys.length} ключей</span>
                   </div>
-                  <div className="max-h-[68vh] overflow-auto p-4">
+                  <div className="max-h-[70vh] overflow-auto">
                     {loading ? (
-                      <p className="text-sm text-muted-foreground">Загрузка...</p>
+                      <p className="px-3 py-4 text-sm text-slate-400">Загрузка...</p>
                     ) : localeNames.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">
+                      <p className="px-3 py-4 text-sm text-slate-400">
                         Локализация пуста. Проверьте данные в `bot_service`.
                       </p>
+                    ) : filteredKeys.length === 0 ? (
+                      <p className="px-3 py-4 text-sm text-slate-400">Нет совпадений по фильтру.</p>
                     ) : previewMode ? (
-                      <div className="space-y-3">
-                        {filteredKeys.length === 0 ? (
-                          <p className="text-sm text-muted-foreground">Нет совпадений по фильтру.</p>
-                        ) : (
-                          filteredKeys.map((key) => (
-                            <div key={key} className="rounded-md border p-3">
-                              <div className="mb-2 font-mono text-xs text-muted-foreground">"{key}"</div>
-                              <div
-                                className="rounded-md border bg-background px-3 py-2 text-sm leading-6 break-words [&_a]:underline [&_b]:font-semibold [&_i]:italic [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_ul]:list-disc [&_ul]:pl-5"
-                                dangerouslySetInnerHTML={{ __html: previewHtmlByKey[key] || "" }}
-                              />
+                      <div className="divide-y divide-slate-800/70">
+                        {filteredKeys.map((key, index) => (
+                          <div
+                            key={key}
+                            className="grid grid-cols-[48px_minmax(220px,320px)_1fr] items-start gap-2 px-2 py-1.5"
+                          >
+                            <div className="pt-1.5 text-right font-mono text-[11px] text-slate-500">
+                              {index + 1}
                             </div>
-                          ))
-                        )}
+                            <div className="pt-1.5 pr-2 font-mono text-[12px] break-all text-sky-300">
+                              "{key}"
+                            </div>
+                            <div
+                              className="px-2 py-1.5 text-sm leading-6 break-words text-slate-200 [&_a]:underline [&_b]:font-semibold [&_i]:italic [&_code]:rounded [&_code]:bg-slate-800 [&_code]:px-1 [&_ul]:list-disc [&_ul]:pl-5"
+                              dangerouslySetInnerHTML={{ __html: previewHtmlByKey[key] || "" }}
+                            />
+                          </div>
+                        ))}
                       </div>
                     ) : (
-                      <div className="space-y-2 font-mono text-[13px]">
-                        <div className="text-muted-foreground">{"{"}</div>
-                        <div className="pl-4">
-                          <span className="text-amber-600 dark:text-amber-400">"{activeLocale}"</span>
-                          <span className="text-muted-foreground">: {"{"}</span>
-                        </div>
-                        <div className="space-y-3 pl-8">
-                          {filteredKeys.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">Нет совпадений по фильтру.</p>
-                          ) : (
-                            filteredKeys.map((key) => {
-                              const value = currentValues[key] ?? ""
-                              const isChanged = value !== (sourceValues[key] ?? "")
-                              return (
-                                <div
-                                  key={key}
-                                  className={`rounded-md border p-3 ${
-                                    isChanged ? "border-primary/60 bg-primary/5" : ""
-                                  }`}
-                                >
-                                  <div className="mb-2 flex items-start gap-2">
-                                    <span className="select-text break-all text-sky-700 dark:text-sky-300">
-                                      "{key}"
-                                    </span>
-                                    <span className="text-muted-foreground">:</span>
-                                  </div>
-                                  <Textarea
-                                    value={value}
-                                    onChange={(event) => handleValueChange(key, event.target.value)}
-                                    className="min-h-[96px] resize-y font-mono text-[13px] leading-5"
-                                  />
-                                </div>
-                              )
-                            })
-                          )}
-                        </div>
-                        <div className="pl-4 text-muted-foreground">{"}"}</div>
-                        <div className="text-muted-foreground">{"}"}</div>
+                      <div className="divide-y divide-slate-800/70">
+                        {filteredKeys.map((key, index) => {
+                          const value = currentValues[key] ?? ""
+                          const isChanged = value !== (sourceValues[key] ?? "")
+                          return (
+                            <div
+                              key={key}
+                              className={`grid grid-cols-[48px_minmax(220px,320px)_1fr] items-start gap-2 px-2 py-1 ${
+                                isChanged ? "bg-emerald-500/5" : ""
+                              }`}
+                            >
+                              <div className="pt-2 text-right font-mono text-[11px] text-slate-500">
+                                {index + 1}
+                              </div>
+                              <div className="pt-2 pr-2 font-mono text-[12px] break-all text-sky-300">
+                                "{key}"
+                              </div>
+                              <CodeValueInput
+                                value={value}
+                                disabled={saving || loading}
+                                onChange={(nextValue) => handleValueChange(key, nextValue)}
+                              />
+                            </div>
+                          )
+                        })}
                       </div>
                     )}
                   </div>
