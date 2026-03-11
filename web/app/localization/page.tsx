@@ -2,9 +2,7 @@
 
 import * as React from "react"
 import {
-  IconCode,
   IconDeviceFloppy,
-  IconEye,
   IconRefresh,
   IconSearch,
 } from "@tabler/icons-react"
@@ -13,7 +11,6 @@ import { toast } from "sonner"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { SidebarInset } from "@/components/ui/sidebar"
@@ -24,7 +21,7 @@ import { localizationApi, type LocalizationData } from "@/lib/api"
 type LocaleValues = Record<string, string>
 
 const TEMPLATE_TOKEN_HTML =
-  '<span class="rounded bg-amber-400/15 px-1 text-amber-300">{?}</span>'
+  '<span class="rounded bg-amber-300/40 px-1 text-amber-800 dark:bg-amber-400/20 dark:text-amber-300">{?}</span>'
 
 function cloneLocalization(data: LocalizationData): LocalizationData {
   const next: LocalizationData = {}
@@ -45,35 +42,6 @@ function escapeHtml(value: string): string {
 
 function highlightTemplateTokens(value: string): string {
   return escapeHtml(value).replace(/\{\?\}/g, TEMPLATE_TOKEN_HTML)
-}
-
-function buildPreviewHtml(value: string): string {
-  const rawValue = String(value ?? "")
-  const hasHtml = /<\/?[a-z][\s\S]*>/i.test(rawValue)
-  if (!hasHtml) {
-    return highlightTemplateTokens(rawValue).replace(/\n/g, "<br/>")
-  }
-
-  if (typeof window === "undefined") {
-    return rawValue
-  }
-
-  const parser = new window.DOMParser()
-  const doc = parser.parseFromString(rawValue, "text/html")
-  doc.querySelectorAll("script, style, iframe, object, embed").forEach((node) => node.remove())
-  doc.querySelectorAll("*").forEach((element) => {
-    for (const attr of Array.from(element.attributes)) {
-      const attrName = attr.name.toLowerCase()
-      if (attrName.startsWith("on")) {
-        element.removeAttribute(attr.name)
-        continue
-      }
-      if ((attrName === "href" || attrName === "src") && /^\s*javascript:/i.test(attr.value)) {
-        element.removeAttribute(attr.name)
-      }
-    }
-  })
-  return doc.body.innerHTML.replace(/\{\?\}/g, TEMPLATE_TOKEN_HTML)
 }
 
 function CodeValueInput({
@@ -117,7 +85,7 @@ function CodeValueInput({
     <div className="relative">
       <pre
         ref={preRef}
-        className="m-0 min-h-[38px] overflow-hidden whitespace-pre-wrap break-words px-2 py-1.5 font-mono text-[13px] leading-6 text-slate-200"
+        className="m-0 min-h-[38px] overflow-hidden whitespace-pre-wrap break-words px-2 py-1.5 font-mono text-[13px] leading-6 text-foreground"
         dangerouslySetInnerHTML={{ __html: highlightedValue }}
       />
       <textarea
@@ -130,7 +98,7 @@ function CodeValueInput({
           requestAnimationFrame(adjustHeight)
         }}
         onScroll={syncScroll}
-        className="absolute inset-0 w-full resize-none overflow-hidden border-0 bg-transparent px-2 py-1.5 font-mono text-[13px] leading-6 text-transparent caret-slate-100 outline-none focus:bg-slate-900/20 disabled:cursor-not-allowed"
+        className="absolute inset-0 w-full resize-none overflow-hidden border-0 bg-transparent px-2 py-1.5 font-mono text-[13px] leading-6 text-transparent caret-foreground outline-none focus:bg-muted/40 disabled:cursor-not-allowed"
       />
     </div>
   )
@@ -144,7 +112,6 @@ export default function LocalizationPage() {
   const [activeLocale, setActiveLocale] = React.useState("")
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
-  const [previewMode, setPreviewMode] = React.useState(false)
   const [search, setSearch] = React.useState("")
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
 
@@ -209,28 +176,16 @@ export default function LocalizationPage() {
     })
   }, [currentValues, search])
 
-  const changedKeysCount = React.useMemo(() => {
-    let count = 0
+  const hasChanges = React.useMemo(() => {
     for (const locale of Object.keys(draftData)) {
       const current = draftData[locale] || {}
       const initial = sourceData[locale] || {}
       for (const key of Object.keys(current)) {
-        if (current[key] !== initial[key]) count += 1
+        if (current[key] !== initial[key]) return true
       }
     }
-    return count
+    return false
   }, [draftData, sourceData])
-
-  const hasChanges = changedKeysCount > 0
-
-  const previewHtmlByKey = React.useMemo(() => {
-    if (!previewMode) return {}
-    const next: Record<string, string> = {}
-    for (const key of filteredKeys) {
-      next[key] = buildPreviewHtml(currentValues[key] ?? "")
-    }
-    return next
-  }, [previewMode, filteredKeys, currentValues])
 
   const handleValueChange = (key: string, value: string) => {
     setDraftData((prev) => ({
@@ -283,8 +238,7 @@ export default function LocalizationPage() {
               <div className="space-y-1">
                 <h1 className="text-2xl font-semibold">Редактор локализации</h1>
                 <p className="text-sm text-muted-foreground">
-                  Компактный режим редактирования в стиле code editor. Плейсхолдеры <code>{"{?}"}</code>{" "}
-                  подсвечены.
+                  Компактный режим редактирования. Плейсхолдеры <code>{"{?}"}</code> подсвечены.
                 </p>
               </div>
 
@@ -298,18 +252,6 @@ export default function LocalizationPage() {
                     className="h-9 pl-8"
                   />
                 </div>
-
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-9 px-3"
-                  onClick={() => setPreviewMode((current) => !current)}
-                  disabled={loading || !!errorMessage}
-                >
-                  {previewMode ? <IconCode className="h-4 w-4" /> : <IconEye className="h-4 w-4" />}
-                  {previewMode ? "JSON" : "Просмотр"}
-                </Button>
 
                 <Button
                   type="button"
@@ -344,10 +286,6 @@ export default function LocalizationPage() {
                   <IconDeviceFloppy className="h-4 w-4" />
                   {saving ? "Сохранение..." : "Сохранить"}
                 </Button>
-
-                <Badge variant={hasChanges ? "default" : "secondary"} className="h-9 px-3 text-sm">
-                  Изменено: {changedKeysCount}
-                </Badge>
               </div>
 
               {localeNames.length > 1 && (
@@ -373,42 +311,22 @@ export default function LocalizationPage() {
                   <AlertDescription>{errorMessage}</AlertDescription>
                 </Alert>
               ) : (
-                <div className="overflow-hidden rounded-md border border-slate-700 bg-slate-950/95">
-                  <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2 text-xs font-mono text-slate-400">
+                <div className="overflow-hidden rounded-md border bg-card">
+                  <div className="flex items-center justify-between border-b px-3 py-2 text-xs font-mono text-muted-foreground">
                     <span>{activeLocale || "Локаль не выбрана"}</span>
                     <span>{filteredKeys.length} ключей</span>
                   </div>
                   <div className="max-h-[70vh] overflow-auto">
                     {loading ? (
-                      <p className="px-3 py-4 text-sm text-slate-400">Загрузка...</p>
+                      <p className="px-3 py-4 text-sm text-muted-foreground">Загрузка...</p>
                     ) : localeNames.length === 0 ? (
-                      <p className="px-3 py-4 text-sm text-slate-400">
+                      <p className="px-3 py-4 text-sm text-muted-foreground">
                         Локализация пуста. Проверьте данные в `bot_service`.
                       </p>
                     ) : filteredKeys.length === 0 ? (
-                      <p className="px-3 py-4 text-sm text-slate-400">Нет совпадений по фильтру.</p>
-                    ) : previewMode ? (
-                      <div className="divide-y divide-slate-800/70">
-                        {filteredKeys.map((key, index) => (
-                          <div
-                            key={key}
-                            className="grid grid-cols-[48px_minmax(220px,320px)_1fr] items-start gap-2 px-2 py-1.5"
-                          >
-                            <div className="pt-1.5 text-right font-mono text-[11px] text-slate-500">
-                              {index + 1}
-                            </div>
-                            <div className="pt-1.5 pr-2 font-mono text-[12px] break-all text-sky-300">
-                              "{key}"
-                            </div>
-                            <div
-                              className="px-2 py-1.5 text-sm leading-6 break-words text-slate-200 [&_a]:underline [&_b]:font-semibold [&_i]:italic [&_code]:rounded [&_code]:bg-slate-800 [&_code]:px-1 [&_ul]:list-disc [&_ul]:pl-5"
-                              dangerouslySetInnerHTML={{ __html: previewHtmlByKey[key] || "" }}
-                            />
-                          </div>
-                        ))}
-                      </div>
+                      <p className="px-3 py-4 text-sm text-muted-foreground">Нет совпадений по фильтру.</p>
                     ) : (
-                      <div className="divide-y divide-slate-800/70">
+                      <div className="divide-y">
                         {filteredKeys.map((key, index) => {
                           const value = currentValues[key] ?? ""
                           const isChanged = value !== (sourceValues[key] ?? "")
@@ -416,13 +334,13 @@ export default function LocalizationPage() {
                             <div
                               key={key}
                               className={`grid grid-cols-[48px_minmax(220px,320px)_1fr] items-start gap-2 px-2 py-1 ${
-                                isChanged ? "bg-emerald-500/5" : ""
+                                isChanged ? "bg-yellow-200/45 dark:bg-yellow-500/15" : ""
                               }`}
                             >
-                              <div className="pt-2 text-right font-mono text-[11px] text-slate-500">
+                              <div className="pt-2 text-right font-mono text-[11px] text-muted-foreground">
                                 {index + 1}
                               </div>
-                              <div className="pt-2 pr-2 font-mono text-[12px] break-all text-sky-300">
+                              <div className="pt-2 pr-2 font-mono text-[12px] break-all text-foreground/80">
                                 "{key}"
                               </div>
                               <CodeValueInput
