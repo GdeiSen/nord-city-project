@@ -20,9 +20,18 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { Input } from "@/components/ui/input"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { Toaster } from "@/components/ui/sonner"
 import { Spinner } from "@/components/ui/spinner"
+import { Textarea } from "@/components/ui/textarea"
 import { useCanEdit } from "@/hooks"
 import { localizationApi, type LocalizationData } from "@/lib/api"
 
@@ -154,86 +163,6 @@ function renderDisplayHtml(value: string): string {
   return highlightTemplateTokens(value).replace(/\n/g, "<br/>")
 }
 
-function CodeValueInput({
-  rowKey,
-  value,
-  onChange,
-  editing,
-  onStartEdit,
-  onStopEdit,
-  disabled = false,
-}: {
-  rowKey: string
-  value: string
-  onChange: (nextValue: string) => void
-  editing: boolean
-  onStartEdit: (key: string) => void
-  onStopEdit: () => void
-  disabled?: boolean
-}) {
-  const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
-
-  const adjustHeight = React.useCallback(() => {
-    const textarea = textareaRef.current
-    if (!textarea) return
-    textarea.style.height = "0px"
-    textarea.style.height = `${Math.max(textarea.scrollHeight, 38)}px`
-  }, [])
-
-  React.useEffect(() => {
-    if (!editing) return
-    adjustHeight()
-  }, [value, editing, adjustHeight])
-
-  React.useEffect(() => {
-    if (!editing) return
-    const textarea = textareaRef.current
-    if (!textarea) return
-    textarea.focus()
-    const len = textarea.value.length
-    textarea.setSelectionRange(len, len)
-  }, [editing])
-
-  if (!editing) {
-    return (
-      <button
-        type="button"
-        onClick={() => onStartEdit(rowKey)}
-        disabled={disabled}
-        className="block w-full rounded-sm px-2 py-1.5 text-left font-mono text-[13px] leading-6 text-foreground hover:bg-muted/40 disabled:cursor-not-allowed"
-      >
-        <span
-          className="block whitespace-pre-wrap break-words"
-          dangerouslySetInnerHTML={{ __html: renderDisplayHtml(String(value || "")) }}
-        />
-      </button>
-    )
-  }
-
-  return (
-    <div className="px-2 py-1.5">
-      <textarea
-        ref={textareaRef}
-        value={value}
-        disabled={disabled}
-        spellCheck={false}
-        onChange={(event) => {
-          onChange(event.target.value)
-          requestAnimationFrame(adjustHeight)
-        }}
-        onBlur={onStopEdit}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault()
-            onStopEdit()
-          }
-        }}
-        className="block w-full resize-none overflow-hidden rounded-sm border border-border bg-background px-2 py-1.5 font-mono text-[13px] leading-6 text-foreground outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed"
-      />
-    </div>
-  )
-}
-
 export default function LocalizationPage() {
   const canEditLocalization = useCanEdit()
 
@@ -244,7 +173,9 @@ export default function LocalizationPage() {
   const [saving, setSaving] = React.useState(false)
   const [search, setSearch] = React.useState("")
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
-  const [editingKey, setEditingKey] = React.useState<string | null>(null)
+  const [editorOpen, setEditorOpen] = React.useState(false)
+  const [editorKey, setEditorKey] = React.useState<string | null>(null)
+  const [editorDraftValue, setEditorDraftValue] = React.useState("")
 
   const loadLocalization = React.useCallback(async () => {
     setLoading(true)
@@ -328,9 +259,36 @@ export default function LocalizationPage() {
     }))
   }
 
+  const closeEditor = React.useCallback(() => {
+    setEditorOpen(false)
+    setEditorKey(null)
+    setEditorDraftValue("")
+  }, [])
+
+  const openEditorForKey = React.useCallback(
+    (key: string) => {
+      if (loading || saving) return
+      setEditorKey(key)
+      setEditorDraftValue(currentValues[key] ?? "")
+      setEditorOpen(true)
+    },
+    [currentValues, loading, saving]
+  )
+
+  const applyEditorChanges = React.useCallback(() => {
+    if (!editorKey) return
+    handleValueChange(editorKey, editorDraftValue)
+    closeEditor()
+    toast.success("Изменение сохранено в таблице")
+  }, [closeEditor, editorKey, editorDraftValue])
+
+  React.useEffect(() => {
+    closeEditor()
+  }, [activeLocale, closeEditor])
+
   const handleReset = () => {
     setDraftData(cloneLocalization(sourceData))
-    setEditingKey(null)
+    closeEditor()
     toast.success("Изменения отменены")
   }
 
@@ -342,7 +300,7 @@ export default function LocalizationPage() {
       const normalized = cloneLocalization(updated || {})
       setSourceData(normalized)
       setDraftData(cloneLocalization(normalized))
-      setEditingKey(null)
+      closeEditor()
       toast.success("Локализация сохранена")
     } catch (error: any) {
       toast.error("Не удалось сохранить локализацию", {
@@ -507,15 +465,17 @@ export default function LocalizationPage() {
                               <div className="pt-2 pr-1 font-mono text-[12px] break-all text-foreground/80">
                                 "{key}"
                               </div>
-                              <CodeValueInput
-                                rowKey={key}
-                                value={value}
+                              <button
+                                type="button"
+                                onClick={() => openEditorForKey(key)}
                                 disabled={saving || loading}
-                                editing={editingKey === key}
-                                onStartEdit={(targetKey) => setEditingKey(targetKey)}
-                                onStopEdit={() => setEditingKey((current) => (current === key ? null : current))}
-                                onChange={(nextValue) => handleValueChange(key, nextValue)}
-                              />
+                                className="block w-full rounded-sm px-2 py-1.5 text-left font-mono text-[13px] leading-6 text-foreground hover:bg-muted/40 disabled:cursor-not-allowed"
+                              >
+                                <span
+                                  className="block whitespace-pre-wrap break-words"
+                                  dangerouslySetInnerHTML={{ __html: renderDisplayHtml(String(value || "")) }}
+                                />
+                              </button>
                             </div>
                           )
                         })}
@@ -524,6 +484,56 @@ export default function LocalizationPage() {
                   </div>
                 </div>
               )}
+
+              <Sheet
+                open={editorOpen}
+                onOpenChange={(open) => {
+                  if (!open) {
+                    closeEditor()
+                    return
+                  }
+                  setEditorOpen(true)
+                }}
+              >
+                <SheetContent side="right" className="w-full sm:max-w-xl p-0">
+                  <SheetHeader className="border-b p-4">
+                    <SheetTitle>Редактирование локализации</SheetTitle>
+                    <SheetDescription>
+                      Ключ: <code>{editorKey || "-"}</code>
+                      {activeLocale ? <> · Локаль: <code>{activeLocale}</code></> : null}
+                    </SheetDescription>
+                  </SheetHeader>
+
+                  <div className="flex-1 space-y-3 overflow-auto p-4">
+                    <div className="rounded-md border bg-muted/30 p-3">
+                      <div className="mb-2 text-xs font-medium text-muted-foreground">Текущий рендер строки</div>
+                      <div
+                        className="whitespace-pre-wrap break-words font-mono text-[13px] leading-6"
+                        dangerouslySetInnerHTML={{ __html: renderDisplayHtml(editorDraftValue || "") }}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="text-xs font-medium text-muted-foreground">Редактор значения</div>
+                      <Textarea
+                        value={editorDraftValue}
+                        spellCheck={false}
+                        onChange={(event) => setEditorDraftValue(event.target.value)}
+                        className="min-h-[340px] resize-y border-border bg-muted/30 font-mono text-[13px] leading-6"
+                      />
+                    </div>
+                  </div>
+
+                  <SheetFooter className="border-t p-4 sm:flex-row sm:justify-end">
+                    <Button type="button" variant="outline" onClick={closeEditor}>
+                      Отмена
+                    </Button>
+                    <Button type="button" onClick={applyEditorChanges} disabled={!editorKey}>
+                      Сохранить в таблице
+                    </Button>
+                  </SheetFooter>
+                </SheetContent>
+              </Sheet>
             </div>
           )}
         </div>

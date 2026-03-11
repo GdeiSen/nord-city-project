@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { IconUsers, IconTicket, IconMessageCircle, IconBuildingSkyscraper, IconRefresh } from "@tabler/icons-react"
 import { DashboardStats } from '@/types'
@@ -128,16 +128,9 @@ export default function DashboardPage() {
       <SidebarInset>
         <SiteHeader />
         <div className="flex-1 min-w-0 space-y-4 p-4 md:p-8 pt-6">
-          <Card>
-            <CardContent className="pt-6 space-y-2">
-              <h1 className="text-2xl font-semibold tracking-tight">{timeGreeting}, {userName}!</h1>
-              <p className="text-sm text-muted-foreground">{dailySummary}</p>
-            </CardContent>
-          </Card>
-
           <PageHeader
-            title="Дашборд"
-            description="Обзор ключевых метрик системы"
+            title={`${timeGreeting}, ${userName}!`}
+            description={dailySummary}
             buttonText="Обновить данные"
             onButtonClick={fetchStats}
             buttonIcon={<IconRefresh className="h-4 w-4" />}
