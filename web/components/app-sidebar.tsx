@@ -102,11 +102,6 @@ const data = {
       url: "/spaces",
       icon: IconBuildingSkyscraper,
     },
-    {
-      title: "Локализация бота",
-      url: "/localization",
-      icon: IconLanguage,
-    },
   ],
   
   navSecondary: [
@@ -119,6 +114,11 @@ const data = {
       title: "Хранилище файлов",
       url: "/file-storage",
       icon: IconFile,
+    },
+    {
+      title: "Локализация бота",
+      url: "/localization",
+      icon: IconLanguage,
     },
   ],
 }
