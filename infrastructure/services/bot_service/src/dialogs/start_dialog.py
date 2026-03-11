@@ -87,8 +87,15 @@ async def _handle_consent_callback(
         [[("agree", CONSENT_AGREE_CALLBACK), ("exit", CONSENT_EXIT_CALLBACK)]]
     )
     await bot.send_message(update, context, "user_agreement_input_handler_prompt", keyboard)
-    bot.register_input_handler(user_id, Actions.CALLBACK, _handle_consent_callback)
+    bot.register_input_handler(user_id, Actions.CALLBACK, _build_consent_callback_handler(bot))
     return Actions.END
+
+
+def _build_consent_callback_handler(bot: "Bot"):
+    async def _handler(update: "Update", context: "ContextTypes.DEFAULT_TYPE") -> int | str:
+        return await _handle_consent_callback(update, context, bot)
+
+    return _handler
 
 
 async def start_app_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYPE", bot: "Bot") -> int | str:
@@ -124,6 +131,7 @@ async def start_app_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYPE
     start_role = _resolve_role_from_start_payload(start_payload)
 
     user = await bot.services.user.get_user_by_id(user_id)
+    is_new_user = user is None
     if user is None:
         telegram_user = update.effective_user
         new_user = UserSchema(
@@ -147,12 +155,12 @@ async def start_app_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYPE
 
     _save_user_context(context, bot, user)
 
-    if not user.data_processing_consent:
+    if is_new_user:
         keyboard = bot.create_keyboard(
             [[("agree", CONSENT_AGREE_CALLBACK), ("exit", CONSENT_EXIT_CALLBACK)]]
         )
         await bot.send_message(update, context, "user_agreement_input_handler_prompt", keyboard)
-        bot.register_input_handler(user_id, Actions.CALLBACK, _handle_consent_callback)
+        bot.register_input_handler(user_id, Actions.CALLBACK, _build_consent_callback_handler(bot))
         return Actions.END
 
     await bot.send_message(
