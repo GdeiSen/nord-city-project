@@ -12,9 +12,17 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import { Input } from "@/components/ui/input"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { Toaster } from "@/components/ui/sonner"
+import { Spinner } from "@/components/ui/spinner"
 import { useCanEdit } from "@/hooks"
 import { localizationApi, type LocalizationData } from "@/lib/api"
 
@@ -416,13 +424,44 @@ export default function LocalizationPage() {
                   </div>
                   <div className="max-h-[70vh] overflow-auto">
                     {loading ? (
-                      <p className="px-3 py-4 text-sm text-muted-foreground">Загрузка...</p>
+                      <div className="px-2 py-6">
+                        <Empty className="w-full border-0 py-6">
+                          <EmptyHeader>
+                            <EmptyMedia variant="icon">
+                              <Spinner className="size-5" />
+                            </EmptyMedia>
+                            <EmptyTitle>Загрузка локализации</EmptyTitle>
+                            <EmptyDescription>
+                              Пожалуйста, подождите. Получаем данные бота.
+                            </EmptyDescription>
+                          </EmptyHeader>
+                        </Empty>
+                      </div>
                     ) : localeNames.length === 0 ? (
-                      <p className="px-3 py-4 text-sm text-muted-foreground">
-                        Локализация пуста. Проверьте данные в `bot_service`.
-                      </p>
+                      <div className="px-2 py-6">
+                        <Empty className="w-full border-0 py-6">
+                          <EmptyHeader>
+                            <EmptyTitle>Локализация пуста</EmptyTitle>
+                            <EmptyDescription>
+                              Проверьте данные на стороне `bot_service`.
+                            </EmptyDescription>
+                          </EmptyHeader>
+                        </Empty>
+                      </div>
                     ) : filteredKeys.length === 0 ? (
-                      <p className="px-3 py-4 text-sm text-muted-foreground">Нет совпадений по фильтру.</p>
+                      <div className="px-2 py-6">
+                        <Empty className="w-full border-0 py-6">
+                          <EmptyHeader>
+                            <EmptyMedia variant="icon">
+                              <IconSearch className="size-5" />
+                            </EmptyMedia>
+                            <EmptyTitle>Ничего не найдено</EmptyTitle>
+                            <EmptyDescription>
+                              Измените поисковый запрос, чтобы увидеть ключи локализации.
+                            </EmptyDescription>
+                          </EmptyHeader>
+                        </Empty>
+                      </div>
                     ) : (
                       <div className="divide-y">
                         {filteredKeys.map((key, index) => {
