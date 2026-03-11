@@ -22,6 +22,15 @@ type LocaleValues = Record<string, string>
 
 const TEMPLATE_TOKEN_HTML =
   '<span class="rounded-[2px] bg-amber-300/40 text-amber-800 dark:bg-amber-400/20 dark:text-amber-300">{?}</span>'
+const HTML_TAG_PATTERN = /<\/?([a-z][a-z0-9-]*)\b[^>]*>/gi
+
+type TagStyles = {
+  bold: number
+  italic: number
+  underline: number
+  strike: number
+  code: number
+}
 
 function cloneLocalization(data: LocalizationData): LocalizationData {
   const next: LocalizationData = {}
@@ -40,8 +49,97 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;")
 }
 
+function getInitialTagStyles(): TagStyles {
+  return {
+    bold: 0,
+    italic: 0,
+    underline: 0,
+    strike: 0,
+    code: 0,
+  }
+}
+
+function updateTagStyles(styles: TagStyles, tagName: string, isClosing: boolean): void {
+  const delta = isClosing ? -1 : 1
+  const apply = (key: keyof TagStyles) => {
+    styles[key] = Math.max(0, styles[key] + delta)
+  }
+
+  switch (tagName) {
+    case "b":
+    case "strong":
+      apply("bold")
+      break
+    case "i":
+    case "em":
+      apply("italic")
+      break
+    case "u":
+      apply("underline")
+      break
+    case "s":
+    case "strike":
+    case "del":
+      apply("strike")
+      break
+    case "code":
+    case "pre":
+      apply("code")
+      break
+    default:
+      break
+  }
+}
+
+function styleClassesToString(styles: TagStyles): string {
+  const classes: string[] = []
+  if (styles.bold > 0) classes.push("font-semibold")
+  if (styles.italic > 0) classes.push("italic")
+  if (styles.underline > 0) classes.push("underline")
+  if (styles.strike > 0) classes.push("line-through")
+  if (styles.code > 0) classes.push("font-mono")
+  return classes.join(" ")
+}
+
+function renderStyledChunk(chunk: string, styles: TagStyles): string {
+  if (!chunk) return ""
+  const chunkHtml = escapeHtml(chunk).replace(/\{\?\}/g, TEMPLATE_TOKEN_HTML)
+  const classes = styleClassesToString(styles)
+  if (!classes) return chunkHtml
+  return `<span class="${classes}">${chunkHtml}</span>`
+}
+
 function highlightTemplateTokens(value: string): string {
-  return escapeHtml(value).replace(/\{\?\}/g, TEMPLATE_TOKEN_HTML)
+  const source = String(value || "")
+  const styles = getInitialTagStyles()
+  let html = ""
+  let cursor = 0
+
+  HTML_TAG_PATTERN.lastIndex = 0
+  let match = HTML_TAG_PATTERN.exec(source)
+  while (match) {
+    const token = match[0]
+    const tagName = String(match[1] || "").toLowerCase()
+    const start = match.index ?? 0
+
+    if (start > cursor) {
+      html += renderStyledChunk(source.slice(cursor, start), styles)
+    }
+
+    const isClosing = token.startsWith("</")
+    if (!isClosing) updateTagStyles(styles, tagName, false)
+    html += renderStyledChunk(token, styles)
+    if (isClosing) updateTagStyles(styles, tagName, true)
+
+    cursor = start + token.length
+    match = HTML_TAG_PATTERN.exec(source)
+  }
+
+  if (cursor < source.length) {
+    html += renderStyledChunk(source.slice(cursor), styles)
+  }
+
+  return html || "&nbsp;"
 }
 
 function CodeValueInput({
@@ -333,14 +431,14 @@ export default function LocalizationPage() {
                           return (
                             <div
                               key={key}
-                              className={`grid grid-cols-[48px_minmax(220px,320px)_1fr] items-start gap-2 px-2 py-1 ${
+                              className={`grid grid-cols-[32px_minmax(220px,320px)_1fr] items-start gap-1.5 pl-0.5 pr-2 py-1 ${
                                 isChanged ? "bg-yellow-200/45 dark:bg-yellow-500/15" : ""
                               }`}
                             >
-                              <div className="pt-2 text-right font-mono text-[11px] text-muted-foreground">
+                              <div className="pt-2 pr-1 text-right font-mono text-[11px] text-muted-foreground">
                                 {index + 1}
                               </div>
-                              <div className="pt-2 pr-2 font-mono text-[12px] break-all text-foreground/80">
+                              <div className="pt-2 pr-1 font-mono text-[12px] break-all text-foreground/80">
                                 "{key}"
                               </div>
                               <CodeValueInput
