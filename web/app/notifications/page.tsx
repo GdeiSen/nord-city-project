@@ -169,7 +169,7 @@ export default function NotificationsPage() {
                     onChange={setAttachmentUrls}
                     label="Вложения"
                     description="Поддерживаются изображения и документы: PDF, DOCX, TXT, MD, Excel."
-                    category="SYSTEM"
+                    category="TEMP"
                     deleteOnRemove
                   />
 

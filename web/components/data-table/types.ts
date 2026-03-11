@@ -29,7 +29,7 @@ export interface DataTableColumnMeta {
 
 export interface DataTableContextMenuActions<TData> {
   onEdit?: (row: Row<TData>) => void
-  onDelete?: (row: Row<TData>) => void
+  onDelete?: (row: Row<TData>) => void | Promise<void>
   getCopyText?: (row: Row<TData>) => string
   deleteTitle?: string
   deleteDescription?: string

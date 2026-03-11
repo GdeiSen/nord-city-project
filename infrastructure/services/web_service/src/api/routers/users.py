@@ -145,11 +145,10 @@ async def create_user(
         )
     create_data = body.model_dump()
     if create_data.get("role") == Roles.SUPER_ADMIN:
-        if current_user.get("role") != Roles.SUPER_ADMIN:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Только Super Admin может создавать пользователей с ролью Super Admin.",
-            )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Назначение роли Super Admin через сайт запрещено. Используйте базу данных.",
+        )
     response = await db_client.user.create(
         model_data=create_data,
         model_class=UserSchema,
@@ -261,12 +260,22 @@ async def update_user(
     # Запрет менять свою роль (на случай прямых API-вызовов) — уже убрали выше
     if "role" in update_data:
         new_role = update_data["role"]
-        current_role = current_user.get("role")
-        # Администратор не может назначать роль Super Admin
-        if new_role == Roles.SUPER_ADMIN and current_role != Roles.SUPER_ADMIN:
+        target_user_response = await db_client.user.get_by_id(
+            entity_id=entity_id,
+            model_class=UserSchema,
+        )
+        if not target_user_response.get("success") or target_user_response.get("data") is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found",
+            )
+        target_user = target_user_response["data"]
+
+        # Роль Super Admin управляется только через БД: запрещаем назначения и снятие через web.
+        if new_role == Roles.SUPER_ADMIN or target_user.role == Roles.SUPER_ADMIN:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Только Super Admin может назначать роль Super Admin.",
+                detail="Управление ролью Super Admin через сайт запрещено. Используйте базу данных.",
             )
 
     response = await db_client.user.update(

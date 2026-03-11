@@ -87,6 +87,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import {
@@ -249,6 +250,9 @@ export function DataTable<TData>({
   const isMobile = useIsMobile()
 
   const deleteDialog = useDeleteDialog<Row<TData>>()
+  const [bulkDeleteOpen, setBulkDeleteOpen] = React.useState(false)
+  const [bulkDeleteRows, setBulkDeleteRows] = React.useState<Row<TData>[]>([])
+  const [bulkDeleteInProgress, setBulkDeleteInProgress] = React.useState(false)
 
   const onClearAllFilters = React.useCallback(() => {
     setColumnFilters([])
@@ -439,6 +443,82 @@ export function DataTable<TData>({
       globalQuery,
     },
   })
+
+  const selectedRows = table.getFilteredSelectedRowModel().rows as Row<TData>[]
+  const selectedRowsCount = selectedRows.length
+
+  const handleCopyRows = React.useCallback(
+    async (rowsToCopy: Row<TData>[]) => {
+      const payload = rowsToCopy
+        .map((row) => {
+          const customText = contextMenuActions?.getCopyText?.(row)
+          if (customText) return String(customText).trim()
+          try {
+            return JSON.stringify(row.original, null, 2).trim()
+          } catch {
+            return String(row.id ?? "").trim()
+          }
+        })
+        .filter(Boolean)
+        .join("\n\n")
+        .trim()
+
+      if (!payload) {
+        toast.error("Нет данных для копирования")
+        return
+      }
+
+      try {
+        await navigator.clipboard.writeText(payload)
+        if (rowsToCopy.length > 1) {
+          toast.success(`Скопировано строк: ${rowsToCopy.length}`)
+        } else {
+          toast.success("Скопировано в буфер обмена")
+        }
+      } catch {
+        toast.error("Не удалось скопировать в буфер обмена")
+      }
+    },
+    [contextMenuActions?.getCopyText]
+  )
+
+  const requestBulkDelete = React.useCallback(
+    (rowsToDelete: Row<TData>[]) => {
+      if (!contextMenuActions?.onDelete || rowsToDelete.length === 0) return
+      setBulkDeleteRows(rowsToDelete)
+      setBulkDeleteOpen(true)
+    },
+    [contextMenuActions?.onDelete]
+  )
+
+  const confirmBulkDelete = React.useCallback(async () => {
+    const onDelete = contextMenuActions?.onDelete
+    if (!onDelete || bulkDeleteRows.length === 0 || bulkDeleteInProgress) return
+
+    setBulkDeleteInProgress(true)
+    let failedCount = 0
+
+    for (const row of bulkDeleteRows) {
+      try {
+        await Promise.resolve(onDelete(row))
+      } catch {
+        failedCount += 1
+      }
+    }
+
+    setBulkDeleteInProgress(false)
+    setBulkDeleteOpen(false)
+    setBulkDeleteRows([])
+    setRowSelection({})
+
+    const successCount = Math.max(0, bulkDeleteRows.length - failedCount)
+    if (successCount > 0) {
+      toast.success(`Удалено записей: ${successCount}`)
+    }
+    if (failedCount > 0) {
+      toast.error(`Не удалось удалить записей: ${failedCount}`)
+    }
+  }, [bulkDeleteRows, bulkDeleteInProgress, contextMenuActions?.onDelete])
 
   const availableColumns = React.useMemo(() => {
     return table.getAllColumns()
@@ -839,14 +919,10 @@ export function DataTable<TData>({
                               Изменить
                             </ContextMenuItem>
                           )}
-                          {contextMenuActions?.getCopyText && (
+                          {hasContextMenu && (
                             <ContextMenuItem
                               onClick={() => {
-                                const text = contextMenuActions.getCopyText?.(row as Row<TData>)
-                                if (text) {
-                                  navigator.clipboard.writeText(text)
-                                  toast.success("Скопировано в буфер обмена")
-                                }
+                                void handleCopyRows([row as Row<TData>])
                               }}
                             >
                               <IconCopy className="h-4 w-4" />
@@ -860,6 +936,28 @@ export function DataTable<TData>({
                             >
                               <IconTrash className="h-4 w-4" />
                               Удалить
+                            </ContextMenuItem>
+                          )}
+                          {selectedRowsCount > 1 && (
+                            <ContextMenuSeparator />
+                          )}
+                          {selectedRowsCount > 1 && (
+                            <ContextMenuItem
+                              onClick={() => {
+                                void handleCopyRows(selectedRows)
+                              }}
+                            >
+                              <IconCopy className="h-4 w-4" />
+                              Скопировать выбранные ({selectedRowsCount})
+                            </ContextMenuItem>
+                          )}
+                          {contextMenuActions?.onDelete && selectedRowsCount > 1 && (
+                            <ContextMenuItem
+                              variant="destructive"
+                              onClick={() => requestBulkDelete(selectedRows)}
+                            >
+                              <IconTrash className="h-4 w-4" />
+                              Удалить выбранные ({selectedRowsCount})
                             </ContextMenuItem>
                           )}
                         </ContextMenuContent>
@@ -920,14 +1018,47 @@ export function DataTable<TData>({
               </AlertDialogContent>
             </AlertDialog>
           )}
+          {hasContextMenu && contextMenuActions?.onDelete && (
+            <AlertDialog
+              open={bulkDeleteOpen}
+              onOpenChange={(open) => {
+                if (bulkDeleteInProgress) return
+                setBulkDeleteOpen(open)
+                if (!open) {
+                  setBulkDeleteRows([])
+                }
+              }}
+            >
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Удалить выбранные записи?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Будет удалено записей: {bulkDeleteRows.length}. Это действие нельзя отменить.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={bulkDeleteInProgress}>Отмена</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    disabled={bulkDeleteInProgress}
+                    onClick={() => {
+                      void confirmBulkDelete()
+                    }}
+                  >
+                    {bulkDeleteInProgress ? "Удаление..." : "Удалить"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
         </div>
       )}
       {!isCardsView && (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex-1 text-sm text-muted-foreground">
             {serverPagination
-              ? `${table.getFilteredSelectedRowModel().rows.length} of ${totalRowCount} row(s) selected.`
-              : `${table.getFilteredSelectedRowModel().rows.length} of ${table.getFilteredRowModel().rows.length} row(s) selected.`}
+              ? `Выбрано: ${selectedRowsCount} из ${totalRowCount}`
+              : `Выбрано: ${selectedRowsCount} из ${table.getFilteredRowModel().rows.length}`}
           </div>
           <div className="flex items-center justify-end space-x-4 h-9">
             {exportConfig && serverPagination && (

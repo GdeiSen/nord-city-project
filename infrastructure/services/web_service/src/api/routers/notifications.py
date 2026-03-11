@@ -10,7 +10,8 @@ from api.schemas.notifications import (
 from shared.clients.bot_client import bot_client
 from shared.clients.database_client import db_client
 from shared.clients.storage_client import storage_client
-from shared.constants import Roles
+from shared.constants import Roles, StorageFileCategory
+from shared.schemas.storage_file import StorageFileSchema
 from shared.schemas.user import UserSchema
 from shared.utils.storage_utils import STORAGE_PATH_PATTERN, extract_storage_path
 
@@ -30,24 +31,34 @@ def _require_admin(current_user: dict = Depends(get_current_user)) -> dict:
     return current_user
 
 
-def _normalize_attachment_urls(attachment_urls: list[str]) -> list[str]:
-    """Accept only files stored in our storage service and convert them to public URLs."""
+def _resolve_storage_path(raw_value: str) -> str | None:
+    candidate = str(raw_value or "").strip()
+    if not candidate:
+        return None
+
+    storage_path = extract_storage_path(candidate)
+    if storage_path is not None:
+        return storage_path
+
+    fallback_path = candidate.lstrip("/")
+    if fallback_path.startswith("storage/"):
+        fallback_path = fallback_path[8:].lstrip("/")
+    if fallback_path and STORAGE_PATH_PATTERN.match(fallback_path):
+        return fallback_path
+
+    return None
+
+
+def _normalize_attachment_urls(attachment_urls: list[str]) -> tuple[list[str], list[str]]:
+    """Accept only storage files and return both public URLs and canonical storage paths."""
     normalized_urls: list[str] = []
+    normalized_paths: list[str] = []
     seen_paths: set[str] = set()
 
     for raw_url in attachment_urls or []:
-        candidate = str(raw_url or "").strip()
-        if not candidate:
+        if not str(raw_url or "").strip():
             continue
-
-        storage_path = extract_storage_path(candidate)
-        if storage_path is None:
-            fallback_path = candidate.lstrip("/")
-            if fallback_path.startswith("storage/"):
-                fallback_path = fallback_path[8:].lstrip("/")
-            if fallback_path and STORAGE_PATH_PATTERN.match(fallback_path):
-                storage_path = fallback_path
-
+        storage_path = _resolve_storage_path(raw_url)
         if storage_path is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -57,9 +68,55 @@ def _normalize_attachment_urls(attachment_urls: list[str]) -> list[str]:
         if storage_path in seen_paths:
             continue
         seen_paths.add(storage_path)
+        normalized_paths.append(storage_path)
         normalized_urls.append(storage_client.get_storage_url(storage_path))
 
-    return normalized_urls
+    return normalized_urls, normalized_paths
+
+
+async def _cleanup_temp_notification_attachments(storage_paths: list[str]) -> None:
+    """
+    Remove only TEMP files created for notification delivery.
+    Bound files and non-TEMP categories are left untouched.
+    """
+    for path in storage_paths:
+        try:
+            lookup = await db_client.storage_file.find_by_path(
+                storage_path=path,
+                model_class=StorageFileSchema,
+            )
+            if not lookup.get("success"):
+                logger.warning(
+                    "Failed to lookup storage file for notification cleanup: path=%s, error=%s",
+                    path,
+                    lookup.get("error"),
+                )
+                continue
+
+            file_item = lookup.get("data")
+            if file_item is None:
+                continue
+            if file_item.category != StorageFileCategory.TEMP:
+                continue
+            if file_item.entity_type or file_item.entity_id is not None:
+                continue
+
+            delete_response = await db_client.storage_file.delete_file(
+                storage_path=path,
+                remove_reference=False,
+            )
+            if not delete_response.get("success"):
+                logger.warning(
+                    "Failed to cleanup temp notification attachment: path=%s, error=%s",
+                    path,
+                    delete_response.get("error"),
+                )
+        except Exception as exc:
+            logger.warning(
+                "Unexpected error during notification attachment cleanup for %s: %s",
+                path,
+                exc,
+            )
 
 
 def _extract_user_id(user: UserSchema | dict) -> int | None:
@@ -75,6 +132,8 @@ async def broadcast_notification(
     body: NotificationBroadcastRequest,
     _: dict = Depends(_require_admin),
 ):
+    attachment_urls, attachment_paths = _normalize_attachment_urls(body.attachment_urls or body.image_urls)
+
     recipient_response = await db_client.user.get_notification_recipients(
         role_ids=body.role_ids,
         user_ids=body.user_ids,
@@ -104,7 +163,7 @@ async def broadcast_notification(
         user_ids=recipient_ids,
         title=body.title,
         message=body.message,
-        attachment_urls=_normalize_attachment_urls(body.attachment_urls or body.image_urls),
+        attachment_urls=attachment_urls,
     )
     if not bot_response.get("success"):
         error = bot_response.get("error", "Не удалось отправить уведомление.")
@@ -114,6 +173,9 @@ async def broadcast_notification(
             else status.HTTP_502_BAD_GATEWAY
         )
         raise HTTPException(status_code=status_code, detail=error)
+
+    if attachment_paths:
+        await _cleanup_temp_notification_attachments(attachment_paths)
 
     delivery_data = bot_response.get("data") or {}
     failed_deliveries = delivery_data.get("failed_deliveries") or []
