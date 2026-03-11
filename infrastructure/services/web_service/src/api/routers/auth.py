@@ -157,16 +157,30 @@ async def verify_otp(body: VerifyOtpBody):
 async def validate_token(request: Request):
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
-        return TokenValidationResponse(valid=False)
+        return TokenValidationResponse(valid=False, reason="missing_token")
 
     token = auth_header.split(" ", 1)[1]
     payload = _decode_access_token(token)
 
     if payload is None:
-        return TokenValidationResponse(valid=False)
+        return TokenValidationResponse(valid=False, reason="invalid_token")
+
+    try:
+        user_id = int(payload["sub"])
+    except (KeyError, TypeError, ValueError):
+        return TokenValidationResponse(valid=False, reason="invalid_payload")
+
+    user_result = await db_client.user.get_by_id(entity_id=user_id, model_class=UserSchema)
+    if not user_result.get("success") or user_result.get("data") is None:
+        return TokenValidationResponse(valid=False, reason="access_restricted")
+
+    user_schema = user_result["data"]
+    if user_schema.role not in (Roles.ADMIN, Roles.SUPER_ADMIN):
+        return TokenValidationResponse(valid=False, reason="access_restricted")
 
     return TokenValidationResponse(
         valid=True,
-        user_id=int(payload["sub"]),
-        role=payload.get("role"),
+        user_id=user_id,
+        role=user_schema.role,
+        reason=None,
     )

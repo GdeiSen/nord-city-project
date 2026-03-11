@@ -18,6 +18,12 @@ def _normalize_start_payload(payload: str | None) -> str:
     return (payload or "").strip()
 
 
+def _get_start_role_from_context(context: "ContextTypes.DEFAULT_TYPE") -> int | None:
+    raw_start_payload = context.user_data.get(START_PAYLOAD_CTX_KEY) if context.user_data is not None else ""
+    start_payload = _normalize_start_payload(raw_start_payload)
+    return _resolve_role_from_start_payload(start_payload)
+
+
 def _resolve_role_from_start_payload(payload: str) -> int | None:
     normalized_payload = payload.casefold()
     if not normalized_payload:
@@ -57,23 +63,38 @@ async def _handle_consent_callback(
 
     handled_data = bot.managers.storage.get(context, Variables.HANDLED_DATA)
     bot.managers.storage.set(context, Variables.HANDLED_DATA, None)
+    user = await bot.services.user.get_user_by_id(user_id)
 
     if handled_data == CONSENT_AGREE_CALLBACK:
-        updated_user = await bot.services.user.update_user(user_id, {"data_processing_consent": True})
-        if updated_user is None:
-            await bot.send_message(
-                update,
-                context,
-                "Не удалось сохранить согласие. Попробуйте снова командой /start.",
-                dynamic=False,
+        start_role = _get_start_role_from_context(context)
+        if user is None:
+            telegram_user = update.effective_user
+            new_user = UserSchema(
+                id=user_id,
+                username=telegram_user.username or "",
+                first_name=telegram_user.first_name or "",
+                last_name=telegram_user.last_name or "",
+                object_id=1,
+                middle_name="",
+                legal_entity="",
+                role=start_role or Roles.LPR,
+                data_processing_consent=True,
             )
+            user = await bot.services.user.create_user(new_user)
+        elif not user.data_processing_consent:
+            user = await bot.services.user.update_user(user_id, {"data_processing_consent": True})
+
+        if user is None:
+            await bot.send_message(update, context, "Не удалось сохранить согласие. Попробуйте снова командой /start.", dynamic=False)
             return Actions.END
 
-        _save_user_context(context, bot, updated_user)
+        _save_user_context(context, bot, user)
         await bot.managers.navigator.execute(Dialogs.MENU, update, context)
         return Dialogs.MENU
 
     if handled_data == CONSENT_EXIT_CALLBACK:
+        if user is not None and not user.data_processing_consent:
+            await bot.services.user.delete_user(user_id)
         bot.managers.navigator.clear(context)
         await bot.send_message(
             update,
@@ -126,42 +147,21 @@ async def start_app_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYPE
     if user_id is None:
         return Actions.END
 
-    raw_start_payload = context.user_data.get(START_PAYLOAD_CTX_KEY) if context.user_data is not None else ""
-    start_payload = _normalize_start_payload(raw_start_payload)
-    start_role = _resolve_role_from_start_payload(start_payload)
-
+    start_role = _get_start_role_from_context(context)
     user = await bot.services.user.get_user_by_id(user_id)
-    is_new_user = user is None
-    if user is None:
-        telegram_user = update.effective_user
-        new_user = UserSchema(
-            id=user_id,
-            username=telegram_user.username or "",
-            first_name=telegram_user.first_name or "",
-            last_name=telegram_user.last_name or "",
-            object_id=1,
-            middle_name="",
-            legal_entity="",
-            role=start_role or Roles.LPR,
-            data_processing_consent=False,
-        )
-        user = await bot.services.user.create_user(new_user)
-        if user is None:
-            return Actions.END
-    elif start_role is not None and start_role != user.role and _can_apply_start_role(user.role):
-        updated_user = await bot.services.user.update_user(user_id, {"role": start_role})
-        if updated_user is not None:
-            user = updated_user
-
-    _save_user_context(context, bot, user)
-
-    if is_new_user:
+    if user is None or not user.data_processing_consent:
         keyboard = bot.create_keyboard(
             [[("agree", CONSENT_AGREE_CALLBACK), ("exit", CONSENT_EXIT_CALLBACK)]]
         )
         await bot.send_message(update, context, "user_agreement_input_handler_prompt", keyboard)
         bot.register_input_handler(user_id, Actions.CALLBACK, _build_consent_callback_handler(bot))
         return Actions.END
+    elif start_role is not None and start_role != user.role and _can_apply_start_role(user.role):
+        updated_user = await bot.services.user.update_user(user_id, {"role": start_role})
+        if updated_user is not None:
+            user = updated_user
+
+    _save_user_context(context, bot, user)
 
     await bot.send_message(
         update,

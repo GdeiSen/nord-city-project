@@ -51,6 +51,7 @@ class TokenValidationResponse(BaseModel):
     valid: bool
     user_id: Optional[int] = None
     role: Optional[int] = None
+    reason: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

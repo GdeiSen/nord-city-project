@@ -179,12 +179,17 @@ export const authApi = {
     })
   },
 
-  async validateToken(token: string): Promise<{ valid: boolean }> {
+  async validateToken(token: string): Promise<{ valid: boolean; user_id?: number; role?: number; reason?: string }> {
     const res = await fetch(`${API_BASE}/auth/validate`, {
       headers: { Authorization: `Bearer ${token}` },
     })
     const data = await res.json().catch(() => ({}))
-    return { valid: !!data?.valid }
+    return {
+      valid: !!data?.valid,
+      user_id: typeof data?.user_id === "number" ? data.user_id : undefined,
+      role: typeof data?.role === "number" ? data.role : undefined,
+      reason: typeof data?.reason === "string" ? data.reason : undefined,
+    }
   },
 }
 

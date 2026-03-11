@@ -4,12 +4,14 @@ import { usePathname } from "next/navigation"
 import { useAuthCheck } from "@/hooks"
 
 const PUBLIC_ROUTES = ["/login"]
+const EXTRA_PUBLIC_ROUTES = ["/access-restricted"]
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const { checked, authorized } = useAuthCheck({ pathname, publicRoutes: PUBLIC_ROUTES })
+  const publicRoutes = [...PUBLIC_ROUTES, ...EXTRA_PUBLIC_ROUTES]
+  const { checked, authorized } = useAuthCheck({ pathname, publicRoutes })
 
-  if (PUBLIC_ROUTES.includes(pathname)) {
+  if (publicRoutes.includes(pathname)) {
     return <>{children}</>
   }
 
