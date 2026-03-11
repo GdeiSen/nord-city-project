@@ -150,50 +150,68 @@ function highlightTemplateTokens(value: string): string {
   return html || "&nbsp;"
 }
 
+function renderDisplayHtml(value: string): string {
+  return highlightTemplateTokens(value).replace(/\n/g, "<br/>")
+}
+
 function CodeValueInput({
+  rowKey,
   value,
   onChange,
+  editing,
+  onStartEdit,
+  onStopEdit,
   disabled = false,
 }: {
+  rowKey: string
   value: string
   onChange: (nextValue: string) => void
+  editing: boolean
+  onStartEdit: (key: string) => void
+  onStopEdit: () => void
   disabled?: boolean
 }) {
-  const preRef = React.useRef<HTMLPreElement | null>(null)
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
-
-  const syncScroll = React.useCallback(() => {
-    const pre = preRef.current
-    const textarea = textareaRef.current
-    if (!pre || !textarea) return
-    pre.scrollTop = textarea.scrollTop
-    pre.scrollLeft = textarea.scrollLeft
-  }, [])
 
   const adjustHeight = React.useCallback(() => {
     const textarea = textareaRef.current
     if (!textarea) return
     textarea.style.height = "0px"
     textarea.style.height = `${Math.max(textarea.scrollHeight, 38)}px`
-    syncScroll()
-  }, [syncScroll])
+  }, [])
 
   React.useEffect(() => {
+    if (!editing) return
     adjustHeight()
-  }, [value, adjustHeight])
+  }, [value, editing, adjustHeight])
 
-  const highlightedValue = React.useMemo(() => {
-    const prepared = highlightTemplateTokens(String(value || ""))
-    return prepared || "&nbsp;"
-  }, [value])
+  React.useEffect(() => {
+    if (!editing) return
+    const textarea = textareaRef.current
+    if (!textarea) return
+    textarea.focus()
+    const len = textarea.value.length
+    textarea.setSelectionRange(len, len)
+  }, [editing])
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => onStartEdit(rowKey)}
+        disabled={disabled}
+        className="block w-full rounded-sm px-2 py-1.5 text-left font-mono text-[13px] leading-6 text-foreground hover:bg-muted/40 disabled:cursor-not-allowed"
+      >
+        <span
+          className="block whitespace-pre-wrap break-words"
+          dangerouslySetInnerHTML={{ __html: renderDisplayHtml(String(value || "")) }}
+        />
+      </button>
+    )
+  }
 
   return (
-    <div className="relative">
-      <pre
-        ref={preRef}
-        className="m-0 min-h-[38px] overflow-hidden whitespace-pre-wrap break-words px-2 py-1.5 font-mono text-[13px] leading-6 text-foreground"
-        dangerouslySetInnerHTML={{ __html: highlightedValue }}
-      />
+    <div className="px-2 py-1.5">
       <textarea
         ref={textareaRef}
         value={value}
@@ -203,8 +221,14 @@ function CodeValueInput({
           onChange(event.target.value)
           requestAnimationFrame(adjustHeight)
         }}
-        onScroll={syncScroll}
-        className="absolute inset-0 w-full resize-none overflow-hidden border-0 bg-transparent px-2 py-1.5 font-mono text-[13px] leading-6 text-transparent caret-foreground outline-none disabled:cursor-not-allowed"
+        onBlur={onStopEdit}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault()
+            onStopEdit()
+          }
+        }}
+        className="block w-full resize-none overflow-hidden rounded-sm border border-border bg-background px-2 py-1.5 font-mono text-[13px] leading-6 text-foreground outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed"
       />
     </div>
   )
@@ -220,6 +244,7 @@ export default function LocalizationPage() {
   const [saving, setSaving] = React.useState(false)
   const [search, setSearch] = React.useState("")
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
+  const [editingKey, setEditingKey] = React.useState<string | null>(null)
 
   const loadLocalization = React.useCallback(async () => {
     setLoading(true)
@@ -305,6 +330,7 @@ export default function LocalizationPage() {
 
   const handleReset = () => {
     setDraftData(cloneLocalization(sourceData))
+    setEditingKey(null)
     toast.success("Изменения отменены")
   }
 
@@ -316,6 +342,7 @@ export default function LocalizationPage() {
       const normalized = cloneLocalization(updated || {})
       setSourceData(normalized)
       setDraftData(cloneLocalization(normalized))
+      setEditingKey(null)
       toast.success("Локализация сохранена")
     } catch (error: any) {
       toast.error("Не удалось сохранить локализацию", {
@@ -481,8 +508,12 @@ export default function LocalizationPage() {
                                 "{key}"
                               </div>
                               <CodeValueInput
+                                rowKey={key}
                                 value={value}
                                 disabled={saving || loading}
+                                editing={editingKey === key}
+                                onStartEdit={(targetKey) => setEditingKey(targetKey)}
+                                onStopEdit={() => setEditingKey((current) => (current === key ? null : current))}
                                 onChange={(nextValue) => handleValueChange(key, nextValue)}
                               />
                             </div>
