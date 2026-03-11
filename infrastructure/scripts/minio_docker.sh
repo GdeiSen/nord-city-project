@@ -39,11 +39,16 @@ load_env() {
   STORAGE_S3_SECURE="${STORAGE_S3_SECURE:-false}"
   STORAGE_S3_PUBLIC_SECURE="${STORAGE_S3_PUBLIC_SECURE:-${STORAGE_S3_SECURE}}"
 
-  local public_scheme="http"
-  if [[ "${STORAGE_S3_PUBLIC_SECURE,,}" == "true" ]]; then
-    public_scheme="https"
+  local public_endpoint="${STORAGE_S3_PUBLIC_ENDPOINT}"
+  if [[ "${public_endpoint}" =~ ^https?:// ]]; then
+    MINIO_SERVER_URL="${MINIO_SERVER_URL:-${public_endpoint}}"
+  else
+    local public_scheme="http"
+    if [[ "${STORAGE_S3_PUBLIC_SECURE,,}" == "true" ]]; then
+      public_scheme="https"
+    fi
+    MINIO_SERVER_URL="${MINIO_SERVER_URL:-${public_scheme}://${public_endpoint}}"
   fi
-  MINIO_SERVER_URL="${MINIO_SERVER_URL:-${public_scheme}://${STORAGE_S3_PUBLIC_ENDPOINT}}"
 }
 
 remove_existing_container() {
