@@ -21,7 +21,7 @@ import { localizationApi, type LocalizationData } from "@/lib/api"
 type LocaleValues = Record<string, string>
 
 const TEMPLATE_TOKEN_HTML =
-  '<span class="rounded bg-amber-300/40 px-1 text-amber-800 dark:bg-amber-400/20 dark:text-amber-300">{?}</span>'
+  '<span class="rounded-[2px] bg-amber-300/40 text-amber-800 dark:bg-amber-400/20 dark:text-amber-300">{?}</span>'
 
 function cloneLocalization(data: LocalizationData): LocalizationData {
   const next: LocalizationData = {}
@@ -98,7 +98,7 @@ function CodeValueInput({
           requestAnimationFrame(adjustHeight)
         }}
         onScroll={syncScroll}
-        className="absolute inset-0 w-full resize-none overflow-hidden border-0 bg-transparent px-2 py-1.5 font-mono text-[13px] leading-6 text-transparent caret-foreground outline-none focus:bg-muted/40 disabled:cursor-not-allowed"
+        className="absolute inset-0 w-full resize-none overflow-hidden border-0 bg-transparent px-2 py-1.5 font-mono text-[13px] leading-6 text-transparent caret-foreground outline-none disabled:cursor-not-allowed"
       />
     </div>
   )
