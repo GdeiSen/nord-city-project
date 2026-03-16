@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { IconLink } from "@tabler/icons-react"
 import { toast } from "sonner"
@@ -17,7 +17,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -48,14 +47,35 @@ function extractAllUrls(text: string): string[] {
   return String(text || "").match(ANY_URL_REGEX_GLOBAL) ?? []
 }
 
+function escapeHtml(value: string): string {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;")
+}
+
+function renderPollHeaderEditorHtml(value: string): string {
+  const escaped = escapeHtml(value || "")
+  const highlighted = escaped.replace(
+    GOOGLE_FORMS_URL_REGEX_GLOBAL,
+    '<span class="text-emerald-400">$&</span>'
+  )
+
+  // Preserve trailing newline so overlay height matches textarea content.
+  return highlighted || "&nbsp;"
+}
+
 export default function PollSettingsPage() {
   const router = useRouter()
   const canEdit = useCanEdit()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [googleFormUrl, setGoogleFormUrl] = useState("")
   const [pollHeader, setPollHeader] = useState("")
   const [locale, setLocale] = useState("RU")
+  const lineNumbersRef = useRef<HTMLDivElement | null>(null)
+  const highlightRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     if (!canEdit) {
@@ -68,7 +88,6 @@ export default function PollSettingsPage() {
       .getGoogleFormSettings()
       .then((data) => {
         if (!active) return
-        setGoogleFormUrl(data.google_form_url || "")
         setPollHeader(data.poll_header || "")
         setLocale(data.locale || "RU")
       })
@@ -86,6 +105,14 @@ export default function PollSettingsPage() {
 
   const editorLineCount = useMemo(
     () => Math.max(1, pollHeader.split("\n").length),
+    [pollHeader]
+  )
+  const detectedGoogleFormUrl = useMemo(
+    () => extractGoogleFormsUrls(pollHeader)[0]?.trim() || "",
+    [pollHeader]
+  )
+  const highlightedEditorHtml = useMemo(
+    () => renderPollHeaderEditorHtml(pollHeader),
     [pollHeader]
   )
 
@@ -116,15 +143,12 @@ export default function PollSettingsPage() {
       return
     }
 
-    const detectedUrl = extractGoogleFormsUrls(pollHeader)[0]?.trim() || ""
-
     setSaving(true)
     try {
       const response = await pollApi.updateGoogleFormSettings(
-        detectedUrl,
+        detectedGoogleFormUrl,
         pollHeader.trim()
       )
-      setGoogleFormUrl(response.google_form_url || "")
       setPollHeader(response.poll_header || "")
       setLocale(response.locale || "RU")
       toast.success("Сообщение опроса обновлено")
@@ -135,6 +159,32 @@ export default function PollSettingsPage() {
       setSaving(false)
     }
   }
+
+  const syncEditorScroll = (target: HTMLTextAreaElement) => {
+    if (lineNumbersRef.current) {
+      lineNumbersRef.current.scrollTop = target.scrollTop
+    }
+    if (highlightRef.current) {
+      highlightRef.current.scrollTop = target.scrollTop
+      highlightRef.current.scrollLeft = target.scrollLeft
+    }
+  }
+
+  useEffect(() => {
+    const textarea = document.activeElement
+    if (textarea instanceof HTMLTextAreaElement) {
+      syncEditorScroll(textarea)
+      return
+    }
+
+    if (highlightRef.current) {
+      highlightRef.current.scrollTop = 0
+      highlightRef.current.scrollLeft = 0
+    }
+    if (lineNumbersRef.current) {
+      lineNumbersRef.current.scrollTop = 0
+    }
+  }, [pollHeader])
 
   return (
     <>
@@ -178,39 +228,37 @@ export default function PollSettingsPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="google_form_url">Обнаруженная ссылка на Google Форму</Label>
-                <Input
-                  id="google_form_url"
-                  type="text"
-                  value={googleFormUrl}
-                  readOnly
-                  disabled
-                />
-                <p className="text-sm text-muted-foreground">
-                  Поле обновляется автоматически на основе текста сообщения ниже.
-                </p>
-              </div>
-
-              <div className="space-y-2">
                 <Label>Сообщение с ссылкой на Google Форму</Label>
                 <div className="grid min-h-[340px] grid-cols-[44px_minmax(0,1fr)] overflow-hidden rounded-md border border-border bg-muted/20">
-                  <div className="select-none border-r border-border/80 bg-muted/10 px-2 py-2 text-right font-mono text-[12px] leading-6 text-muted-foreground">
+                  <div
+                    ref={lineNumbersRef}
+                    className="select-none overflow-hidden border-r border-border/80 bg-muted/10 px-2 py-2 text-right font-mono text-[12px] leading-6 text-muted-foreground"
+                  >
                     {Array.from({ length: editorLineCount }, (_, index) => (
                       <div key={index + 1}>{index + 1}</div>
                     ))}
                   </div>
-                  <div className="overflow-x-auto">
+                  <div className="relative overflow-hidden">
+                    <div
+                      ref={highlightRef}
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-0 overflow-hidden"
+                    >
+                      <pre
+                        className="min-h-[340px] min-w-max px-3 py-2 font-mono whitespace-pre text-[13px] leading-6 text-foreground"
+                        dangerouslySetInnerHTML={{ __html: highlightedEditorHtml }}
+                      />
+                    </div>
                     <Textarea
                       value={pollHeader}
                       spellCheck={false}
                       wrap="off"
+                      onScroll={(event) => syncEditorScroll(event.currentTarget)}
                       onChange={(e) => {
                         const nextValue = e.target.value
                         setPollHeader(nextValue)
-                        const nextUrl = extractGoogleFormsUrls(nextValue)[0]?.trim() || ""
-                        setGoogleFormUrl(nextUrl)
                       }}
-                      className="min-h-[340px] min-w-full resize-y rounded-none border-0 bg-transparent font-mono whitespace-pre text-[13px] leading-6 shadow-none focus-visible:ring-0"
+                      className="relative min-h-[340px] min-w-full resize-y rounded-none border-0 bg-transparent font-mono whitespace-pre text-[13px] leading-6 text-transparent caret-foreground shadow-none focus-visible:ring-0 selection:bg-primary/25"
                     />
                   </div>
                 </div>
@@ -221,7 +269,8 @@ export default function PollSettingsPage() {
                 ) : (
                   <p className="text-sm text-muted-foreground">
                     Допускается свободное редактирование текста сообщения, но в нем должна
-                    оставаться ровно одна корректная ссылка на Google Форму.
+                    оставаться ровно одна корректная ссылка на Google Форму. Текущая ссылка
+                    подсвечивается в редакторе зеленым цветом.
                   </p>
                 )}
               </div>
