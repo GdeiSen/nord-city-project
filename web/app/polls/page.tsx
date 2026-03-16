@@ -11,6 +11,13 @@ import { DataTable, createSelectColumn } from "@/components/data-table"
 import { PageHeader } from "@/components/page-header"
 import { SiteHeader } from "@/components/site-header"
 import { Button } from "@/components/ui/button"
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { Toaster } from "@/components/ui/sonner"
 import { useCanEdit } from "@/hooks"
@@ -105,6 +112,27 @@ export default function PollsPage() {
             columns={columns}
             loading={loading}
             loadingMessage="Загрузка результатов опроса..."
+            emptyState={
+              <Empty className="w-full">
+                <EmptyHeader>
+                  <EmptyTitle>Опросы через бота отключены</EmptyTitle>
+                  <EmptyDescription>
+                    Сбор ответов внутри бота больше не используется. Сейчас поддерживается
+                    только сценарий с Google Forms.
+                  </EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => router.push("/polls/settings")}
+                  >
+                    Настройки формы
+                  </Button>
+                </EmptyContent>
+              </Empty>
+            }
             contextMenuActions={{
               getCopyText: (row) =>
                 `Ответ #${row.original.id}\nПользователь: ${row.original.user_id}\nDDID: ${row.original.ddid}\nОтвет: ${row.original.answer}`,

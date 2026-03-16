@@ -204,6 +204,7 @@ export function DataTable<TData>({
   filterPickerData,
   exportConfig,
   getRowClassName,
+  emptyState,
 }: {
   data: TData[]
   columns: ColumnDef<TData>[]
@@ -225,6 +226,7 @@ export function DataTable<TData>({
     filename?: string
   }
   getRowClassName?: (row: Row<TData>) => string | undefined
+  emptyState?: React.ReactNode
 }) {
   const pageSizeFromParams = serverParams?.pageSize ?? 10
   const isCardsView = view === "cards"
@@ -660,6 +662,24 @@ export function DataTable<TData>({
     serverFilters,
   ])
 
+  const defaultEmptyState = (
+    <Empty className="w-full">
+      <EmptyHeader>
+        <EmptyTitle>Нет данных</EmptyTitle>
+        <EmptyDescription>
+          Данные отсутствуют или не соответствуют текущим фильтрам.
+        </EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <Button variant="outline" size="sm" onClick={clearAllFilters}>
+          Сбросить фильтры
+        </Button>
+      </EmptyContent>
+    </Empty>
+  )
+
+  const emptyStateContent = emptyState ?? defaultEmptyState
+
   useServerParamsSync({
     serverPagination,
     onServerParamsChange,
@@ -710,19 +730,7 @@ export function DataTable<TData>({
             ))
           ) : (
             <div className="col-span-full">
-              <Empty className="w-full">
-                <EmptyHeader>
-                  <EmptyTitle>Нет данных</EmptyTitle>
-                  <EmptyDescription>
-                    Данные отсутствуют или не соответствуют текущим фильтрам.
-                  </EmptyDescription>
-                </EmptyHeader>
-                <EmptyContent>
-                  <Button variant="outline" size="sm" onClick={clearAllFilters}>
-                    Сбросить фильтры
-                  </Button>
-                </EmptyContent>
-              </Empty>
+              {emptyStateContent}
             </div>
           )}
         </div>
@@ -972,19 +980,7 @@ export function DataTable<TData>({
                     colSpan={columns.length}
                     className="h-24 text-center"
                   >
-                    <Empty className="w-full">
-                      <EmptyHeader>
-                        <EmptyTitle>Нет данных</EmptyTitle>
-                        <EmptyDescription>
-                          Данные отсутствуют или не соответствуют текущим фильтрам.
-                        </EmptyDescription>
-                      </EmptyHeader>
-                      <EmptyContent>
-                        <Button variant="outline" size="sm" onClick={clearAllFilters}>
-                          Сбросить фильтры
-                        </Button>
-                      </EmptyContent>
-                    </Empty>
+                    {emptyStateContent}
                   </TableCell>
                 </TableRow>
               )}
