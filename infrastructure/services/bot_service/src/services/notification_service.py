@@ -596,17 +596,18 @@ class NotificationService(BaseService):
         await self.ensure_user_exists(user_id)
         log = await self.bot.services.service_ticket.update_service_ticket_status(ticket.id, ServiceTicketStatus.IN_PROGRESS, update.message.message_id, user_id)
         if log is not None:
-            await self._upsert_message_ref(
-                entity_type="ServiceTicket",
-                entity_id=ticket.id,
-                chat_id=update.effective_chat.id,
-                message_id=update.message.message_id,
-                kind="REPLY",
-                meta={"status": ServiceTicketStatus.IN_PROGRESS, "user_id": user_id},
-            )
-            await self.bot.managers.message.reply_message(
+            confirmation_message = await self.bot.managers.message.reply_message(
                 update, context, "ticket_accepted", payload=[str(ticket.id)]
             )
+            if confirmation_message is not None:
+                await self._upsert_message_ref(
+                    entity_type="ServiceTicket",
+                    entity_id=ticket.id,
+                    chat_id=confirmation_message.chat_id,
+                    message_id=confirmation_message.message_id,
+                    kind="REPLY",
+                    meta={"status": ServiceTicketStatus.IN_PROGRESS, "user_id": user_id},
+                )
             await self.bot.services.stats.force_update_stats()
 
     async def _process_ticket_assigned(self, update: "Update", context: "ContextTypes.DEFAULT_TYPE", ticket, user_id: int, assignee: str):
@@ -615,34 +616,36 @@ class NotificationService(BaseService):
             ticket.id, ServiceTicketStatus.ASSIGNED, update.message.message_id, user_id, assignee=assignee
         )
         if log is not None:
-            await self._upsert_message_ref(
-                entity_type="ServiceTicket",
-                entity_id=ticket.id,
-                chat_id=update.effective_chat.id,
-                message_id=update.message.message_id,
-                kind="REPLY",
-                meta={"status": ServiceTicketStatus.ASSIGNED, "user_id": user_id, "assignee": assignee},
-            )
-            await self.bot.managers.message.reply_message(
+            confirmation_message = await self.bot.managers.message.reply_message(
                 update, context, "ticket_assigned", payload=[str(ticket.id), assignee]
             )
+            if confirmation_message is not None:
+                await self._upsert_message_ref(
+                    entity_type="ServiceTicket",
+                    entity_id=ticket.id,
+                    chat_id=confirmation_message.chat_id,
+                    message_id=confirmation_message.message_id,
+                    kind="REPLY",
+                    meta={"status": ServiceTicketStatus.ASSIGNED, "user_id": user_id, "assignee": assignee},
+                )
             await self.bot.services.stats.force_update_stats()
 
     async def _process_ticket_completed(self, update: "Update", context: "ContextTypes.DEFAULT_TYPE", ticket, user_id: int):
         await self.ensure_user_exists(user_id)
         log = await self.bot.services.service_ticket.update_service_ticket_status(ticket.id, ServiceTicketStatus.COMPLETED, update.message.message_id, user_id)
         if log is not None:
-            await self._upsert_message_ref(
-                entity_type="ServiceTicket",
-                entity_id=ticket.id,
-                chat_id=update.effective_chat.id,
-                message_id=update.message.message_id,
-                kind="REPLY",
-                meta={"status": ServiceTicketStatus.COMPLETED, "user_id": user_id},
-            )
-            await self.bot.managers.message.reply_message(
+            confirmation_message = await self.bot.managers.message.reply_message(
                 update, context, "ticket_completed", payload=[str(ticket.id)]
             )
+            if confirmation_message is not None:
+                await self._upsert_message_ref(
+                    entity_type="ServiceTicket",
+                    entity_id=ticket.id,
+                    chat_id=confirmation_message.chat_id,
+                    message_id=confirmation_message.message_id,
+                    kind="REPLY",
+                    meta={"status": ServiceTicketStatus.COMPLETED, "user_id": user_id},
+                )
             await self.notify_ticket_completion(ticket_id=ticket.id, user_id=ticket.user_id)
 
     async def notify_ticket_completion(

@@ -80,6 +80,10 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+try:
+    from telegram.request import HTTPXRequest
+except ImportError:  # pragma: no cover - fallback for older PTB versions
+    HTTPXRequest = None
 from shared.entities.dialog import Dialog
 
 # Logging setup (remains the same)
@@ -459,8 +463,21 @@ class Agent:
         self.application: Application | None = None
         self.bot: Bot | None = None
 
+    @staticmethod
+    def _build_application(token: str) -> Application:
+        builder = Application.builder().token(token)
+        if HTTPXRequest is not None:
+            request = HTTPXRequest(
+                connect_timeout=10.0,
+                read_timeout=30.0,
+                write_timeout=30.0,
+                pool_timeout=10.0,
+            )
+            builder = builder.request(request)
+        return builder.build()
+
     async def start_async(self, token: str, db_url: str, admin_chat_id: str, chief_engineer_chat_id: str = None):
-        self.application = Application.builder().token(token).build()
+        self.application = self._build_application(token)
         
         headers_data = {
             "ADMIN_CHAT_ID": admin_chat_id,
@@ -478,7 +495,7 @@ class Agent:
         
     def start(self, token: str, db_url: str, admin_chat_id: str, chief_engineer_chat_id: str = None):
         """Legacy sync method for backward compatibility"""
-        self.application = Application.builder().token(token).build()
+        self.application = self._build_application(token)
         
         headers_data = {
             "ADMIN_CHAT_ID": admin_chat_id,
