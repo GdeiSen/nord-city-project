@@ -27,6 +27,7 @@ _GOOGLE_FORM_LINK_REGEX = re.compile(
     r"https?://(?:forms\.gle/[^\s<>\"]+|docs\.google\.com/forms/[^\s<>\"]+)",
     re.IGNORECASE,
 )
+_ANY_LINK_REGEX = re.compile(r"https?://[^\s<>\"]+", re.IGNORECASE)
 _POLL_HEADER_KEY = "poll_header"
 
 
@@ -62,13 +63,6 @@ def _extract_google_form_links(text: str) -> list[str]:
     return [match.group(0) for match in _GOOGLE_FORM_LINK_REGEX.finditer(text or "")]
 
 
-def _strip_google_form_links(text: str) -> str:
-    without_links = _GOOGLE_FORM_LINK_REGEX.sub("", text or "")
-    without_links = re.sub(r"[ \t]+\n", "\n", without_links)
-    without_links = re.sub(r"\n{3,}", "\n\n", without_links)
-    return without_links.strip()
-
-
 def _resolve_locale_bucket(localization: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     for key in ("RU", "ru"):
         bucket = localization.get(key)
@@ -79,11 +73,6 @@ def _resolve_locale_bucket(localization: dict[str, Any]) -> tuple[str, dict[str,
             return str(key), bucket
     localization["RU"] = {}
     return "RU", localization["RU"]
-
-
-def _build_poll_header_with_link(poll_header: str, link: str) -> str:
-    base_header = _strip_google_form_links(poll_header)
-    return f"{base_header}\n\n{link}".strip()
 
 
 async def _get_localization_payload() -> dict[str, Any]:
@@ -144,11 +133,13 @@ async def update_poll_google_form_settings(
     request: Request,
     current_user: dict = Depends(_require_admin),
 ):
+    poll_header = str(body.poll_header or "").strip()
     url = (body.google_form_url or "").strip()
-    if not _is_valid_google_form_url(url):
+
+    if not poll_header:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Укажите корректную ссылку на Google Форму (forms.gle или docs.google.com/forms).",
+            detail="Сообщение опроса не может быть пустым.",
         )
 
     localization = await _get_localization_payload()
@@ -156,7 +147,29 @@ async def update_poll_google_form_settings(
     old_poll_header = str(locale_bucket.get(_POLL_HEADER_KEY) or "")
     old_links = _extract_google_form_links(old_poll_header)
 
-    new_poll_header = _build_poll_header_with_link(old_poll_header, url)
+    all_links = [match.group(0) for match in _ANY_LINK_REGEX.finditer(poll_header)]
+    google_links = _extract_google_form_links(poll_header)
+
+    if len(all_links) != 1 or len(google_links) != 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Сообщение должно содержать ровно одну ссылку, и она должна вести на Google Форму.",
+        )
+
+    detected_url = google_links[0].strip()
+    if not _is_valid_google_form_url(detected_url):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Укажите корректную ссылку на Google Форму (forms.gle или docs.google.com/forms).",
+        )
+
+    if url and url != detected_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ссылка в сообщении не совпадает с переданным URL Google Формы.",
+        )
+
+    new_poll_header = poll_header
     locale_bucket[_POLL_HEADER_KEY] = new_poll_header
     localization[locale_key] = locale_bucket
 
@@ -193,7 +206,7 @@ async def update_poll_google_form_settings(
             "config_scope": "poll_google_form_link",
             "replaced_links_count": len(old_links),
             "last_detected_previous_link": old_links[-1] if old_links else "",
-            "new_link": url,
+            "new_link": detected_url,
         },
         audit_type="smart",
     )
@@ -203,7 +216,7 @@ async def update_poll_google_form_settings(
     return PollGoogleFormSettingsResponse(
         locale=locale_key,
         poll_header=new_poll_header,
-        google_form_url=url,
+        google_form_url=detected_url,
     )
 
 

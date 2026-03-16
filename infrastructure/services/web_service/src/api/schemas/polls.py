@@ -44,3 +44,4 @@ class PollGoogleFormSettingsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     google_form_url: str
+    poll_header: str = ""

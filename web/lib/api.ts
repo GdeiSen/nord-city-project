@@ -514,10 +514,16 @@ export const pollApi = {
   async getGoogleFormSettings(): Promise<PollGoogleFormSettings> {
     return apiFetch<PollGoogleFormSettings>("/polls/settings/google-form")
   },
-  async updateGoogleFormSettings(googleFormUrl: string): Promise<PollGoogleFormSettings> {
+  async updateGoogleFormSettings(
+    googleFormUrl: string,
+    pollHeader: string
+  ): Promise<PollGoogleFormSettings> {
     return apiFetch<PollGoogleFormSettings>("/polls/settings/google-form", {
       method: "PUT",
-      body: JSON.stringify({ google_form_url: googleFormUrl }),
+      body: JSON.stringify({
+        google_form_url: googleFormUrl,
+        poll_header: pollHeader,
+      }),
     })
   },
 }
