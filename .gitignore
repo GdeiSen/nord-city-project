@@ -61,6 +61,7 @@ temp/
 # Bot / services runtime data
 #####################################################################
 **/stats_data.json
+infrastructure/services/bot_service/src/locales/localisation_ru.json
 
 #####################################################################
 # Media service storage (uploaded files)

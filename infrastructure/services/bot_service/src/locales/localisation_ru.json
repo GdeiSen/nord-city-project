@@ -67,6 +67,7 @@
     "ticket_accepted": "✅ Заявка №{?} помечена как принятая",
     "ticket_assigned": "✅ Заявка №{?} передана исполнителю {?}",
     "ticket_completed": "✅ Заявка №{?} помечена как выполненная",
+    "ticket_unknown_admin_command": "⚠️ Команда не распознана.\n\nДоступные ответы на сообщение заявки:\n• <code>принято</code>\n• <code>передано Фамилия</code>\n• <code>выполнено</code>\n\nПример: <code>передано Иванов</code>",
     "ticket_deleted_admin": "🗑 Заявка №{?} удалена",
     "ticket_completed_admin": "✅ Заявка №{?} выполнена",
     "ticket_updated_admin": "📝 Заявка №{?} изменена",

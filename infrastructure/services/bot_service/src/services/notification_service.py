@@ -579,7 +579,12 @@ class NotificationService(BaseService):
                 await self._process_ticket_completed(update, context, ticket, user_id)
                 return True
 
-            return False
+            await self.bot.managers.message.reply_message(
+                update,
+                context,
+                "ticket_unknown_admin_command",
+            )
+            return True
         except Exception as e:
             print(f"Error handling admin reply: {e}")
             import traceback
