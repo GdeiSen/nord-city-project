@@ -27,7 +27,6 @@ import {
 import { SidebarInset } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { Spinner } from "@/components/ui/spinner";
-import { Textarea } from "@/components/ui/textarea";
 import { useCanEdit } from "@/hooks";
 import { localizationApi, type LocalizationData } from "@/lib/api";
 
@@ -35,7 +34,12 @@ type LocaleValues = Record<string, string>;
 
 const TEMPLATE_TOKEN_HTML =
   '<span class="rounded-[2px] bg-amber-300/40 text-amber-800 dark:bg-amber-400/20 dark:text-amber-300">{?}</span>';
+const PLACEHOLDER_TOKEN = "{?}";
+const PLACEHOLDER_REGEX = /\{\?\}/g;
 const HTML_TAG_PATTERN = /<\/?([a-z][a-z0-9-]*)\b[^>]*>/gi;
+const EDITOR_PLACEHOLDER_MARKER = "\uF000";
+
+const BLOCK_TAGS = new Set(["DIV", "P", "LI", "PRE"]);
 
 type TagStyles = {
   bold: number;
@@ -163,6 +167,261 @@ function renderDisplayHtml(value: string): string {
   return highlightTemplateTokens(value).replace(/\n/g, "<br/>");
 }
 
+function countPlaceholders(value: string): number {
+  return String(value || "").match(PLACEHOLDER_REGEX)?.length ?? 0;
+}
+
+function sanitizeEditableSegmentText(value: string): string {
+  return String(value || "")
+    .replace(/\r\n?/g, "\n")
+    .replace(PLACEHOLDER_REGEX, "");
+}
+
+function splitTemplateSegments(value: string): string[] {
+  return String(value || "").split(PLACEHOLDER_REGEX);
+}
+
+function normalizeSegmentsLength(
+  segments: string[],
+  placeholderCount: number,
+): string[] {
+  const expectedLength = placeholderCount + 1;
+  const next = [...segments];
+
+  if (next.length > expectedLength) {
+    const overflow = next.slice(expectedLength).join("");
+    next.length = expectedLength;
+    next[expectedLength - 1] = `${next[expectedLength - 1] || ""}${overflow}`;
+  }
+
+  while (next.length < expectedLength) {
+    next.push("");
+  }
+
+  return next.map((segment) => sanitizeEditableSegmentText(segment));
+}
+
+function joinSegmentsWithPlaceholders(
+  segments: string[],
+  placeholderCount: number,
+): string {
+  const normalized = normalizeSegmentsLength(segments, placeholderCount);
+  let result = "";
+  for (let index = 0; index < placeholderCount; index += 1) {
+    result += `${normalized[index] || ""}${PLACEHOLDER_TOKEN}`;
+  }
+  result += normalized[placeholderCount] || "";
+  return result;
+}
+
+function buildImmutableEditorHtml(
+  value: string,
+  placeholderCount: number,
+): string {
+  const segments = normalizeSegmentsLength(
+    splitTemplateSegments(value),
+    placeholderCount,
+  );
+  let html = "";
+
+  for (let index = 0; index < segments.length; index += 1) {
+    html += `<span data-editor-segment="${index}">${escapeHtml(
+      segments[index] || "",
+    ).replace(/\n/g, "<br/>")}</span>`;
+    if (index < placeholderCount) {
+      html += `<span contenteditable="false" data-placeholder-token="true" class="mx-[1px] inline-flex rounded-[2px] bg-amber-300/40 px-[2px] text-amber-800 dark:bg-amber-400/20 dark:text-amber-300">${PLACEHOLDER_TOKEN}</span>`;
+    }
+  }
+
+  return html;
+}
+
+function serializeEditorNode(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node.textContent || "";
+  }
+
+  if (!(node instanceof HTMLElement)) {
+    return "";
+  }
+
+  if (node.dataset.placeholderToken === "true") {
+    return EDITOR_PLACEHOLDER_MARKER;
+  }
+
+  if (node.tagName === "BR") {
+    return "\n";
+  }
+
+  let text = "";
+  node.childNodes.forEach((child) => {
+    text += serializeEditorNode(child);
+  });
+
+  if (
+    BLOCK_TAGS.has(node.tagName) &&
+    text &&
+    !text.endsWith("\n")
+  ) {
+    text += "\n";
+  }
+
+  return text;
+}
+
+function extractSegmentsFromEditor(
+  root: HTMLElement,
+  placeholderCount: number,
+): {
+  value: string;
+  shouldRepair: boolean;
+} {
+  const placeholderNodes = root.querySelectorAll(
+    '[data-placeholder-token="true"]',
+  ).length;
+  const segmentNodes = root.querySelectorAll("[data-editor-segment]").length;
+  const serialized = Array.from(root.childNodes)
+    .map((child) => serializeEditorNode(child))
+    .join("");
+  const serializedWithoutMarkers = serialized.split(EDITOR_PLACEHOLDER_MARKER).join("");
+
+  let rawSegments: string[];
+  if (serialized.includes(EDITOR_PLACEHOLDER_MARKER)) {
+    rawSegments = serialized.split(EDITOR_PLACEHOLDER_MARKER);
+  } else if (placeholderCount > 0 && PLACEHOLDER_REGEX.test(serialized)) {
+    PLACEHOLDER_REGEX.lastIndex = 0;
+    rawSegments = serialized.split(PLACEHOLDER_REGEX);
+  } else {
+    rawSegments = [serialized];
+  }
+
+  PLACEHOLDER_REGEX.lastIndex = 0;
+  const normalizedSegments = normalizeSegmentsLength(rawSegments, placeholderCount);
+  const hasRawPlaceholderText = PLACEHOLDER_REGEX.test(serializedWithoutMarkers);
+  PLACEHOLDER_REGEX.lastIndex = 0;
+
+  return {
+    value: joinSegmentsWithPlaceholders(normalizedSegments, placeholderCount),
+    shouldRepair:
+      placeholderNodes !== placeholderCount ||
+      segmentNodes !== placeholderCount + 1 ||
+      (placeholderCount > 0 && !serialized.includes(EDITOR_PLACEHOLDER_MARKER)) ||
+      hasRawPlaceholderText,
+  };
+}
+
+function placeCaretAtEnd(element: HTMLElement): void {
+  const selection = window.getSelection();
+  if (!selection) return;
+
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function insertPlainTextAtCursor(text: string): void {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) {
+    return;
+  }
+
+  const range = selection.getRangeAt(0);
+  range.deleteContents();
+  const textNode = document.createTextNode(text);
+  range.insertNode(textNode);
+  range.setStartAfter(textNode);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+type ImmutablePlaceholderEditorProps = {
+  templateValue: string;
+  value: string;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+};
+
+function ImmutablePlaceholderEditor({
+  templateValue,
+  value,
+  disabled = false,
+  onChange,
+}: ImmutablePlaceholderEditorProps) {
+  const rootRef = React.useRef<HTMLDivElement | null>(null);
+  const lastRenderedValueRef = React.useRef<string>("");
+  const placeholderCount = React.useMemo(
+    () => countPlaceholders(templateValue),
+    [templateValue],
+  );
+
+  const renderValue = React.useCallback(
+    (nextValue: string, moveCaretToEnd = false) => {
+      const root = rootRef.current;
+      if (!root) return;
+
+      const normalizedValue = joinSegmentsWithPlaceholders(
+        splitTemplateSegments(nextValue),
+        placeholderCount,
+      );
+
+      root.innerHTML = buildImmutableEditorHtml(normalizedValue, placeholderCount);
+      lastRenderedValueRef.current = normalizedValue;
+
+      if (moveCaretToEnd && document.activeElement === root) {
+        placeCaretAtEnd(root);
+      }
+    },
+    [placeholderCount],
+  );
+
+  React.useLayoutEffect(() => {
+    if (value !== lastRenderedValueRef.current) {
+      renderValue(value);
+    }
+  }, [renderValue, value]);
+
+  const syncFromDom = React.useCallback(
+    (repairSelection = false) => {
+      const root = rootRef.current;
+      if (!root) return;
+
+      const nextState = extractSegmentsFromEditor(root, placeholderCount);
+      if (nextState.shouldRepair) {
+        renderValue(nextState.value, repairSelection);
+      } else {
+        lastRenderedValueRef.current = nextState.value;
+      }
+
+      onChange(nextState.value);
+    },
+    [onChange, placeholderCount, renderValue],
+  );
+
+  return (
+    <div className="rounded-md border border-border bg-muted/20">
+      <div
+        ref={rootRef}
+        contentEditable={!disabled}
+        suppressContentEditableWarning
+        spellCheck={false}
+        onInput={() => syncFromDom(false)}
+        onBlur={() => syncFromDom(false)}
+        onPaste={(event) => {
+          event.preventDefault();
+          insertPlainTextAtCursor(
+            event.clipboardData.getData("text/plain") || "",
+          );
+          syncFromDom(true);
+        }}
+        className="min-h-[340px] whitespace-pre-wrap break-words px-3 py-2 font-mono text-[13px] leading-6 outline-none"
+      />
+    </div>
+  );
+}
+
 export default function LocalizationPage() {
   const canEditLocalization = useCanEdit();
 
@@ -175,6 +434,7 @@ export default function LocalizationPage() {
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [editorOpen, setEditorOpen] = React.useState(false);
   const [editorKey, setEditorKey] = React.useState<string | null>(null);
+  const [editorTemplateValue, setEditorTemplateValue] = React.useState("");
   const [editorDraftValue, setEditorDraftValue] = React.useState("");
 
   const loadLocalization = React.useCallback(async () => {
@@ -266,14 +526,17 @@ export default function LocalizationPage() {
   const closeEditor = React.useCallback(() => {
     setEditorOpen(false);
     setEditorKey(null);
+    setEditorTemplateValue("");
     setEditorDraftValue("");
   }, []);
 
   const openEditorForKey = React.useCallback(
     (key: string) => {
       if (loading || saving) return;
+      const nextValue = currentValues[key] ?? "";
       setEditorKey(key);
-      setEditorDraftValue(currentValues[key] ?? "");
+      setEditorTemplateValue(nextValue);
+      setEditorDraftValue(nextValue);
       setEditorOpen(true);
     },
     [currentValues, loading, saving],
@@ -281,10 +544,16 @@ export default function LocalizationPage() {
 
   const applyEditorChanges = React.useCallback(() => {
     if (!editorKey) return;
-    handleValueChange(editorKey, editorDraftValue);
+    handleValueChange(
+      editorKey,
+      joinSegmentsWithPlaceholders(
+        splitTemplateSegments(editorDraftValue),
+        countPlaceholders(editorTemplateValue),
+      ),
+    );
     closeEditor();
     toast.success("Изменение сохранено в таблице");
-  }, [closeEditor, editorKey, editorDraftValue]);
+  }, [closeEditor, editorDraftValue, editorKey, editorTemplateValue]);
 
   React.useEffect(() => {
     closeEditor();
@@ -408,7 +677,7 @@ export default function LocalizationPage() {
                 </Alert>
               ) : (
                 <div className="overflow-hidden rounded-md border bg-card">
-                  <div className="flex items-center justify-between border-b px-3 py-2 text-xs font-mono text-muted-foreground">
+                  <div className="flex min-w-max items-center justify-between gap-4 border-b px-3 py-2 text-xs font-mono text-muted-foreground">
                     <span>{activeLocale || "Локаль не выбрана"}</span>
                     <span>{filteredKeys.length} ключей</span>
                   </div>
@@ -454,14 +723,14 @@ export default function LocalizationPage() {
                         </Empty>
                       </div>
                     ) : (
-                      <div className="divide-y">
+                      <div className="min-w-max divide-y">
                         {filteredKeys.map((key, index) => {
                           const value = currentValues[key] ?? "";
                           const isChanged = value !== (sourceValues[key] ?? "");
                           return (
                             <div
                               key={key}
-                              className={`grid grid-cols-[32px_minmax(220px,320px)_1fr] items-start gap-1.5 pl-0.5 pr-2 py-1 ${
+                              className={`grid min-w-max grid-cols-[28px_minmax(180px,max-content)_minmax(320px,1fr)] items-start gap-2 py-1 pl-0.5 pr-2 md:grid-cols-[32px_minmax(220px,320px)_minmax(520px,1fr)] ${
                                 isChanged
                                   ? "bg-yellow-200/45 dark:bg-yellow-500/15"
                                   : ""
@@ -470,14 +739,14 @@ export default function LocalizationPage() {
                               <div className="pt-2 pr-1 text-right font-mono text-[11px] text-muted-foreground">
                                 {index + 1}
                               </div>
-                              <div className="pt-2 pr-1 font-mono text-[12px] break-all text-foreground/80">
+                              <div className="pt-2 pr-1 font-mono text-[12px] text-foreground/80">
                                 "{key}"
                               </div>
                               <button
                                 type="button"
                                 onClick={() => openEditorForKey(key)}
                                 disabled={saving || loading}
-                                className="block w-full rounded-sm px-2 py-1.5 text-left font-mono text-[13px] leading-6 text-foreground hover:bg-muted/40 disabled:cursor-not-allowed"
+                                className="block min-w-[320px] rounded-sm px-2 py-1.5 text-left font-mono text-[13px] leading-6 text-foreground hover:bg-muted/40 disabled:cursor-not-allowed md:min-w-[520px]"
                               >
                                 <span
                                   className="block whitespace-pre-wrap break-words"
@@ -522,30 +791,22 @@ export default function LocalizationPage() {
                   </SheetHeader>
 
                   <div className="flex-1 space-y-3 overflow-auto p-4">
-                    <div className="rounded-md border bg-muted/30 p-3">
-                      <div className="mb-2 text-xs font-medium text-muted-foreground">
-                        Текущий рендер строки
-                      </div>
-                      <div
-                        className="whitespace-pre-wrap break-words font-mono text-[13px] leading-6"
-                        dangerouslySetInnerHTML={{
-                          __html: renderDisplayHtml(editorDraftValue || ""),
-                        }}
-                      />
-                    </div>
-
                     <div className="space-y-2">
                       <div className="text-xs font-medium text-muted-foreground">
                         Редактор значения
                       </div>
-                      <Textarea
+                      <ImmutablePlaceholderEditor
+                        templateValue={editorTemplateValue}
                         value={editorDraftValue}
-                        spellCheck={false}
-                        onChange={(event) =>
-                          setEditorDraftValue(event.target.value)
-                        }
-                        className="min-h-[340px] resize-y border-border bg-muted/30 font-mono text-[13px] leading-6"
+                        disabled={saving || loading}
+                        onChange={setEditorDraftValue}
                       />
+                      {countPlaceholders(editorTemplateValue) > 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          Плейсхолдеры <code>{PLACEHOLDER_TOKEN}</code> защищены:
+                          их нельзя удалить или изменить количество.
+                        </p>
+                      ) : null}
                     </div>
                   </div>
 
