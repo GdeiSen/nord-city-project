@@ -104,6 +104,14 @@ class _LocalizationProxy(_BotServiceProxy):
         return await self._call("update_localization", data=data)
 
 
+class _StatsProxy(_BotServiceProxy):
+    """Proxy for statistics message sync in bot_service."""
+
+    async def sync_stats_message(self) -> Dict[str, Any]:
+        """Recalculate service ticket stats and sync the canonical stats message if needed."""
+        return await self._call("sync_stats_message")
+
+
 # ---------------------------------------------------------------------------
 # Main client
 # ---------------------------------------------------------------------------
@@ -136,6 +144,7 @@ class BotClient:
         self.telegram_auth = _TelegramAuthProxy(self._http, "telegram_auth")
         self.notification = _NotificationProxy(self._http, "notification")
         self.localization = _LocalizationProxy(self._http, "localization")
+        self.stats = _StatsProxy(self._http, "stats")
 
         self._is_initialized = True
 

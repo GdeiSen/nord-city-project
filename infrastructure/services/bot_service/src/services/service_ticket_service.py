@@ -52,7 +52,9 @@ class ServiceTicketService(BaseService):
             _audit_context=ctx,
         )
         if result["success"]:
-            return result["data"]
+            updated_ticket = result["data"]
+            await self.bot.managers.event.emit("service_ticket_updated", updated_ticket)
+            return updated_ticket
         return None
 
     async def update_service_ticket_status(
@@ -80,7 +82,11 @@ class ServiceTicketService(BaseService):
                     "meta": meta,
                 },
             )
-            return result.get("data") if result.get("success") else None
+            if result.get("success") and result.get("data") is not None:
+                updated_ticket = result["data"]
+                await self.bot.managers.event.emit("service_ticket_updated", updated_ticket)
+                return updated_ticket
+            return None
         except Exception:
             return None
 
@@ -90,5 +96,6 @@ class ServiceTicketService(BaseService):
             _audit_context={"source": "bot_service"},
         )
         if result["success"]:
+            await self.bot.managers.event.emit("service_ticket_deleted", {"id": service_ticket_id})
             return result["data"]
         return False

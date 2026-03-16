@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, TYPE_CHECKING
 from telegram import InlineKeyboardMarkup, Message
 from telegram.constants import ParseMode
@@ -16,6 +17,13 @@ if TYPE_CHECKING:
     from telegram import Update
     from telegram.ext import ContextTypes
     from bot import Bot
+
+
+@dataclass(slots=True)
+class MessageOperationResult:
+    success: bool
+    reason: str
+    error: str | None = None
 
 
 class MessageManager(BaseManager):
@@ -434,7 +442,7 @@ class MessageManager(BaseManager):
             await self.bot.handle_error(1005, f"Error sending message to chat {chat_id}: {str(e)}")
             return None
     
-    async def edit_message(
+    async def edit_message_detailed(
         self,
         chat_id: int | str,
         message_id: int,
@@ -442,7 +450,7 @@ class MessageManager(BaseManager):
         reply_markup: InlineKeyboardMarkup | None = None,
         payload: list[str] | None = None,
         parse_mode: ParseMode = ParseMode.HTML
-    ) -> bool:
+    ) -> MessageOperationResult:
         """
         Редактирует существующее сообщение
         
@@ -455,7 +463,7 @@ class MessageManager(BaseManager):
             parse_mode: Режим парсинга
             
         Returns:
-            True если редактирование прошло успешно, False в противном случае
+            Детализированный результат операции редактирования.
         """
         text = self.bot.get_text(text, payload, 'RU')
         log_context = self._build_log_context(chat_id=chat_id, message_id=message_id)
@@ -469,12 +477,16 @@ class MessageManager(BaseManager):
                     reply_markup=reply_markup,
                     parse_mode=parse_mode,
                 )
-                return True
+                return MessageOperationResult(success=True, reason="edited")
             except Exception as exc:  # noqa: BLE001 - centralized telegram error handling
                 if self._is_message_not_modified(exc):
-                    return True
+                    return MessageOperationResult(success=True, reason="not_modified")
                 if self._is_message_not_found(exc) or self._is_message_cant_be_edited(exc):
-                    return False
+                    return MessageOperationResult(
+                        success=False,
+                        reason="not_found" if self._is_message_not_found(exc) else "cant_edit",
+                        error=str(exc),
+                    )
 
                 retryable = self._is_retryable_exception(exc) and attempt < self.MAX_RETRY_ATTEMPTS
                 await self.bot.handle_error(
@@ -488,13 +500,38 @@ class MessageManager(BaseManager):
                 if retryable:
                     await asyncio.sleep(self._retry_delay(exc, attempt))
                     continue
-                return False
+                return MessageOperationResult(
+                    success=False,
+                    reason="retry_exhausted" if self._is_retryable_exception(exc) else "error",
+                    error=str(exc),
+                )
+
+        return MessageOperationResult(success=False, reason="error", error="Unknown edit failure")
+
+    async def edit_message(
+        self,
+        chat_id: int | str,
+        message_id: int,
+        text: str,
+        reply_markup: InlineKeyboardMarkup | None = None,
+        payload: list[str] | None = None,
+        parse_mode: ParseMode = ParseMode.HTML
+    ) -> bool:
+        result = await self.edit_message_detailed(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=text,
+            reply_markup=reply_markup,
+            payload=payload,
+            parse_mode=parse_mode,
+        )
+        return result.success
     
-    async def delete_message(
+    async def delete_message_detailed(
         self,
         chat_id: int | str,
         message_id: int
-    ) -> bool:
+    ) -> MessageOperationResult:
         """
         Удаляет сообщение
         
@@ -503,7 +540,7 @@ class MessageManager(BaseManager):
             message_id: ID сообщения для удаления
             
         Returns:
-            True если удаление прошло успешно, False в противном случае
+            Детализированный результат операции удаления.
         """
         log_context = self._build_log_context(chat_id=chat_id, message_id=message_id)
 
@@ -513,10 +550,10 @@ class MessageManager(BaseManager):
                     chat_id=chat_id,
                     message_id=message_id,
                 )
-                return True
+                return MessageOperationResult(success=True, reason="deleted")
             except Exception as exc:  # noqa: BLE001 - centralized telegram error handling
                 if self._is_message_not_found(exc):
-                    return True
+                    return MessageOperationResult(success=True, reason="not_found")
                 retryable = self._is_retryable_exception(exc) and attempt < self.MAX_RETRY_ATTEMPTS
                 await self.bot.handle_error(
                     1007,
@@ -529,7 +566,21 @@ class MessageManager(BaseManager):
                 if retryable:
                     await asyncio.sleep(self._retry_delay(exc, attempt))
                     continue
-                return False
+                return MessageOperationResult(
+                    success=False,
+                    reason="retry_exhausted" if self._is_retryable_exception(exc) else "error",
+                    error=str(exc),
+                )
+
+        return MessageOperationResult(success=False, reason="error", error="Unknown delete failure")
+
+    async def delete_message(
+        self,
+        chat_id: int | str,
+        message_id: int
+    ) -> bool:
+        result = await self.delete_message_detailed(chat_id=chat_id, message_id=message_id)
+        return result.success
     
     async def _cleanup_old_messages(self, context: "ContextTypes.DEFAULT_TYPE", chat_id: int, skip_message_id: int = None) -> None:
         """

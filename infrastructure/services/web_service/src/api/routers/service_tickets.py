@@ -129,6 +129,10 @@ async def create_service_ticket(body: CreateServiceTicketRequest, request: Reque
             await bot_client.notification.notify_new_ticket(ticket_id=ticket_id)
         except Exception as e:
             logger.warning("Bot notification for new ticket failed: %s", e)
+        try:
+            await bot_client.stats.sync_stats_message()
+        except Exception as e:
+            logger.warning("Bot stats sync for new ticket failed: %s", e)
     items = await enrich_service_tickets_with_users_and_objects([ticket_schema])
     return items[0] if items else ServiceTicketResponse(**ticket_schema.model_dump())
 
@@ -262,6 +266,10 @@ async def update_service_ticket(entity_id: int, body: UpdateServiceTicketBody, r
             await bot_client.notification.notify_ticket_completion(ticket_id=entity_id)
         except Exception as e:
             logger.warning("Bot notification for ticket completion failed: %s", e)
+    try:
+        await bot_client.stats.sync_stats_message()
+    except Exception as e:
+        logger.warning("Bot stats sync for ticket update failed: %s", e)
     return MessageResponse(message="Service ticket updated successfully", id=entity_id)
 
 
@@ -279,4 +287,8 @@ async def delete_service_ticket(entity_id: int, request: Request):
         error = response.get("error", "Failed to delete service ticket")
         code = status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=code, detail=error)
+    try:
+        await bot_client.stats.sync_stats_message()
+    except Exception as e:
+        logger.warning("Bot stats sync for ticket delete failed: %s", e)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

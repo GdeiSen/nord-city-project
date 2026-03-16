@@ -613,7 +613,6 @@ class NotificationService(BaseService):
                     kind="REPLY",
                     meta={"status": ServiceTicketStatus.IN_PROGRESS, "user_id": user_id},
                 )
-            await self.bot.services.stats.force_update_stats()
 
     async def _process_ticket_assigned(self, update: "Update", context: "ContextTypes.DEFAULT_TYPE", ticket, user_id: int, assignee: str):
         await self.ensure_user_exists(user_id)
@@ -633,7 +632,6 @@ class NotificationService(BaseService):
                     kind="REPLY",
                     meta={"status": ServiceTicketStatus.ASSIGNED, "user_id": user_id, "assignee": assignee},
                 )
-            await self.bot.services.stats.force_update_stats()
 
     async def _process_ticket_completed(self, update: "Update", context: "ContextTypes.DEFAULT_TYPE", ticket, user_id: int):
         await self.ensure_user_exists(user_id)
@@ -675,7 +673,6 @@ class NotificationService(BaseService):
                 reply_markup=keyboard,
                 parse_mode=ParseMode.HTML
             )
-            await self.bot.services.stats.force_update_stats()
             await self._delete_all_ticket_replies(ticket)
             primary_ref = await self._get_primary_message_ref(
                 entity_type="ServiceTicket",
