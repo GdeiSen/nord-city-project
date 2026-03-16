@@ -296,6 +296,10 @@ export default function LocalizationPage() {
   );
   const editorPlaceholderMismatch =
     editorPlaceholderCount !== editorInitialPlaceholderCount;
+  const editorLineCount = React.useMemo(
+    () => Math.max(1, editorDraftValue.split("\n").length),
+    [editorDraftValue],
+  );
 
   const applyEditorChanges = React.useCallback(() => {
     if (!editorKey) return;
@@ -563,23 +567,27 @@ export default function LocalizationPage() {
 
                   <div className="flex-1 space-y-3 overflow-auto p-4">
                     <div className="space-y-2">
-                      <div className="text-xs font-medium text-muted-foreground">
-                        Редактор значения
+                      <div className="grid min-h-[340px] grid-cols-[44px_minmax(0,1fr)] overflow-hidden rounded-md border border-border bg-muted/20">
+                        <div className="select-none border-r border-border/80 bg-muted/10 px-2 py-2 text-right font-mono text-[12px] leading-6 text-muted-foreground">
+                          {Array.from({ length: editorLineCount }, (_, index) => (
+                            <div key={index + 1}>{index + 1}</div>
+                          ))}
+                        </div>
+                        <Textarea
+                          value={editorDraftValue}
+                          spellCheck={false}
+                          onChange={(event) =>
+                            setEditorDraftValue(event.target.value)
+                          }
+                          className="min-h-[340px] resize-y rounded-none border-0 bg-transparent font-mono text-[13px] leading-6 shadow-none focus-visible:ring-0"
+                          disabled={saving || loading}
+                        />
                       </div>
-                      <Textarea
-                        value={editorDraftValue}
-                        spellCheck={false}
-                        onChange={(event) =>
-                          setEditorDraftValue(event.target.value)
-                        }
-                        className="min-h-[340px] resize-y border-border bg-muted/20 font-mono text-[13px] leading-6"
-                        disabled={saving || loading}
-                      />
                       {editorPlaceholderMismatch ? (
                         <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
                           Количество плейсхолдеров <code>{PLACEHOLDER_TOKEN}</code>{" "}
-                          изменилось. Верните исходное число токенов, чтобы
-                          сохранить запись.
+                          изменилось. Для этой записи требуется{" "}
+                          {editorInitialPlaceholderCount} плейсхолдеров.
                         </div>
                       ) : null}
                     </div>
@@ -590,17 +598,12 @@ export default function LocalizationPage() {
                       </div>
                       <div className="space-y-2 text-muted-foreground">
                         <p>
-                          Поддерживаются HTML-теги форматирования Telegram:
-                          <code>&lt;b&gt;...&lt;/b&gt;</code> и{" "}
-                          <code>&lt;strong&gt;...&lt;/strong&gt;</code> для
-                          полужирного текста, <code>&lt;i&gt;...&lt;/i&gt;</code>{" "}
-                          и <code>&lt;em&gt;...&lt;/em&gt;</code> для курсива,
-                          <code>&lt;u&gt;...&lt;/u&gt;</code> для подчеркивания,
-                          <code>&lt;s&gt;...&lt;/s&gt;</code> и{" "}
-                          <code>&lt;del&gt;...&lt;/del&gt;</code> для
-                          зачеркнутого текста, а также{" "}
-                          <code>&lt;code&gt;...&lt;/code&gt;</code> для
-                          моноширинных фрагментов.
+                          Редактор поддерживает HTML-разметку Telegram для
+                          форматирования текста: полужирное начертание, курсив,
+                          подчеркивание, зачеркнутый текст и моноширинные
+                          фрагменты кода. Используйте корректные открывающие и
+                          закрывающие теги, чтобы оформление сообщения
+                          отображалось предсказуемо.
                         </p>
                         <p>
                           Плейсхолдер <code>{PLACEHOLDER_TOKEN}</code>{" "}
