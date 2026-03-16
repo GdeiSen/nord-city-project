@@ -1056,13 +1056,18 @@ export function DataTable<TData>({
               ? `Выбрано: ${selectedRowsCount} из ${totalRowCount}`
               : `Выбрано: ${selectedRowsCount} из ${table.getFilteredRowModel().rows.length}`}
           </div>
-          <div className="flex items-center justify-end space-x-4 h-9">
+          <div className="flex h-9 items-center justify-end gap-2">
             {exportConfig && serverPagination && (
               <Dialog open={exportModalOpen} onOpenChange={setExportModalOpen}>
                 <DialogTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-9">
-                    <IconDownload className="h-4 w-4 mr-2" />
-                    Export
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="size-9"
+                    aria-label="Экспорт"
+                    title="Экспорт"
+                  >
+                    <IconDownload className="h-4 w-4" />
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-md">
