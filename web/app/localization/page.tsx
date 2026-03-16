@@ -575,29 +575,16 @@ export default function LocalizationPage() {
                         className="min-h-[340px] resize-y border-border bg-muted/20 font-mono text-[13px] leading-6"
                         disabled={saving || loading}
                       />
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                        <span>
-                          Исходное количество <code>{PLACEHOLDER_TOKEN}</code>:{" "}
-                          {editorInitialPlaceholderCount}
-                        </span>
-                        <span>
-                          Текущее количество <code>{PLACEHOLDER_TOKEN}</code>:{" "}
-                          {editorPlaceholderCount}
-                        </span>
-                      </div>
                       {editorPlaceholderMismatch ? (
-                        <Alert variant="destructive">
-                          <AlertTitle>Сохранение недоступно</AlertTitle>
-                          <AlertDescription>
-                            Количество плейсхолдеров <code>{PLACEHOLDER_TOKEN}</code>{" "}
-                            изменилось. Верните исходное число токенов, чтобы
-                            сохранить запись.
-                          </AlertDescription>
-                        </Alert>
+                        <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+                          Количество плейсхолдеров <code>{PLACEHOLDER_TOKEN}</code>{" "}
+                          изменилось. Верните исходное число токенов, чтобы
+                          сохранить запись.
+                        </div>
                       ) : null}
                     </div>
 
-                    <div className="rounded-md border bg-muted/20 p-3 text-sm leading-6">
+                    <div className="text-sm leading-6">
                       <div className="mb-2 font-medium">
                         Рекомендации по редактированию
                       </div>
