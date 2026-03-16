@@ -573,15 +573,18 @@ export default function LocalizationPage() {
                             <div key={index + 1}>{index + 1}</div>
                           ))}
                         </div>
-                        <Textarea
-                          value={editorDraftValue}
-                          spellCheck={false}
-                          onChange={(event) =>
-                            setEditorDraftValue(event.target.value)
-                          }
-                          className="min-h-[340px] resize-y rounded-none border-0 bg-transparent font-mono text-[13px] leading-6 shadow-none focus-visible:ring-0"
-                          disabled={saving || loading}
-                        />
+                        <div className="overflow-x-auto">
+                          <Textarea
+                            value={editorDraftValue}
+                            spellCheck={false}
+                            wrap="off"
+                            onChange={(event) =>
+                              setEditorDraftValue(event.target.value)
+                            }
+                            className="min-h-[340px] min-w-full resize-y rounded-none border-0 bg-transparent font-mono whitespace-pre text-[13px] leading-6 shadow-none focus-visible:ring-0"
+                            disabled={saving || loading}
+                          />
+                        </div>
                       </div>
                       {editorPlaceholderMismatch ? (
                         <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
