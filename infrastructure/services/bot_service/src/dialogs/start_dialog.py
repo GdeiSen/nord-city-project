@@ -74,7 +74,7 @@ async def _handle_consent_callback(
                 username=telegram_user.username or "",
                 first_name=telegram_user.first_name or "",
                 last_name=telegram_user.last_name or "",
-                object_id=1,
+                object_id=None,
                 middle_name="",
                 legal_entity="",
                 role=start_role or Roles.LPR,

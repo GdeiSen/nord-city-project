@@ -427,6 +427,13 @@ class NotificationService(BaseService):
             if user:
                 user_name = f"{user.last_name or ''} {user.first_name or ''} {user.middle_name or ''}".strip()
 
+            object_name = self.bot.get_text("location_not_specified")
+            object_id = getattr(ticket, "object_id", None) or (user.object_id if user else None)
+            if object_id:
+                obj = await self.bot.services.rental_object.get_object_by_id(object_id)
+                if obj and obj.name:
+                    object_name = obj.name
+
             # Extract phone number from ticket meta
             phone_number = self.bot.get_text("phone_not_specified")
             if ticket.meta:
@@ -439,6 +446,7 @@ class NotificationService(BaseService):
             message_text = self.bot.get_text("ticket_to_admin_chat", [
                 ticket.id,
                 created_date,
+                object_name,
                 ticket.description or self.bot.get_text("description_not_specified"),
                 ticket.location or self.bot.get_text("location_not_specified"),
                 user_name,
@@ -496,6 +504,13 @@ class NotificationService(BaseService):
             if user:
                 user_name = f"{user.last_name or ''} {user.first_name or ''} {user.middle_name or ''}".strip()
 
+            object_name = self.bot.get_text("location_not_specified")
+            object_id = getattr(ticket, "object_id", None) or (user.object_id if user else None)
+            if object_id:
+                obj = await self.bot.services.rental_object.get_object_by_id(object_id)
+                if obj and obj.name:
+                    object_name = obj.name
+
             phone_number = self.bot.get_text("phone_not_specified")
             if ticket.meta:
                 meta_dict = json.loads(ticket.meta) if isinstance(ticket.meta, str) else (ticket.meta or {})
@@ -516,6 +531,7 @@ class NotificationService(BaseService):
             payload = [
                 ticket.id,
                 created_date,
+                object_name,
                 ticket.description or self.bot.get_text("description_not_specified"),
                 ticket.location or self.bot.get_text("location_not_specified"),
                 user_name,
@@ -594,7 +610,7 @@ class NotificationService(BaseService):
     async def ensure_user_exists(self, user_id: int):
         user = await self.bot.services.user.get_user_by_id(user_id)
         if not user:
-            user = UserSchema(id=user_id, object_id=1, role=Roles.GUEST)
+            user = UserSchema(id=user_id, object_id=None, role=Roles.GUEST)
             await self.bot.services.user.create_user(user)
 
     async def _process_ticket_accepted(self, update: "Update", context: "ContextTypes.DEFAULT_TYPE", ticket, user_id: int):

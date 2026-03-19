@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from bot import Bot
     from shared.entities.dialog import Dialog
 
+from dialogs.profile_dialog import PROFILE_OBJECT_ITEM_ID, PROFILE_OBJECT_OPTION_OFFSET
 from shared.constants import Variables
 from utils.dyn_dialog_utils import set_dialog_position
 from dyn_dialogs_callbacks.guest_parking_callback import (
@@ -17,6 +18,12 @@ from dyn_dialogs_callbacks.guest_parking_callback import (
 
 def is_valid_name(name: str) -> bool:
     return name.isalpha() and len(name) < 30 and " " not in name
+
+
+def _extract_object_id(option_id: int | None) -> int | None:
+    if option_id is None or option_id < PROFILE_OBJECT_OPTION_OFFSET:
+        return None
+    return option_id - PROFILE_OBJECT_OPTION_OFFSET
 
 async def profile_callback(
     bot: "Bot",
@@ -59,6 +66,10 @@ async def profile_callback(
                     update_data['middle_name'] = answer
             elif item_id == 3:
                 update_data = {'id': user_id, 'legal_entity': answer}
+            elif item_id == PROFILE_OBJECT_ITEM_ID:
+                object_id = _extract_object_id(option_id)
+                if object_id is not None:
+                    update_data = {'id': user_id, 'object_id': object_id}
             elif item_id == 4:
                 if option_id == 4000:
                     update_data = {'id': user_id, 'phone_number': None}
@@ -89,6 +100,11 @@ async def profile_callback(
                 (user.first_name or "") + " " +
                 (user.middle_name or "")
             ).strip())
+            user_object = ""
+            if user.object_id:
+                obj = await bot.services.rental_object.get_object_by_id(user.object_id)
+                user_object = obj.name if obj else ""
+            bot.managers.storage.set(context, Variables.USER_OBJECT, user_object)
             bot.managers.storage.set(context, Variables.USER_LEGAL_ENTITY, user.legal_entity or "")
 
     if state == 1:

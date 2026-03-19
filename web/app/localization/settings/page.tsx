@@ -199,9 +199,9 @@ export default function BotSettingsPage() {
                 </Button>
               </div>
 
-              <div className="space-y-3">
+              <div className="grid gap-3 md:grid-cols-2">
                 {loading ? (
-                  <div className="rounded-2xl border border-border/80 bg-transparent px-4 py-6 text-sm text-muted-foreground">
+                  <div className="rounded-2xl border border-border/80 bg-transparent px-4 py-6 text-sm text-muted-foreground md:col-span-2">
                     Загружаем текущие настройки бота...
                   </div>
                 ) : (
