@@ -16,14 +16,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { Switch } from "@/components/ui/switch"
 import { Toaster } from "@/components/ui/sonner"
@@ -197,8 +189,9 @@ export default function BotSettingsPage() {
                 <div className="space-y-1">
                   <h1 className="text-2xl font-semibold">Настройки бота</h1>
                   <p className="text-sm text-muted-foreground">
-                    Включайте и выключайте разделы главного меню бота. Изменения
-                    сохраняются локально в `bot_service` и применяются сразу.
+                    Эта страница нужна для управления доступностью разделов бота
+                    и составом его основного интерфейса. Настройки помогают
+                    поддерживать актуальный набор пользовательских сценариев.
                   </p>
                 </div>
                 <Button asChild type="button" variant="outline">
@@ -206,85 +199,66 @@ export default function BotSettingsPage() {
                 </Button>
               </div>
 
-              <Alert>
-                <AlertTitle>Как это работает</AlertTitle>
-                <AlertDescription>
-                  Если раздел выключен, его кнопка исчезает из главного меню
-                  бота, а прямые команды и старые кнопки больше не откроют этот
-                  сценарий.
-                </AlertDescription>
-              </Alert>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Разделы главного меню</CardTitle>
-                  <CardDescription>
-                    Настройки хранятся в локальном JSON-файле на стороне
-                    `bot_service`.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {loading ? (
-                    <div className="py-6 text-sm text-muted-foreground">
-                      Загружаем текущие настройки бота...
-                    </div>
-                  ) : (
-                    FEATURE_DEFINITIONS.map((feature) => {
-                      const enabled = !!draftData.features[feature.key]?.enabled
-                      return (
-                        <div
-                          key={feature.key}
-                          className="flex flex-col gap-4 rounded-lg border p-4 sm:flex-row sm:items-start sm:justify-between"
-                        >
-                          <div className="space-y-1 pr-0 sm:pr-6">
-                            <div className="font-medium">{feature.title}</div>
-                            <p className="text-sm text-muted-foreground">
-                              {feature.description}
-                            </p>
+              <div className="space-y-3">
+                {loading ? (
+                  <div className="rounded-2xl border border-border/80 bg-transparent px-4 py-6 text-sm text-muted-foreground">
+                    Загружаем текущие настройки бота...
+                  </div>
+                ) : (
+                  FEATURE_DEFINITIONS.map((feature) => {
+                    const enabled = !!draftData.features[feature.key]?.enabled
+                    return (
+                      <div
+                        key={feature.key}
+                        className="rounded-2xl border border-border/80 bg-transparent px-4 py-4"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="font-medium leading-6">
+                            {feature.title}
                           </div>
-                          <div className="flex items-center gap-3">
-                            <span className="min-w-[84px] text-right text-sm text-muted-foreground">
-                              {enabled ? "Включено" : "Выключено"}
-                            </span>
-                            <Switch
-                              checked={enabled}
-                              onCheckedChange={(checked) =>
-                                handleToggle(feature.key, checked)
-                              }
-                              disabled={saving}
-                            />
-                          </div>
+                          <Switch
+                            checked={enabled}
+                            onCheckedChange={(checked) =>
+                              handleToggle(feature.key, checked)
+                            }
+                            disabled={saving}
+                            aria-label={`Переключить раздел ${feature.title}`}
+                          />
                         </div>
-                      )
-                    })
-                  )}
-                </CardContent>
-                <CardFooter className="justify-end gap-2 border-t">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={loadSettings}
-                    disabled={loading || saving}
-                  >
-                    Обновить
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleReset}
-                    disabled={!hasChanges || loading || saving}
-                  >
-                    Сбросить
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={handleSave}
-                    disabled={!hasChanges || loading || saving}
-                  >
-                    {saving ? "Сохранение..." : "Сохранить"}
-                  </Button>
-                </CardFooter>
-              </Card>
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          {feature.description}
+                        </p>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+
+              <div className="flex flex-wrap justify-end gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={loadSettings}
+                  disabled={loading || saving}
+                >
+                  Обновить
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleReset}
+                  disabled={!hasChanges || loading || saving}
+                >
+                  Сбросить
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={!hasChanges || loading || saving}
+                >
+                  {saving ? "Сохранение..." : "Сохранить"}
+                </Button>
+              </div>
             </div>
           )}
         </div>
