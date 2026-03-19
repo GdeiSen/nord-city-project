@@ -109,6 +109,62 @@ class NotificationService(BaseService):
         )
         return result.get("data") if result.get("success") else None
 
+    @staticmethod
+    def _extract_ticket_id_from_message(message: Message | None) -> int | None:
+        if message is None:
+            return None
+
+        raw_text = str(getattr(message, "text", None) or getattr(message, "caption", None) or "").strip()
+        if not raw_text:
+            return None
+
+        match = re.search(r"#\s*(\d+)", raw_text)
+        if not match:
+            return None
+
+        try:
+            return int(match.group(1))
+        except (TypeError, ValueError):
+            return None
+
+    async def _resolve_ticket_from_admin_reply(
+        self,
+        *,
+        chat_id: int,
+        reply_to_message: Message,
+    ):
+        message_ref = await self._find_message_ref(
+            chat_id=chat_id,
+            message_id=reply_to_message.message_id,
+            entity_type="ServiceTicket",
+        )
+        if message_ref is not None:
+            ticket = await self.bot.services.service_ticket.get_service_ticket_by_id(message_ref.entity_id)
+            if ticket is not None:
+                return ticket
+
+        ticket_id = self._extract_ticket_id_from_message(reply_to_message)
+        if ticket_id is None:
+            return None
+
+        ticket = await self.bot.services.service_ticket.get_service_ticket_by_id(ticket_id)
+        if ticket is None:
+            return None
+
+        try:
+            await self._upsert_message_ref(
+                entity_type="ServiceTicket",
+                entity_id=ticket.id,
+                chat_id=chat_id,
+                message_id=reply_to_message.message_id,
+                kind="PRIMARY",
+                meta={"user_id": ticket.user_id, "restored_from_reply": True},
+            )
+        except Exception:
+            pass
+
+        return ticket
+
     async def _delete_message_refs(self, *, entity_type: str, entity_id: int) -> None:
         await self.bot.managers.database.bot_message_ref.delete_by_entity(
             entity_type=entity_type,
@@ -564,18 +620,14 @@ class NotificationService(BaseService):
             reply_to_message = update.message.reply_to_message
             user_id = update.message.from_user.id if update.message.from_user else None
 
-            ticket = None
-            message_ref = await self._find_message_ref(
+            ticket = await self._resolve_ticket_from_admin_reply(
                 chat_id=update.effective_chat.id,
-                message_id=reply_to_message.message_id,
-                entity_type="ServiceTicket",
+                reply_to_message=reply_to_message,
             )
-            if message_ref is not None:
-                ticket = await self.bot.services.service_ticket.get_service_ticket_by_id(message_ref.entity_id)
             if not ticket:
                 return False
 
-            message_text = update.message.text
+            message_text = (update.message.text or update.message.caption or "").strip()
             if not message_text:
                 return False
 
