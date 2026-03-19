@@ -21,3 +21,4 @@ from .space_views import SpaceViewResponse, CreateSpaceViewRequest, UpdateSpaceV
 from .notifications import NotificationBroadcastRequest, NotificationBroadcastResponse
 from .guest_parking_settings import GuestParkingSettingsResponse, UpdateGuestParkingSettingsBody
 from .localization import LocalizationDocument
+from .bot_settings import BotFeatureToggle, BotSettingsDocument

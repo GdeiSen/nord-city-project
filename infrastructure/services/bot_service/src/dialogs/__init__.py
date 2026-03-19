@@ -1,7 +1,7 @@
 from dialogs.start_dialog import start_app_dialog
 from dialogs.dyn_dialog import start_dyn_dialog
 from dialogs.feedback_dialog import start_feedback_dialog
-from dialogs.menu_dialog import start_menu_dialog
+from dialogs.menu_dialog import show_main_menu, start_menu_dialog
 from dialogs.profile_dialog import start_profile_dialog
 from dialogs.poll_dialog import start_poll_dialog
 from dialogs.service_dialog import start_service_dialog

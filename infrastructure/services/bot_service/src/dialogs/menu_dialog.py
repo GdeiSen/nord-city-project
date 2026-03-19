@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING
-from shared.constants import Dialogs, Actions, Roles, Variables
+
+from shared.constants import Actions, Dialogs, Variables
 
 if TYPE_CHECKING:
     from telegram import Update
@@ -7,26 +8,45 @@ if TYPE_CHECKING:
     from bot import Bot
 
 
-async def start_menu_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYPE", bot: "Bot") -> int:
-    """
-    Displays the main menu dialog with user-specific options based on role and profile completion.
-    
-    This dialog serves as the central navigation hub, showing different menu options based on:
-    - User role (MA, LPR, etc.)
-    - Profile completion status
-    - User permissions
-    
-    Args:
-        update (Update): Telegram update object containing user interaction
-        context (ContextTypes.DEFAULT_TYPE): Telegram context for conversation state
-        bot (Bot): Bot instance providing access to services and messaging
-    
-    Returns:
-        int: Dialog constant indicating the menu dialog state
-    """
+def _is_profile_complete(user) -> bool:
+    return bool(
+        user.last_name
+        and user.first_name
+        and user.middle_name
+        and user.legal_entity
+    )
+
+
+def _build_menu_message(bot: "Bot", user) -> str:
+    if not _is_profile_complete(user):
+        return bot.get_text("new_greeting")
+    return (
+        "👋 <b>Здравствуйте!</b>\n"
+        "Вас приветствует чат-бот управляющей компании Норд Сити.\n\n"
+        "<b>Выберите действие:</b>"
+    )
+
+
+def _build_menu_keyboard(bot: "Bot", user):
+    if not _is_profile_complete(user):
+        if bot.services.bot_settings.is_feature_enabled("profile"):
+            return bot.create_keyboard([[("login", Dialogs.PROFILE)]])
+        return None
+
+    rows = bot.services.bot_settings.get_enabled_menu_layout(user.role)
+    if not rows:
+        return None
+    return bot.create_keyboard(rows)
+
+
+async def show_main_menu(
+    update: "Update",
+    context: "ContextTypes.DEFAULT_TYPE",
+    bot: "Bot",
+) -> int:
     if update.effective_chat.type != "private":
         return
-    
+
     bot.managers.navigator.set_entry_point(context, Dialogs.MENU)
     user_id = bot.get_user_id(update)
 
@@ -34,59 +54,22 @@ async def start_menu_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYP
         return Actions.END
 
     user = await bot.services.user.get_user_by_id(user_id)
-
     if user is None:
         return Actions.END
 
-    # Store user information in context
-    bot.managers.storage.set(context, Variables.USER_NAME, (
-        (user.last_name or "") + " " + (user.first_name or "") + " " + (user.middle_name or "")
-    ).strip())
+    bot.managers.storage.set(
+        context,
+        Variables.USER_NAME,
+        ((user.last_name or "") + " " + (user.first_name or "") + " " + (user.middle_name or "")).strip(),
+    )
     bot.managers.storage.set(context, Variables.USER_LEGAL_ENTITY, user.legal_entity or "")
 
-    keyboard = bot.create_keyboard(
-        [
-            [
-                ("profile", Dialogs.PROFILE),
-                ("service", Dialogs.SERVICE),
-            ],
-            [
-                ("polling", Dialogs.POLL),
-                ("feedback", Dialogs.FEEDBACK),
-            ],
-            [
-                ("guest_parking", Dialogs.GUEST_PARKING),
-                ("spaces", Dialogs.SPACES),
-            ],
-        ]
-    )
+    keyboard = _build_menu_keyboard(bot, user)
+    text = _build_menu_message(bot, user)
 
-    text = "default_greeting"
-
-    if user.role == Roles.MA or user.role == Roles.GUEST:
-        text = "ma_greeting"
-        keyboard = bot.create_keyboard(
-            [
-                [
-                    ("profile", Dialogs.PROFILE),
-                    ("service", Dialogs.SERVICE),
-                ],
-                [
-                    ("guest_parking", Dialogs.GUEST_PARKING),
-                    ("spaces", Dialogs.SPACES),
-                ],
-            ]
-        )
-
-    if not user.last_name or not user.first_name or not user.middle_name or not user.legal_entity:
-        text = "new_greeting"
-        keyboard = bot.create_keyboard(
-            [
-                [
-                    ("login", Dialogs.PROFILE)
-                ]
-            ]
-        )
-
-    await bot.send_message(update, context, text, keyboard, refresh = True)
+    await bot.send_message(update, context, text, keyboard, refresh=True)
     return Dialogs.MENU
+
+
+async def start_menu_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYPE", bot: "Bot") -> int:
+    return await show_main_menu(update, context, bot)

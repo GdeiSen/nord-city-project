@@ -35,6 +35,7 @@ from dyn_dialogs_callbacks.service_feedback_callback import service_feedback_cal
 from dyn_dialogs_callbacks.spaces_callback import spaces_callback
 from dyn_dialogs_callbacks.guest_parking_callback import guest_parking_callback
 from dialogs import (
+    show_main_menu,
     start_app_dialog,
     start_dyn_dialog,
     start_feedback_dialog,
@@ -67,6 +68,7 @@ from services.rental_object_service import RentalObjectService
 from services.rental_space_service import RentalSpaceService
 from services.service_ticket_service import ServiceTicketService
 from services.telegram_auth_service import TelegramAuthService
+from services.bot_settings_service import BotSettingsService
 from services.localization_service import LocalizationService
 
 # Telegram-related imports
@@ -175,6 +177,7 @@ class Bot:
         self.services.register_service(RentalSpaceService(self))
         self.services.register_service(ServiceTicketService(self))
         self.services.register_service(TelegramAuthService(self))
+        self.services.register_service(BotSettingsService(self))
         self.services.register_service(LocalizationService(self))
 
     async def handle_error(self, code: int, message: str):
@@ -219,6 +222,27 @@ class Bot:
                 keyboard_row.append(InlineKeyboardButton(text, callback_data=callback_data))
             keyboard.append(keyboard_row)
         return InlineKeyboardMarkup(keyboard)
+
+    def clear_active_dialog_state(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        self.managers.storage.set(context, Variables.ACTIVE_DYN_DIALOG, None)
+        self.managers.storage.set(context, Variables.ACTIVE_DIALOG_SEQUENCE_ID, None)
+        self.managers.storage.set(context, Variables.ACTIVE_DIALOG_SEQUENCE_ITEM_INDEX, None)
+        self.managers.storage.set(context, Variables.HANDLED_DATA, None)
+        self.managers.storage.set(context, Variables.GUEST_PARKING_DATA, None)
+        self.managers.storage.set(context, Variables.USER_SERVICE_TICKET, None)
+
+    async def handle_disabled_feature(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        feature_key: str,
+    ) -> int:
+        user_id = self.get_user_id(update)
+        if user_id is not None:
+            self.managers.event.remove_input_handler(user_id)
+        self.clear_active_dialog_state(context)
+        self.managers.navigator.clear(context)
+        return await show_main_menu(update, context, self)
 
     async def start_async(self):
         """Async method to start the bot with proper event loop handling"""
@@ -426,6 +450,10 @@ class Bot:
             }
             if command in dialog_map:
                 dialog_id = dialog_map[command]
+                feature_key = self.services.bot_settings.get_feature_key_for_route(dialog_id, context)
+                if feature_key and not self.services.bot_settings.is_feature_enabled(feature_key):
+                    await self.handle_disabled_feature(update, context, feature_key)
+                    return
                 self.managers.navigator.clear(context)
                 self.managers.navigator.set_entry_point(context, dialog_id)
                 await self.managers.navigator.execute(dialog_id, update, context)

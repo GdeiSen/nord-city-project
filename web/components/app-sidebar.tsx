@@ -13,6 +13,7 @@ import {
   IconHistory,
   IconFile,
   IconLanguage,
+  IconAdjustments,
 } from "@tabler/icons-react"
 
 import { NavMain } from "@/components/nav-main"
@@ -125,6 +126,11 @@ const data = {
       title: "Локализация бота",
       url: "/localization",
       icon: IconLanguage,
+    },
+    {
+      title: "Настройки бота",
+      url: "/localization/settings",
+      icon: IconAdjustments,
     },
   ],
 }

@@ -344,6 +344,14 @@ export interface LocalizationData {
   [locale: string]: Record<string, string>
 }
 
+export interface BotFeatureSetting {
+  enabled: boolean
+}
+
+export interface BotSettingsData {
+  features: Record<string, BotFeatureSetting>
+}
+
 export const localizationApi = {
   async get(): Promise<LocalizationData> {
     return apiFetch<LocalizationData>("/localization/")
@@ -351,6 +359,19 @@ export const localizationApi = {
 
   async update(data: LocalizationData): Promise<LocalizationData> {
     return apiFetch<LocalizationData>("/localization/", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+  },
+}
+
+export const botSettingsApi = {
+  async get(): Promise<BotSettingsData> {
+    return apiFetch<BotSettingsData>("/bot-settings/")
+  },
+
+  async update(data: BotSettingsData): Promise<BotSettingsData> {
+    return apiFetch<BotSettingsData>("/bot-settings/", {
       method: "PUT",
       body: JSON.stringify(data),
     })
