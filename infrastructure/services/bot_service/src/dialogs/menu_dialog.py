@@ -20,11 +20,7 @@ def _is_profile_complete(user) -> bool:
 def _build_menu_message(bot: "Bot", user) -> str:
     if not _is_profile_complete(user):
         return bot.get_text("new_greeting")
-    return (
-        "👋 <b>Здравствуйте!</b>\n"
-        "Вас приветствует чат-бот управляющей компании Норд Сити.\n\n"
-        "<b>Выберите действие:</b>"
-    )
+    return bot.get_text("default_greeting")
 
 
 def _build_menu_keyboard(bot: "Bot", user):
