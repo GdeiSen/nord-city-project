@@ -86,7 +86,7 @@ async def start_profile_dialog(update: "Update", context: "ContextTypes.DEFAULT_
     user_name = last_name + " " + first_name + " " + middle_name
     user_name = user_name.replace("  ", " ")
     user_name = user_name.strip()
-    user_legal_entity = user.legal_entity or ""
+    user_legal_entity = user.legal_entity or bot.get_text("location_not_specified")
     user_object = ""
     if user.object_id:
         obj = await bot.services.rental_object.get_object_by_id(user.object_id)
@@ -95,7 +95,7 @@ async def start_profile_dialog(update: "Update", context: "ContextTypes.DEFAULT_
 
     bot.managers.storage.set(context, Variables.USER_NAME, user_name)
     bot.managers.storage.set(context, Variables.USER_OBJECT, user_object)
-    bot.managers.storage.set(context, Variables.USER_LEGAL_ENTITY, user.legal_entity or "")
+    bot.managers.storage.set(context, Variables.USER_LEGAL_ENTITY, user_legal_entity)
 
     objects = await bot.services.rental_object.get_all_objects()
     profile_dialog = build_profile_dialog(bot.dyn_dialogs[Dialogs.PROFILE], objects)
