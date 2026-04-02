@@ -35,12 +35,14 @@ def _to_cache_item(record: Any) -> dict:
     if isinstance(record, dict):
         return {
             "id": record.get("id"),
+            "object_id": record.get("object_id"),
             "arrival_date": record.get("arrival_date"),
             "license_plate": record.get("license_plate", ""),
             "car_make_color": record.get("car_make_color", ""),
         }
     return {
         "id": getattr(record, "id", None),
+        "object_id": getattr(record, "object_id", None),
         "arrival_date": getattr(record, "arrival_date", None),
         "license_plate": getattr(record, "license_plate", "") or "",
         "car_make_color": getattr(record, "car_make_color", "") or "",

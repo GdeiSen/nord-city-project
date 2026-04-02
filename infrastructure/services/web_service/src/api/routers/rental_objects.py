@@ -3,9 +3,11 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
+from shared.clients.bot_client import bot_client
 from shared.clients.database_client import db_client
 from shared.schemas.object import ObjectSchema
 from api.dependencies import get_audit_context, get_optional_current_user
+from api.helpers.enrichment import enrich_objects_with_chats
 from api.schemas.common import MessageResponse, PaginatedResponse, parse_sort_param
 from api.schemas.rental_objects import ObjectResponse, CreateObjectRequest, UpdateObjectBody
 
@@ -23,7 +25,12 @@ async def create_object(body: CreateObjectRequest, request: Request):
     if not response.get("success"):
         error = response.get("error", "Failed to create rental object")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error)
-    return response["data"]
+    try:
+        await bot_client.stats.sync_stats_message()
+    except Exception as e:
+        logger.warning("Bot stats sync after object create failed: %s", e)
+    items = await enrich_objects_with_chats([response["data"]])
+    return items[0] if items else response["data"]
 
 
 @router.get("/", response_model=PaginatedResponse[ObjectResponse])
@@ -45,7 +52,8 @@ async def get_objects(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail=response.get("error", "Failed to fetch rental objects"))
     data = response.get("data", {})
-    return PaginatedResponse(items=data.get("items", []), total=data.get("total", 0))
+    items = await enrich_objects_with_chats(data.get("items", []))
+    return PaginatedResponse(items=items, total=data.get("total", 0))
 
 
 @router.get("/{entity_id}", response_model=ObjectResponse)
@@ -60,7 +68,8 @@ async def get_object_by_id(entity_id: int):
         raise HTTPException(status_code=code, detail=error)
     if response.get("data") is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rental object not found")
-    return response["data"]
+    items = await enrich_objects_with_chats([response["data"]])
+    return items[0] if items else response["data"]
 
 
 @router.put("/{entity_id}", response_model=MessageResponse)
@@ -68,6 +77,14 @@ async def update_object(entity_id: int, body: UpdateObjectBody, request: Request
     update_data = body.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
+    previous_admin_chat_id = None
+    if "admin_chat_id" in update_data:
+        existing_response = await db_client.object.get_by_id(
+            entity_id=entity_id,
+            model_class=ObjectSchema,
+        )
+        existing_object = existing_response.get("data") if existing_response.get("success") else None
+        previous_admin_chat_id = getattr(existing_object, "admin_chat_id", None) if existing_object is not None else None
     response = await db_client.object.update(
         entity_id=entity_id,
         update_data=update_data,
@@ -77,6 +94,15 @@ async def update_object(entity_id: int, body: UpdateObjectBody, request: Request
         error = response.get("error", "Failed to update rental object")
         code = status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=code, detail=error)
+    try:
+        await bot_client.stats.sync_stats_message()
+    except Exception as e:
+        logger.warning("Bot stats sync after object update failed: %s", e)
+    if "admin_chat_id" in update_data and update_data.get("admin_chat_id") != previous_admin_chat_id:
+        try:
+            await bot_client.notification.resync_object_routes(object_id=entity_id)
+        except Exception as e:
+            logger.warning("Bot object route re-sync after object update failed: %s", e)
     return MessageResponse(message="Rental object updated successfully", id=entity_id)
 
 
@@ -90,4 +116,8 @@ async def delete_object(entity_id: int, request: Request):
         error = response.get("error", "Failed to delete rental object")
         code = status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=code, detail=error)
+    try:
+        await bot_client.stats.sync_stats_message()
+    except Exception as e:
+        logger.warning("Bot stats sync after object delete failed: %s", e)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

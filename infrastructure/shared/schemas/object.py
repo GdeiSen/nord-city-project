@@ -15,6 +15,7 @@ class ObjectSchema(BaseModel):
     description: Optional[str] = None
     photos: List[str] = []
     status: str = "ACTIVE"
+    admin_chat_id: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

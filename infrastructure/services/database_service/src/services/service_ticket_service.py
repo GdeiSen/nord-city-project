@@ -3,8 +3,12 @@ import json
 from sqlalchemy import select, func
 from database.database_manager import DatabaseManager
 from models.service_ticket import ServiceTicket
+from models.user import User
 from .base_service import BaseService, db_session_manager
-from shared.schemas.service_tickets_stats import ServiceTicketsStatsSchema
+from shared.schemas.service_tickets_stats import (
+    ObjectServiceTicketsStatsSchema,
+    ServiceTicketsStatsSchema,
+)
 from shared.constants import ServiceTicketStatus, StorageFileCategory
 from shared.utils.storage_utils import get_removed_storage_paths
 
@@ -24,6 +28,10 @@ class ServiceTicketService(BaseService):
 
     def __init__(self, db_manager: DatabaseManager):
         super().__init__(db_manager)
+
+    @staticmethod
+    def _resolved_object_id_expr():
+        return func.coalesce(ServiceTicket.object_id, User.object_id)
 
     @staticmethod
     def _extract_attachment_urls(ticket: ServiceTicket) -> list[str]:
@@ -116,8 +124,9 @@ class ServiceTicketService(BaseService):
         return await super().delete(session=session, entity_id=entity_id, **kwargs)
 
     @db_session_manager
-    async def get_stats(self, *, session):
+    async def get_stats(self, *, session, object_id: int | None = None):
         """Aggregate stats via single SQL query (no full table load)."""
+        resolved_object_id = self._resolved_object_id_expr()
         stmt = select(
             func.count().label("total"),
             func.count().filter(ServiceTicket.status == ServiceTicketStatus.NEW).label("new_count"),
@@ -126,7 +135,9 @@ class ServiceTicketService(BaseService):
             func.array_agg(ServiceTicket.id).filter(ServiceTicket.status == ServiceTicketStatus.NEW).label("new_ids"),
             func.array_agg(ServiceTicket.id).filter(ServiceTicket.status.in_(IN_PROGRESS_STATUSES)).label("in_progress_ids"),
             func.array_agg(ServiceTicket.id).filter(ServiceTicket.status == ServiceTicketStatus.COMPLETED).label("completed_ids"),
-        ).select_from(ServiceTicket)
+        ).select_from(ServiceTicket).outerjoin(User, User.id == ServiceTicket.user_id)
+        if object_id is not None:
+            stmt = stmt.where(resolved_object_id == int(object_id))
         result = await session.execute(stmt)
         row = result.one()
         return ServiceTicketsStatsSchema(
@@ -138,3 +149,39 @@ class ServiceTicketService(BaseService):
             in_progress_tickets=list(row.in_progress_ids or []),
             completed_tickets=list(row.completed_ids or []),
         )
+
+    @db_session_manager
+    async def get_stats_grouped_by_object(self, *, session):
+        resolved_object_id = self._resolved_object_id_expr()
+        stmt = (
+            select(
+                resolved_object_id.label("object_id"),
+                func.count().label("total"),
+                func.count().filter(ServiceTicket.status == ServiceTicketStatus.NEW).label("new_count"),
+                func.count().filter(ServiceTicket.status.in_(IN_PROGRESS_STATUSES)).label("in_progress_count"),
+                func.count().filter(ServiceTicket.status == ServiceTicketStatus.COMPLETED).label("completed_count"),
+                func.array_agg(ServiceTicket.id).filter(ServiceTicket.status == ServiceTicketStatus.NEW).label("new_ids"),
+                func.array_agg(ServiceTicket.id).filter(ServiceTicket.status.in_(IN_PROGRESS_STATUSES)).label("in_progress_ids"),
+                func.array_agg(ServiceTicket.id).filter(ServiceTicket.status == ServiceTicketStatus.COMPLETED).label("completed_ids"),
+            )
+            .select_from(ServiceTicket)
+            .outerjoin(User, User.id == ServiceTicket.user_id)
+            .where(resolved_object_id.is_not(None))
+            .group_by(resolved_object_id)
+        )
+        result = await session.execute(stmt)
+        rows = result.all()
+        return [
+            ObjectServiceTicketsStatsSchema(
+                object_id=int(row.object_id),
+                total_count=row.total or 0,
+                new_count=row.new_count or 0,
+                in_progress_count=row.in_progress_count or 0,
+                completed_count=row.completed_count or 0,
+                new_tickets=list(row.new_ids or []),
+                in_progress_tickets=list(row.in_progress_ids or []),
+                completed_tickets=list(row.completed_ids or []),
+            )
+            for row in rows
+            if row.object_id is not None
+        ]

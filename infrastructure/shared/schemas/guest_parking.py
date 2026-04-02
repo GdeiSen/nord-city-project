@@ -11,6 +11,7 @@ class GuestParkingSchema(BaseModel):
 
     id: Optional[int] = None
     user_id: int = 0
+    object_id: Optional[int] = None
     msid: Optional[int] = None
     arrival_date: Optional[datetime] = None
     license_plate: str = ""

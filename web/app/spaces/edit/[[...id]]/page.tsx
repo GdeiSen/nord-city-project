@@ -19,8 +19,8 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { RentalObject } from "@/types"
-import { rentalObjectApi } from "@/lib/api"
+import { RentalObject, TelegramChat } from "@/types"
+import { rentalObjectApi, telegramChatApi } from "@/lib/api"
 import { StorageUploader } from "@/components/storage-uploader"
 import {
   AlertDialog,
@@ -42,20 +42,25 @@ export default function RentalObjectEditPage() {
   const { id: objectId, isEdit } = useRouteId({ paramKey: "id", parseMode: "number" })
 
   const { loading, withLoading } = useLoading(true)
+  const [availableChats, setAvailableChats] = useState<TelegramChat[]>([])
   const [formData, setFormData] = useState<Partial<RentalObject>>({ status: "ACTIVE", photos: [] })
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    if (!isEdit) {
-      setFormData({ status: "ACTIVE", photos: [] })
-      return
-    }
     withLoading(async () => {
+      const chats = await telegramChatApi.getAll()
+      setAvailableChats(chats)
+      if (!isEdit) {
+        setFormData({ status: "ACTIVE", photos: [], admin_chat_id: undefined })
+        return
+      }
       const data = await rentalObjectApi.getById(Number(objectId!))
       setFormData({ ...data, photos: data.photos ?? [] })
     }).catch((err: any) => {
       toast.error("Не удалось загрузить объект", { description: err?.message })
-      router.push(`/spaces/${Number(objectId!)}`)
+      if (isEdit) {
+        router.push(`/spaces/${Number(objectId!)}`)
+      }
     })
   }, [objectId, isEdit])
 
@@ -66,6 +71,13 @@ export default function RentalObjectEditPage() {
 
   const handleStatusChange = (value: string) => {
     setFormData((prev) => ({ ...prev, status: value }))
+  }
+
+  const handleAdminChatChange = (value: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      admin_chat_id: value === "__none__" ? undefined : Number(value),
+    }))
   }
 
   const handlePhotosChange = (links: string[]) => {
@@ -90,6 +102,7 @@ export default function RentalObjectEditPage() {
         description: formData.description,
         status: formData.status ?? "ACTIVE",
         photos: (formData.photos ?? []).map((u) => u.trim()).filter(Boolean),
+        admin_chat_id: formData.admin_chat_id ?? null,
       }
 
       if (isEdit) {
@@ -196,6 +209,30 @@ export default function RentalObjectEditPage() {
                         <SelectItem value="ARCHIVED">Архив</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="admin_chat_id">Чат администраторов</Label>
+                    <Select
+                      value={formData.admin_chat_id != null ? String(formData.admin_chat_id) : "__none__"}
+                      onValueChange={handleAdminChatChange}
+                    >
+                      <SelectTrigger id="admin_chat_id">
+                        <SelectValue placeholder="Чат не выбран" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Не привязан</SelectItem>
+                        {availableChats.map((chat) => (
+                          <SelectItem key={chat.chat_id} value={String(chat.chat_id)}>
+                            {chat.title || `Chat ${chat.chat_id}`} ({chat.chat_type}, {chat.chat_id})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-sm text-muted-foreground">
+                      {availableChats.length > 0
+                        ? "В списке только групповые чаты, которые бот уже видел."
+                        : "Бот еще не обнаружил ни одного доступного группового чата."}
+                    </p>
                   </div>
                   <StorageUploader
                     label="Фото и видео"

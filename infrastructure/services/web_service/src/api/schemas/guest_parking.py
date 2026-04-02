@@ -9,6 +9,7 @@ class GuestParkingResponse(BaseModel):
     """Response schema for GuestParkingRequest entity."""
     id: Optional[int] = None
     user_id: int
+    object_id: Optional[int] = None
     user: Optional[UserSummary] = None
     msid: Optional[int] = None
     arrival_date: Optional[datetime] = None

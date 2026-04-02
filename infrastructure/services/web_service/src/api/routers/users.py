@@ -33,6 +33,7 @@ ROLE_LABELS = {
     Roles.GUEST: "Гость",
     Roles.LPR: "User LPR",
     Roles.MA: "User MA",
+    Roles.MANAGER: "Менеджер",
     Roles.ADMIN: "Администратор",
     Roles.SUPER_ADMIN: "Super Admin",
 }

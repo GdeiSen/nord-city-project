@@ -8,12 +8,13 @@ import logging
 from typing import Dict, List, Set, Any, Callable, Awaitable
 
 from shared.clients.database_client import db_client
-from shared.schemas.enrichment import ObjectSummary, UserSummary
-from api.schemas.service_tickets import ServiceTicketResponse
+from shared.schemas.enrichment import ObjectSummary, TelegramChatSummary, UserSummary
+from api.schemas.audit_log import AuditLogEntryResponse
 from api.schemas.feedbacks import FeedbackResponse
 from api.schemas.guest_parking import GuestParkingResponse
+from api.schemas.rental_objects import ObjectResponse
+from api.schemas.service_tickets import ServiceTicketResponse
 from api.schemas.users import UserResponse
-from api.schemas.audit_log import AuditLogEntryResponse
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,33 @@ async def batch_fetch_objects(object_ids: Set[int]) -> Dict[int, ObjectSummary]:
     return result
 
 
+async def batch_fetch_telegram_chats(chat_ids: Set[int]) -> Dict[int, TelegramChatSummary]:
+    """Batch-fetch Telegram chats by IDs. Returns {chat_id: TelegramChatSummary}."""
+    if not chat_ids:
+        return {}
+    result: Dict[int, TelegramChatSummary] = {}
+    try:
+        from shared.schemas.telegram_chat import TelegramChatSchema
+
+        resp = await db_client.telegram_chat.get_by_chat_ids(
+            chat_ids=list(chat_ids),
+            model_class=TelegramChatSchema,
+        )
+        if not resp.get("success"):
+            return result
+        for chat in resp.get("data", []):
+            result[int(chat.chat_id)] = TelegramChatSummary(
+                chat_id=int(chat.chat_id),
+                title=chat.title or "",
+                chat_type=chat.chat_type or "group",
+                is_active=bool(chat.is_active),
+                bot_status=chat.bot_status,
+            )
+    except Exception as e:
+        logger.warning("Failed to batch-fetch telegram chats for enrichment: %s", e)
+    return result
+
+
 async def batch_fetch_users(user_ids: List[int]) -> Dict[int, UserSummary]:
     """Batch-fetch users by IDs. Returns {user_id: UserSummary}."""
     if not user_ids:
@@ -116,6 +144,25 @@ async def enrich_users_with_objects(items: List[Any]) -> List[UserResponse]:
         d = u.model_dump()
         d["object"] = object_map.get(u.object_id) if u.object_id else None
         result.append(UserResponse(**d))
+    return result
+
+
+async def enrich_objects_with_chats(items: List[Any]) -> List[ObjectResponse]:
+    """Enrich object models with linked Telegram chat info."""
+    if not items:
+        return []
+    chat_ids = {
+        int(item.admin_chat_id)
+        for item in items
+        if getattr(item, "admin_chat_id", None) is not None
+    }
+    chat_map = await batch_fetch_telegram_chats(chat_ids)
+    result: List[ObjectResponse] = []
+    for item in items:
+        d = item.model_dump()
+        admin_chat_id = d.get("admin_chat_id")
+        d["admin_chat"] = chat_map.get(int(admin_chat_id)) if admin_chat_id is not None else None
+        result.append(ObjectResponse(**d))
     return result
 
 

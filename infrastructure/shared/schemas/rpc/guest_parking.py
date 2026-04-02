@@ -19,6 +19,7 @@ class GuestParkingCreateRpc(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     user_id: int
+    object_id: Optional[int] = None
     arrival_date: datetime
     license_plate: str = ""
     car_make_color: str = ""
@@ -31,11 +32,12 @@ class GuestParkingCreateRpc(BaseModel):
 
 
 class GuestParkingUpdateRpc(BaseModel):
-    """Валидация update_data для guest_parking.update. msid — ID сообщения (сохраняет бот)."""
+    """Валидация update_data для guest_parking.update."""
     model_config = ConfigDict(extra="forbid")
 
     msid: Optional[int] = None
     user_id: Optional[int] = None
+    object_id: Optional[int] = None
     arrival_date: Optional[datetime] = None
     license_plate: Optional[str] = None
     car_make_color: Optional[str] = None

@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 from shared.clients.database_client import db_client
 from shared.clients.bot_client import bot_client
 from shared.schemas.guest_parking import GuestParkingSchema
+from shared.schemas.user import UserSchema
 from api.dependencies import get_audit_context, get_optional_current_user
 from api.schemas.common import MessageResponse, PaginatedResponse
 from api.helpers.paginated_list import create_paginated_list_handler
@@ -28,6 +29,13 @@ router = APIRouter(prefix="/guest-parking", tags=["Guest Parking"])
 async def create_guest_parking(body: CreateGuestParkingBody, request: Request):
     """Создать заявку на гостевую парковку. Синхронизирует с чатом администраторов."""
     data = body.model_dump()
+    if data.get("user_id") is not None:
+        user_response = await db_client.user.get_by_id(
+            entity_id=int(data["user_id"]),
+            model_class=UserSchema,
+        )
+        user = user_response.get("data") if user_response.get("success") else None
+        data["object_id"] = getattr(user, "object_id", None)
     response = await db_client.guest_parking.create(
         model_data=data,
         model_class=GuestParkingSchema,
@@ -91,6 +99,13 @@ async def update_guest_parking(entity_id: int, body: UpdateGuestParkingBody, req
     update_data = body.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
+    if update_data.get("user_id") is not None:
+        user_response = await db_client.user.get_by_id(
+            entity_id=int(update_data["user_id"]),
+            model_class=UserSchema,
+        )
+        user = user_response.get("data") if user_response.get("success") else None
+        update_data["object_id"] = getattr(user, "object_id", None)
     response = await db_client.guest_parking.update(
         entity_id=entity_id,
         update_data=update_data,

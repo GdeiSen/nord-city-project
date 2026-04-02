@@ -74,6 +74,10 @@ class _NotificationProxy(_BotServiceProxy):
         """Удалить сообщение заявки из чата администраторов (перед удалением из БД)."""
         return await self._call("delete_guest_parking_messages", req_id=req_id)
 
+    async def resync_object_routes(self, *, object_id: int) -> Dict[str, Any]:
+        """Re-sync active object-bound messages after object chat binding changes."""
+        return await self._call("resync_object_routes", object_id=object_id)
+
     async def send_bulk_notification(
         self,
         *,
@@ -89,6 +93,25 @@ class _NotificationProxy(_BotServiceProxy):
             title=title,
             message=message,
             attachment_urls=attachment_urls or [],
+        )
+
+    async def notify_user_deleted(
+        self,
+        *,
+        user_id: int,
+        username: str | None = None,
+        full_name: str | None = None,
+        cascade_counts: Dict[str, int] | None = None,
+        service_ticket_ids: list[int] | None = None,
+    ) -> Dict[str, Any]:
+        """Notify admins that a user was deleted and related entities were cascade-deleted."""
+        return await self._call(
+            "notify_user_deleted",
+            user_id=user_id,
+            username=username,
+            full_name=full_name,
+            cascade_counts=cascade_counts or {},
+            service_ticket_ids=service_ticket_ids or [],
         )
 
 

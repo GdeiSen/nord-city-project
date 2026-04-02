@@ -459,6 +459,17 @@ export interface UserRoleLinksResponse {
   links: UserRoleLinkItem[]
 }
 
+export interface TelegramChatResponse {
+  chat_id: number
+  title: string
+  chat_type: string
+  is_active: boolean
+  bot_status?: string
+  last_seen_at?: string
+  created_at?: string
+  updated_at?: string
+}
+
 export interface PollGoogleFormSettings {
   locale: string
   poll_header: string
@@ -549,6 +560,12 @@ export const pollApi = {
   },
 }
 export const rentalObjectApi = createCrudApi<any>("/rental-objects")
+export const telegramChatApi = {
+  async getAll(): Promise<TelegramChatResponse[]> {
+    const res = await apiFetch<TelegramChatResponse[]>("/telegram-chats/")
+    return Array.isArray(res) ? res : []
+  },
+}
 
 // Rental spaces: base CRUD + getByObjectId (GET /rental-spaces/rental-objects/{object_id})
 const rentalSpaceBase = createCrudApi<any>("/rental-spaces")

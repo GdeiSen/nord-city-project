@@ -13,6 +13,7 @@ export const USER_ROLES = {
   GUEST: 0,
   USER_LPR: 10011,
   USER_MA: 20122,
+  MANAGER: 10014,
   ADMIN: 10012,
   SUPER_ADMIN: 10013,
 } as const
@@ -23,6 +24,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   [USER_ROLES.GUEST]: 'Guest',
   [USER_ROLES.USER_LPR]: 'User LPR',
   [USER_ROLES.USER_MA]: 'User MA',
+  [USER_ROLES.MANAGER]: 'Manager',
   [USER_ROLES.ADMIN]: 'Administrator',
   [USER_ROLES.SUPER_ADMIN]: 'Super Admin',
 } as const
@@ -31,6 +33,7 @@ export const ROLE_BADGE_VARIANTS: Record<UserRole, 'destructive' | 'default' | '
   [USER_ROLES.GUEST]: 'outline',
   [USER_ROLES.USER_LPR]: 'default',
   [USER_ROLES.USER_MA]: 'secondary',
+  [USER_ROLES.MANAGER]: 'secondary',
   [USER_ROLES.ADMIN]: 'destructive',
   [USER_ROLES.SUPER_ADMIN]: 'destructive',
 } as const
@@ -156,10 +159,24 @@ export interface RentalObject extends BaseEntity {
   photos: string[];
   /** Rental object status (ACTIVE, INACTIVE, etc.) */
   status: string;
+  /** Linked Telegram admin chat */
+  admin_chat_id?: number;
+  admin_chat?: TelegramChat;
   /** Associated spaces/offices */
   spaces?: RentalSpace[];
   /** Users associated with this object */
   users?: User[];
+}
+
+export interface TelegramChat {
+  chat_id: number
+  title: string
+  chat_type: string
+  is_active: boolean
+  bot_status?: string
+  last_seen_at?: string
+  created_at?: string
+  updated_at?: string
 }
 
 /**
@@ -212,6 +229,7 @@ export interface RentalSpaceView extends BaseEntity {
 export interface GuestParkingRequest extends BaseEntity {
   id: number
   user_id: number
+  object_id?: number
   arrival_date: string
   license_plate: string
   car_make_color: string

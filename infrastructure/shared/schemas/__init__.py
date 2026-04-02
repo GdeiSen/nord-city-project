@@ -12,9 +12,10 @@ from .guest_parking import GuestParkingSchema
 from .guest_parking_settings import GuestParkingSettingsSchema
 from .audit_log import AuditLogSchema
 from .space_view import SpaceViewSchema
-from .service_tickets_stats import ServiceTicketsStatsSchema
+from .service_tickets_stats import ServiceTicketsStatsSchema, ObjectServiceTicketsStatsSchema
 from .otp_code import OtpCodeSchema
-from .enrichment import UserSummary, ObjectSummary
+from .enrichment import UserSummary, ObjectSummary, TelegramChatSummary
 from .storage_file import StorageFileSchema
 from .bot_message_ref import BotMessageRefSchema
 from .dynamic_dialog_binding import DynamicDialogBindingSchema
+from .telegram_chat import TelegramChatSchema

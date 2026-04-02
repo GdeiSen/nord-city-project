@@ -14,6 +14,7 @@
   9. Рефакторинг аудита (новые поля audit_log + bot_message_refs)
   10. Перенос legacy service_tickets.msid в bot_message_refs и удаление колонки
   11. Создание реестра DDID и связывание feedbacks / poll_answers / service_tickets
+  12. Поддержка объектной маршрутизации Telegram-чатов
 
 Использование:
     Из корня проекта:
@@ -59,6 +60,7 @@ from models.audit_log import AuditLog
 from models.storage_file import StorageFile
 from models.bot_message_ref import BotMessageRef
 from models.dynamic_dialog_binding import DynamicDialogBinding
+from models.telegram_chat import TelegramChat
 from shared.utils.ddid_utils import normalize_ddid, parse_ddid
 
 DDID_TABLES = ("feedbacks", "poll_answers", "service_tickets")
@@ -245,6 +247,9 @@ async def step9_migrate_audit(engine):
     async with engine.begin() as conn:
         await conn.run_sync(
             lambda c: AuditLog.__table__.create(c, checkfirst=True)
+        )
+        await conn.run_sync(
+            lambda c: TelegramChat.__table__.create(c, checkfirst=True)
         )
         await conn.run_sync(
             lambda c: BotMessageRef.__table__.create(c, checkfirst=True)
@@ -602,44 +607,120 @@ async def step11_add_dynamic_dialog_bindings(engine):
     print("  [OK] Внешние ключи ddid настроены для feedbacks, poll_answers и service_tickets")
 
 
+async def step12_add_chat_routing_support(engine):
+    """Создание chat registry и backfill объектных связей."""
+    async with engine.begin() as conn:
+        await conn.run_sync(lambda c: TelegramChat.__table__.create(c, checkfirst=True))
+        await conn.execute(text("ALTER TABLE objects ADD COLUMN IF NOT EXISTS admin_chat_id BIGINT"))
+        await conn.execute(text("ALTER TABLE guest_parking_requests ADD COLUMN IF NOT EXISTS object_id INTEGER"))
+        await conn.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.table_constraints
+                        WHERE table_name = 'objects'
+                          AND constraint_name = 'fk_objects_admin_chat_id_telegram_chats'
+                    ) THEN
+                        ALTER TABLE objects
+                        ADD CONSTRAINT fk_objects_admin_chat_id_telegram_chats
+                        FOREIGN KEY (admin_chat_id) REFERENCES telegram_chats(chat_id)
+                        ON DELETE SET NULL;
+                    END IF;
+                END $$;
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.table_constraints
+                        WHERE table_name = 'guest_parking_requests'
+                          AND constraint_name = 'fk_guest_parking_requests_object_id_objects'
+                    ) THEN
+                        ALTER TABLE guest_parking_requests
+                        ADD CONSTRAINT fk_guest_parking_requests_object_id_objects
+                        FOREIGN KEY (object_id) REFERENCES objects(id)
+                        ON DELETE SET NULL;
+                    END IF;
+                END $$;
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                UPDATE service_tickets st
+                SET object_id = u.object_id
+                FROM users u
+                WHERE st.user_id = u.id
+                  AND st.object_id IS NULL
+                  AND u.object_id IS NOT NULL
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                UPDATE guest_parking_requests gpr
+                SET object_id = u.object_id
+                FROM users u
+                WHERE gpr.user_id = u.id
+                  AND gpr.object_id IS NULL
+                  AND u.object_id IS NOT NULL
+                """
+            )
+        )
+    print("  [OK] Chat registry и объектные связи для Telegram-чатов настроены")
+
+
 async def run_all():
     url = get_db_url()
     engine = create_async_engine(url, echo=False)
 
     print("\n=== Миграция Nord City: старая → новая версия ===\n")
 
-    print("Шаг 1/11: Создание таблицы guest_parking_requests...")
+    print("Шаг 1/12: Создание таблицы guest_parking_requests...")
     await step1_create_guest_parking(engine)
 
-    print("\nШаг 2/11: Миграция TIMESTAMP → TIMESTAMPTZ...")
+    print("\nШаг 2/12: Миграция TIMESTAMP → TIMESTAMPTZ...")
     await step2_migrate_timestamptz(engine)
 
-    print("\nШаг 3/11: Добавление колонки msid...")
+    print("\nШаг 3/12: Добавление колонки msid...")
     await step3_add_msid(engine)
 
-    print("\nШаг 4/11: Удаление колонки reminder_sent...")
+    print("\nШаг 4/12: Удаление колонки reminder_sent...")
     await step4_drop_reminder_sent(engine)
 
-    print("\nШаг 5/11: Удаление колонки reminder_sent_at (логика в кэше)...")
+    print("\nШаг 5/12: Удаление колонки reminder_sent_at (логика в кэше)...")
     await step5_drop_reminder_sent_at(engine)
 
-    print("\nШаг 6/11: Удаление колонки driver_phone...")
+    print("\nШаг 6/12: Удаление колонки driver_phone...")
     await step6_drop_driver_phone(engine)
 
-    print("\nШаг 7/11: Создание таблицы guest_parking_settings...")
+    print("\nШаг 7/12: Создание таблицы guest_parking_settings...")
     await step7_create_guest_parking_settings(engine)
 
-    print("\nШаг 8/11: Создание таблицы storage_files...")
+    print("\nШаг 8/12: Создание таблицы storage_files...")
     await step8_create_storage_files(engine)
 
-    print("\nШаг 9/11: Рефакторинг аудита...")
+    print("\nШаг 9/12: Рефакторинг аудита...")
     await step9_migrate_audit(engine)
 
-    print("\nШаг 10/11: Удаление legacy service_tickets.msid...")
+    print("\nШаг 10/12: Удаление legacy service_tickets.msid...")
     await step10_drop_service_ticket_msid(engine)
 
-    print("\nШаг 11/11: Создание DDID-реестра...")
+    print("\nШаг 11/12: Создание DDID-реестра...")
     await step11_add_dynamic_dialog_bindings(engine)
+
+    print("\nШаг 12/12: Поддержка объектной маршрутизации Telegram-чатов...")
+    await step12_add_chat_routing_support(engine)
 
     await engine.dispose()
     print("\n=== Миграция успешно завершена ===\n")

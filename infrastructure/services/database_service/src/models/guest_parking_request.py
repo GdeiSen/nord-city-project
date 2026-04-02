@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base
 
 if TYPE_CHECKING:
+    from .object import Object
     from .user import User
 
 
@@ -17,6 +18,7 @@ class GuestParkingRequest(Base):
         Integer, Sequence("guest_parking_requests_id_seq"), primary_key=True
     )
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"))
+    object_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("objects.id"))
     msid: Mapped[Optional[int]] = mapped_column(BigInteger)  # message_id в чате администраторов
     arrival_date: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     license_plate: Mapped[str] = mapped_column(String(20))
@@ -28,3 +30,4 @@ class GuestParkingRequest(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     user: Mapped["User"] = relationship(back_populates="guest_parking_requests")
+    object: Mapped[Optional["Object"]] = relationship()

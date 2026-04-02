@@ -60,6 +60,7 @@ from managers.service_manager import ServiceManager
 
 # Import new services
 from services.notification_service import NotificationService
+from services.chat_routing_service import ChatRoutingService
 from services.service_tickets_stats_service import StatsService
 from services.user_service import UserService
 from services.feedback_service import FeedbackService
@@ -82,6 +83,10 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+try:
+    from telegram.ext import ChatMemberHandler
+except ImportError:  # pragma: no cover - fallback for older PTB versions
+    ChatMemberHandler = None
 try:
     from telegram.request import HTTPXRequest
 except ImportError:  # pragma: no cover - fallback for older PTB versions
@@ -166,6 +171,7 @@ class Bot:
         Services represent a higher level of abstraction and contain business logic.
         """
         # Register services that were converted from managers
+        self.services.register_service(ChatRoutingService(self))
         self.services.register_service(NotificationService(self))
         self.services.register_service(StatsService(self))
         
@@ -285,6 +291,8 @@ class Bot:
         self.application.add_handler(CommandHandler("stats", self.handle_command))
         self.application.add_handler(CommandHandler("test", self.handle_command))
         self.application.add_handler(CallbackQueryHandler(self.handle_callback))
+        if ChatMemberHandler is not None:
+            self.application.add_handler(ChatMemberHandler(self.handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
         
         # Initialize and start the application
@@ -346,6 +354,8 @@ class Bot:
         self.application.add_handler(CommandHandler("stats", self.handle_command))
         self.application.add_handler(CommandHandler("test", self.handle_command))
         self.application.add_handler(CallbackQueryHandler(self.handle_callback))
+        if ChatMemberHandler is not None:
+            self.application.add_handler(ChatMemberHandler(self.handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
         
         self.application.post_init = self._post_init_hook
@@ -395,6 +405,8 @@ class Bot:
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user_id = self.get_user_id(update)
         chat_id = update.message.chat.id if update.message else None
+
+        await self.services.chat_routing.observe_message(update)
         
         # --- Debug logging remains the same ---
         
@@ -410,12 +422,15 @@ class Bot:
         else:
             # --- Refactoring Change: Use NotificationService ---
             # Check if this is a message in the admin chat replying to a ticket
-            if chat_id and self.services.notification.is_admin_chat(chat_id) and update.message.reply_to_message:
+            if chat_id and await self.services.notification.is_admin_chat(chat_id) and update.message.reply_to_message:
                 try:
                     await self.services.notification.handle_admin_reply(update, context)
                 except Exception:
                     import traceback
                     traceback.print_exc()
+
+    async def handle_my_chat_member(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        await self.services.chat_routing.observe_chat_member_update(update)
 
     async def handle_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # --- This command handling logic remains the same ---
@@ -504,13 +519,14 @@ class Agent:
             builder = builder.request(request)
         return builder.build()
 
-    async def start_async(self, token: str, db_url: str, admin_chat_id: str, chief_engineer_chat_id: str = None):
+    async def start_async(self, token: str, db_url: str, admin_chat_id: str | None = None, chief_engineer_chat_id: str = None):
         self.application = self._build_application(token)
         
         headers_data = {
-            "ADMIN_CHAT_ID": admin_chat_id,
             "DB_URL": db_url # Pass DB URL via headers
         }
+        if admin_chat_id:
+            headers_data["ADMIN_CHAT_ID"] = admin_chat_id
         if chief_engineer_chat_id:
             headers_data["CHIEF_ENGINEER_CHAT_ID"] = chief_engineer_chat_id
             
@@ -521,14 +537,15 @@ class Agent:
         )
         await self.bot.start_async()
         
-    def start(self, token: str, db_url: str, admin_chat_id: str, chief_engineer_chat_id: str = None):
+    def start(self, token: str, db_url: str, admin_chat_id: str | None = None, chief_engineer_chat_id: str = None):
         """Legacy sync method for backward compatibility"""
         self.application = self._build_application(token)
         
         headers_data = {
-            "ADMIN_CHAT_ID": admin_chat_id,
             "DB_URL": db_url # Pass DB URL via headers
         }
+        if admin_chat_id:
+            headers_data["ADMIN_CHAT_ID"] = admin_chat_id
         if chief_engineer_chat_id:
             headers_data["CHIEF_ENGINEER_CHAT_ID"] = chief_engineer_chat_id
             
@@ -575,8 +592,6 @@ def main() -> None:
     chief_engineer_chat_id = args.chief_engineer_chat_id or os.getenv("CHIEF_ENGINEER_CHAT_ID")
     if not token:
         parser.error("Bot token must be provided via --token argument or BOT_TOKEN environment variable")
-    if not admin_chat_id:
-        parser.error("Admin chat ID must be provided via --admin-chat-id argument or ADMIN_CHAT_ID environment variable")
     agent = Agent()
     agent.start(token, db_url, admin_chat_id, chief_engineer_chat_id)
 

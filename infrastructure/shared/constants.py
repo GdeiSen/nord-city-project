@@ -1,6 +1,7 @@
 class Roles:
     LPR = 10011
     MA = 20122
+    MANAGER = 10014
     ADMIN = 10012
     SUPER_ADMIN = 10013
     GUEST = 00000
@@ -177,7 +178,7 @@ AUDIT_MODE_SMART = "smart"
 AUDIT_MODE_HEAVY = "heavy"
 
 # Технические поля: update только этих полей от bot_service не пишется в аудит
-AUDIT_SKIP_UPDATE_FIELDS = frozenset({"msid"})
+AUDIT_SKIP_UPDATE_FIELDS = frozenset()
 
 # Дефолтный лимит для find_by_entity, чтобы избежать неограниченных выборок
 AUDIT_FIND_BY_ENTITY_DEFAULT_LIMIT = 500

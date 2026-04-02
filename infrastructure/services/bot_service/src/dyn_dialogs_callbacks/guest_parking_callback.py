@@ -213,6 +213,7 @@ async def _finalize_and_show_summary(
     user_id = bot.get_user_id(update)
     if not user_id:
         return
+    user = await bot.services.user.get_user_by_id(user_id)
 
     arrival_date = data.get("arrival_date")
     arrival_time = data.get("arrival_time", "")
@@ -237,6 +238,7 @@ async def _finalize_and_show_summary(
     result = await bot.managers.database.guest_parking.create(
         model_data={
             "user_id": user_id,
+            "object_id": getattr(user, "object_id", None) if user else None,
             "arrival_date": arrival_dt_save.isoformat(),
             "license_plate": data.get("license_plate", ""),
             "tenant_phone": data.get("tenant_phone"),

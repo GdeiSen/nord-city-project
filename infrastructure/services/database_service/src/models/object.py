@@ -1,13 +1,14 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, List, Optional
 
-from sqlalchemy import DateTime, Integer, JSON, Sequence, String, Text, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, JSON, Sequence, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
 
 if TYPE_CHECKING:
     from .space import Space
+    from .telegram_chat import TelegramChat
     from .user import User
 
 
@@ -19,9 +20,11 @@ class Object(Base):
     description: Mapped[Optional[str]] = mapped_column(Text)
     photos: Mapped[List[Any]] = mapped_column(JSON, default=list)
     status: Mapped[str] = mapped_column(String(100), default="ACTIVE")
+    admin_chat_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("telegram_chats.chat_id"))
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     spaces: Mapped[List["Space"]] = relationship(back_populates="object", cascade="all, delete-orphan")
     users: Mapped[List["User"]] = relationship(back_populates="object")
+    admin_chat: Mapped[Optional["TelegramChat"]] = relationship(back_populates="objects")

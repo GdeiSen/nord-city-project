@@ -138,11 +138,14 @@ async def create_service_ticket(body: CreateServiceTicketRequest, request: Reque
 
 
 @router.get("/stats", response_model=ServiceTicketsStatsResponse)
-async def get_service_tickets_stats():
+async def get_service_tickets_stats(object_id: Optional[int] = None):
     """Must be registered BEFORE /{entity_id} to avoid path conflict."""
     from shared.schemas.service_tickets_stats import ServiceTicketsStatsSchema
 
-    response = await db_client.service_ticket.get_stats(model_class=ServiceTicketsStatsSchema)
+    response = await db_client.service_ticket.get_stats(
+        object_id=object_id,
+        model_class=ServiceTicketsStatsSchema,
+    )
     if not response.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail=response.get("error", "Failed to get stats"))

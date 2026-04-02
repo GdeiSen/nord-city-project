@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, DateTime, Integer, JSON, Sequence, String, Index, func, text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, JSON, Sequence, String, Index, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -18,7 +18,7 @@ class BotMessageRef(Base):
     )
     entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
     entity_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    chat_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("telegram_chats.chat_id"), nullable=False)
     message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     kind: Mapped[str] = mapped_column(String(32), nullable=False, server_default="PRIMARY")
     meta: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
