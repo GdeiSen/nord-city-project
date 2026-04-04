@@ -72,13 +72,14 @@ class GenericRepository:
             model: The SQLAlchemy model class this repository will manage.
         """
         self.model = model
-        # The primary key column is determined dynamically for generic operations.
-        # This assumes a single-column primary key, commonly named 'id'.
-        self.pk_column = getattr(self.model, 'id', None)
+        # Resolve the actual single-column primary key instead of assuming `id`.
+        pk_columns = list(self.model.__table__.primary_key.columns)
+        self.pk_column = pk_columns[0] if len(pk_columns) == 1 else None
         if self.pk_column is None:
             logger.warning(
-                f"Model {self.model.__name__} does not have an 'id' attribute for PK. "
-                f"Operations like get_by_id may fail if not overridden."
+                "Model %s does not have a single-column primary key. "
+                "Generic PK-based operations may fail.",
+                self.model.__name__,
             )
 
     async def create(self, session, *, obj_in: ModelType) -> Optional[ModelType]:
@@ -113,8 +114,11 @@ class GenericRepository:
             The model instance or None if not found.
         """
         if self.pk_column is None:
-            logger.error(f"Cannot get by ID: No primary key 'id' found on {self.model.__name__}.")
-            raise Exception(f"No primary key 'id' found on {self.model.__name__}.")
+            logger.error(
+                "Cannot get by ID: no single-column primary key found on %s.",
+                self.model.__name__,
+            )
+            raise Exception(f"No single-column primary key found on {self.model.__name__}.")
         try:
             return await session.get(self.model, entity_id)
         except Exception as e:
@@ -344,7 +348,7 @@ class GenericRepository:
         if not ids:
             return []
         if self.pk_column is None:
-            raise Exception(f"Cannot get_by_ids: No primary key 'id' on {self.model.__name__}")
+            raise Exception(f"Cannot get_by_ids: no single-column primary key on {self.model.__name__}")
         from sqlalchemy.future import select
         query = select(self.model).where(self.pk_column.in_(ids))
         result = await session.execute(query)

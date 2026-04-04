@@ -34,6 +34,7 @@ export const auditLogColumns: TableColumnConfig[] = [
     id: "entity_id",
     label: "ID сущности",
     type: "number",
+    filterDbColumn: "entity_id",
     searchDbColumns: ["entity_id"],
   },
   {

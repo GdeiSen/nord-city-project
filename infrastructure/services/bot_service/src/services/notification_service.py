@@ -289,7 +289,7 @@ class NotificationService(BaseService):
 
         return f"{storage_base}/storage/{path}"
 
-    async def _download_broadcast_document(self, attachment_url: str) -> tuple[str, bytes]:
+    async def _download_broadcast_attachment(self, attachment_url: str) -> tuple[str, bytes]:
         candidates: list[str] = []
         internal_url = self._get_internal_attachment_url(attachment_url)
         if internal_url:
@@ -373,24 +373,24 @@ class NotificationService(BaseService):
         except Exception:
             return
 
-    async def _prepare_broadcast_document_refs(
+    async def _prepare_broadcast_attachment_refs(
         self,
-        document_urls: list[str],
+        attachment_urls: list[str],
     ) -> list[dict[str, Any]]:
-        document_refs: list[dict[str, Any]] = []
+        attachment_refs: list[dict[str, Any]] = []
 
-        for document_url in document_urls:
-            storage_path = extract_storage_path(document_url)
+        for attachment_url in attachment_urls:
+            storage_path = extract_storage_path(attachment_url)
             telegram_file_id = await self._get_storage_file_telegram_file_id(storage_path)
-            document_refs.append(
+            attachment_refs.append(
                 {
-                    "url": document_url,
+                    "url": attachment_url,
                     "storage_path": storage_path,
                     "telegram_file_id": telegram_file_id,
                 }
             )
 
-        return document_refs
+        return attachment_refs
 
     async def _send_broadcast_document(
         self,
@@ -414,7 +414,7 @@ class NotificationService(BaseService):
                 )
 
         attachment_url = str(document_ref.get("url") or "").strip()
-        filename, file_content = await self._download_broadcast_document(attachment_url)
+        filename, file_content = await self._download_broadcast_attachment(attachment_url)
         message = await self.bot.application.bot.send_document(
             chat_id=user_id,
             document=InputFile(io.BytesIO(file_content), filename=filename),
@@ -427,15 +427,83 @@ class NotificationService(BaseService):
                 telegram_file_id=str(uploaded_file_id),
             )
 
+    async def _send_broadcast_photo(
+        self,
+        *,
+        user_id: int,
+        image_ref: dict[str, Any],
+    ) -> None:
+        telegram_file_id = str(image_ref.get("telegram_file_id") or "").strip()
+        if telegram_file_id:
+            try:
+                await self.bot.application.bot.send_photo(
+                    chat_id=user_id,
+                    photo=telegram_file_id,
+                )
+                return
+            except Exception:
+                image_ref["telegram_file_id"] = None
+                await self._persist_storage_file_telegram_file_id(
+                    storage_path=image_ref.get("storage_path"),
+                    telegram_file_id=None,
+                )
+
+        attachment_url = str(image_ref.get("url") or "").strip()
+        filename, file_content = await self._download_broadcast_attachment(attachment_url)
+        message = await self.bot.application.bot.send_photo(
+            chat_id=user_id,
+            photo=InputFile(io.BytesIO(file_content), filename=filename),
+        )
+        photos = getattr(message, "photo", None) or []
+        uploaded_file_id = getattr(photos[-1], "file_id", None) if photos else None
+        if uploaded_file_id:
+            image_ref["telegram_file_id"] = uploaded_file_id
+            await self._persist_storage_file_telegram_file_id(
+                storage_path=image_ref.get("storage_path"),
+                telegram_file_id=str(uploaded_file_id),
+            )
+
+    async def _send_broadcast_photo_group(
+        self,
+        *,
+        user_id: int,
+        image_refs: list[dict[str, Any]],
+    ) -> None:
+        from telegram import InputMediaPhoto
+
+        media: list[InputMediaPhoto] = []
+
+        for image_ref in image_refs:
+            telegram_file_id = str(image_ref.get("telegram_file_id") or "").strip()
+            if telegram_file_id:
+                media.append(InputMediaPhoto(media=telegram_file_id))
+                continue
+
+            attachment_url = str(image_ref.get("url") or "").strip()
+            filename, file_content = await self._download_broadcast_attachment(attachment_url)
+            input_file = InputFile(io.BytesIO(file_content), filename=filename)
+            media.append(InputMediaPhoto(media=input_file))
+
+        messages = await self.bot.application.bot.send_media_group(chat_id=user_id, media=media)
+        for image_ref, message in zip(image_refs, messages or []):
+            photos = getattr(message, "photo", None) or []
+            uploaded_file_id = getattr(photos[-1], "file_id", None) if photos else None
+            if uploaded_file_id:
+                image_ref["telegram_file_id"] = uploaded_file_id
+                await self._persist_storage_file_telegram_file_id(
+                    storage_path=image_ref.get("storage_path"),
+                    telegram_file_id=str(uploaded_file_id),
+                )
+
     async def _send_broadcast_to_user(
         self,
         *,
         user_id: int,
         text: str,
-        image_urls: list[str],
+        image_refs: list[dict[str, Any]],
         document_refs: list[dict[str, Any]],
     ) -> None:
-        if not image_urls and not document_refs:
+        if not image_refs and not document_refs:
             await self.bot.application.bot.send_message(
                 chat_id=user_id,
                 text=text,
@@ -443,16 +511,16 @@ class NotificationService(BaseService):
             )
             return
 
-        if len(image_urls) == 1:
-            await self.bot.application.bot.send_photo(
-                chat_id=user_id,
-                photo=image_urls[0],
+        if len(image_refs) == 1:
+            await self._send_broadcast_photo(
+                user_id=user_id,
+                image_ref=image_refs[0],
             )
-        elif len(image_urls) > 1:
-            from telegram import InputMediaPhoto
-
-            media = [InputMediaPhoto(media=image_url) for image_url in image_urls]
-            await self.bot.application.bot.send_media_group(chat_id=user_id, media=media)
+        elif len(image_refs) > 1:
+            await self._send_broadcast_photo_group(
+                user_id=user_id,
+                image_refs=image_refs,
+            )
 
         await self.bot.application.bot.send_message(
             chat_id=user_id,
@@ -485,7 +553,8 @@ class NotificationService(BaseService):
 
         normalized_attachments = self._normalize_broadcast_attachments(attachment_urls)
         image_urls, document_urls = self._split_broadcast_attachments(normalized_attachments)
-        document_refs = await self._prepare_broadcast_document_refs(document_urls)
+        image_refs = await self._prepare_broadcast_attachment_refs(image_urls)
+        document_refs = await self._prepare_broadcast_attachment_refs(document_urls)
         delivered_user_ids: list[int] = []
         failed_deliveries: list[dict[str, Any]] = []
 
@@ -494,7 +563,7 @@ class NotificationService(BaseService):
                 await self._send_broadcast_to_user(
                     user_id=user_id,
                     text=text,
-                    image_urls=image_urls,
+                    image_refs=image_refs,
                     document_refs=document_refs,
                 )
                 delivered_user_ids.append(user_id)

@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { EntityPicker, type EntityPickerOption } from "@/components/entity-picker"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -132,6 +133,14 @@ export default function RentalObjectEditPage() {
     }
   }
 
+  const adminChatOptions: EntityPickerOption[] = [
+    { value: "__none__", label: "Не привязан" },
+    ...availableChats.map((chat) => ({
+      value: String(chat.chat_id),
+      label: `${chat.title || `Chat ${chat.chat_id}`} (${chat.chat_type}, ${chat.chat_id})`,
+    })),
+  ]
+
   return (
     <>
       <AppSidebar />
@@ -212,22 +221,14 @@ export default function RentalObjectEditPage() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="admin_chat_id">Чат администраторов</Label>
-                    <Select
+                    <EntityPicker
+                      className="w-full"
+                      placeholder="Чат не выбран"
+                      emptyMessage="Доступные чаты не найдены"
                       value={formData.admin_chat_id != null ? String(formData.admin_chat_id) : "__none__"}
-                      onValueChange={handleAdminChatChange}
-                    >
-                      <SelectTrigger id="admin_chat_id">
-                        <SelectValue placeholder="Чат не выбран" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">Не привязан</SelectItem>
-                        {availableChats.map((chat) => (
-                          <SelectItem key={chat.chat_id} value={String(chat.chat_id)}>
-                            {chat.title || `Chat ${chat.chat_id}`} ({chat.chat_type}, {chat.chat_id})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      options={adminChatOptions}
+                      onSelect={handleAdminChatChange}
+                    />
                     <p className="text-sm text-muted-foreground">
                       {availableChats.length > 0
                         ? "В списке только групповые чаты, которые бот уже видел."

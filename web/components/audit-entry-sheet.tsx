@@ -5,8 +5,15 @@ import type { ReactNode } from "react"
 
 import type { AuditLogEntry } from "@/types"
 import { formatDate } from "@/lib/date-utils"
-import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { useIsMobile } from "@/hooks/ui/use-mobile"
+import {
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer"
 import {
   Sheet,
   SheetContent,
@@ -74,13 +81,15 @@ function getHighlightedJsonHtml(value: Record<string, unknown>): string {
     (match) => {
       let className = "text-foreground"
       if (match.startsWith('"')) {
-        className = match.endsWith(":") ? "text-sky-300" : "text-emerald-300"
+        className = match.endsWith(":")
+          ? "text-sky-700 dark:text-sky-300"
+          : "text-emerald-700 dark:text-emerald-300"
       } else if (match === "true" || match === "false") {
-        className = "text-violet-300"
+        className = "text-violet-700 dark:text-violet-300"
       } else if (match === "null") {
-        className = "text-muted-foreground"
+        className = "text-zinc-500 dark:text-zinc-400"
       } else {
-        className = "text-amber-300"
+        className = "text-amber-700 dark:text-amber-300"
       }
       return `<span class="${className}">${match}</span>`
     }
@@ -125,11 +134,113 @@ function DetailRow({
   value: ReactNode
 }) {
   return (
-    <div className="grid gap-1 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-3">
+    <div className="grid gap-0.5 sm:grid-cols-[9rem_minmax(0,1fr)] sm:gap-2">
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
       <div className="min-w-0 break-words text-sm">{value}</div>
+    </div>
+  )
+}
+
+function AuditEntryPanel({
+  entry,
+  detailUrl,
+}: {
+  entry: AuditLogEntry | null
+  detailUrl: string | null
+}) {
+  const oldStatus = getStatusValue(entry?.old_data)
+  const newStatus = getStatusValue(entry?.new_data)
+
+  return (
+    <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
+      {entry ? (
+        <div className="min-w-0 max-w-full overflow-x-hidden space-y-4 p-4">
+          <div className="space-y-2.5">
+            <DetailRow
+              label="Действие"
+              value={ACTION_LABELS[entry.action] ?? entry.action}
+            />
+            <DetailRow label="Событие" value={entry.event_type} />
+            <DetailRow
+              label="Режим"
+              value={
+                MODE_LABELS[String(entry.audit_type || "").toLowerCase()] ??
+                String(entry.audit_type || "—")
+              }
+            />
+            {entry.retention_class ? (
+              <DetailRow
+                label="Хранение"
+                value={RETENTION_LABELS[entry.retention_class] ?? entry.retention_class}
+              />
+            ) : null}
+          </div>
+
+          <Separator />
+
+          <div className="space-y-2.5">
+            <DetailRow
+              label="Сущность"
+              value={
+                detailUrl ? (
+                  <Link href={detailUrl} className="text-primary hover:underline">
+                    {entry.entity_type} #{entry.entity_id}
+                  </Link>
+                ) : (
+                  <span>
+                    {entry.entity_type} #{entry.entity_id}
+                  </span>
+                )
+              }
+            />
+            <DetailRow
+              label="Инициатор"
+              value={entry.actor_display ?? entry.source_service ?? "Система"}
+            />
+            <DetailRow
+              label="Тип инициатора"
+              value={entry.actor_type ?? "SYSTEM"}
+            />
+            <DetailRow
+              label="Источник"
+              value={entry.source_service ?? "—"}
+            />
+            <DetailRow
+              label="Создана"
+              value={formatDate(entry.created_at, { includeTime: true })}
+            />
+            {entry.reason ? <DetailRow label="Причина" value={entry.reason} /> : null}
+            {entry.request_id ? <DetailRow label="Request ID" value={entry.request_id} /> : null}
+            {entry.correlation_id ? (
+              <DetailRow label="Correlation ID" value={entry.correlation_id} />
+            ) : null}
+            {(oldStatus || newStatus) ? (
+              <DetailRow
+                label="Состояние"
+                value={
+                  <span>
+                    {oldStatus ?? "—"} {"→"} {newStatus ?? "—"}
+                  </span>
+                }
+              />
+            ) : null}
+          </div>
+
+          <Separator />
+
+          <div className="space-y-4">
+            <JsonBlock title="Предыдущее состояние" value={entry.old_data} />
+            <JsonBlock title="Новое состояние" value={entry.new_data} />
+            <JsonBlock title="Meta" value={entry.meta} />
+          </div>
+        </div>
+      ) : (
+        <div className="p-4 text-sm text-muted-foreground">
+          Выберите запись в таблице, чтобы посмотреть детали.
+        </div>
+      )}
     </div>
   )
 }
@@ -143,10 +254,30 @@ export function AuditEntrySheet({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  const isMobile = useIsMobile()
   const detailUrl =
     entry != null ? getEntityDetailUrl(entry.entity_type, entry.entity_id) : null
-  const oldStatus = getStatusValue(entry?.old_data)
-  const newStatus = getStatusValue(entry?.new_data)
+
+  const title = entry ? `Запись аудита #${entry.id}` : "Запись аудита"
+  const description = entry
+    ? `${entry.entity_type} #${entry.entity_id} · ${formatDate(entry.created_at, {
+        includeTime: true,
+      })}`
+    : "Подробная информация о выбранной записи журнала."
+
+  if (isMobile) {
+    return (
+      <Drawer open={open} onOpenChange={onOpenChange}>
+        <DrawerContent className="max-h-[90vh] min-w-0 overflow-hidden">
+          <DrawerHeader className="space-y-1 border-b pb-3">
+            <DrawerTitle>{title}</DrawerTitle>
+            <DrawerDescription>{description}</DrawerDescription>
+          </DrawerHeader>
+          <AuditEntryPanel entry={entry} detailUrl={detailUrl} />
+        </DrawerContent>
+      </Drawer>
+    )
+  }
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -154,97 +285,11 @@ export function AuditEntrySheet({
         side="right"
         className="flex w-3/4 min-w-0 overflow-x-hidden flex-col gap-0 p-0 sm:max-w-xl"
       >
-        <SheetHeader className="space-y-2 border-b pb-4">
-          <SheetTitle>
-            {entry ? `Запись аудита #${entry.id}` : "Запись аудита"}
-          </SheetTitle>
-          <SheetDescription>
-            {entry
-              ? `${entry.entity_type} #${entry.entity_id} · ${formatDate(entry.created_at, { includeTime: true })}`
-              : "Подробная информация о выбранной записи журнала."}
-          </SheetDescription>
+        <SheetHeader className="space-y-1 border-b pb-3">
+          <SheetTitle>{title}</SheetTitle>
+          <SheetDescription>{description}</SheetDescription>
         </SheetHeader>
-
-        <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
-          {entry ? (
-            <div className="min-w-0 max-w-full overflow-x-hidden space-y-6 p-4">
-              <div className="flex flex-wrap gap-2">
-                <Badge variant={entry.action === "delete" ? "destructive" : entry.action === "create" ? "default" : "secondary"}>
-                  {ACTION_LABELS[entry.action] ?? entry.action}
-                </Badge>
-                <Badge variant="outline">{entry.event_type}</Badge>
-                <Badge variant="outline">
-                  {MODE_LABELS[String(entry.audit_type || "").toLowerCase()] ?? String(entry.audit_type || "—")}
-                </Badge>
-                {entry.retention_class ? (
-                  <Badge variant="outline">
-                    {RETENTION_LABELS[entry.retention_class] ?? entry.retention_class}
-                  </Badge>
-                ) : null}
-              </div>
-
-              <div className="space-y-4">
-                <DetailRow
-                  label="Сущность"
-                  value={
-                    detailUrl ? (
-                      <Link href={detailUrl} className="text-primary hover:underline">
-                        {entry.entity_type} #{entry.entity_id}
-                      </Link>
-                    ) : (
-                      <span>
-                        {entry.entity_type} #{entry.entity_id}
-                      </span>
-                    )
-                  }
-                />
-                <DetailRow
-                  label="Инициатор"
-                  value={entry.actor_display ?? entry.source_service ?? "Система"}
-                />
-                <DetailRow
-                  label="Тип инициатора"
-                  value={entry.actor_type ?? "SYSTEM"}
-                />
-                <DetailRow
-                  label="Источник"
-                  value={entry.source_service ?? "—"}
-                />
-                <DetailRow
-                  label="Создана"
-                  value={formatDate(entry.created_at, { includeTime: true })}
-                />
-                {entry.reason ? <DetailRow label="Причина" value={entry.reason} /> : null}
-                {entry.request_id ? <DetailRow label="Request ID" value={entry.request_id} /> : null}
-                {entry.correlation_id ? (
-                  <DetailRow label="Correlation ID" value={entry.correlation_id} />
-                ) : null}
-                {(oldStatus || newStatus) ? (
-                  <DetailRow
-                    label="Состояние"
-                    value={
-                      <span>
-                        {oldStatus ?? "—"} {"→"} {newStatus ?? "—"}
-                      </span>
-                    }
-                  />
-                ) : null}
-              </div>
-
-              <Separator />
-
-              <div className="space-y-4">
-                <JsonBlock title="Предыдущее состояние" value={entry.old_data} />
-                <JsonBlock title="Новое состояние" value={entry.new_data} />
-                <JsonBlock title="Meta" value={entry.meta} />
-              </div>
-            </div>
-          ) : (
-            <div className="p-4 text-sm text-muted-foreground">
-              Выберите запись в таблице, чтобы посмотреть детали.
-            </div>
-          )}
-        </div>
+        <AuditEntryPanel entry={entry} detailUrl={detailUrl} />
       </SheetContent>
     </Sheet>
   )

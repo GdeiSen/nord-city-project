@@ -85,6 +85,13 @@ function buildSelectionSummary(labels: string[], placeholder: string): string {
   return `${labels[0]} +${labels.length - 1}`
 }
 
+function clampDisplayLabel(label: string | null | undefined, maxLength = 72): string {
+  const normalized = String(label || "").trim()
+  if (!normalized) return ""
+  if (normalized.length <= maxLength) return normalized
+  return `${normalized.slice(0, maxLength - 1).trimEnd()}…`
+}
+
 function normalizeOptions<T>(
   props: EntityPickerProps<T>
 ): EntityPickerOption[] {
@@ -121,6 +128,7 @@ export function EntityPicker<T = unknown>(props: EntityPickerProps<T>) {
   const [pageIndex, setPageIndex] = React.useState(0)
   const options = normalizeOptions(props)
   const isMulti = "multiple" in props && props.multiple === true
+  const listId = React.useId()
 
   const filtered = React.useMemo(() => {
     if (!search.trim()) return options
@@ -160,7 +168,9 @@ export function EntityPicker<T = unknown>(props: EntityPickerProps<T>) {
     const displayLabels = options
       .filter((o) => selectedIds.has(o.value))
       .map((o) => o.label)
-    const triggerLabel = buildSelectionSummary(displayLabels, placeholder)
+    const triggerLabel = clampDisplayLabel(
+      buildSelectionSummary(displayLabels, placeholder)
+    ) || placeholder
 
     const toggle = (optValue: string) => {
       const next = new Set(selectedIds)
@@ -174,29 +184,31 @@ export function EntityPicker<T = unknown>(props: EntityPickerProps<T>) {
 
     return (
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            variant="outline"
-            role="combobox"
-            disabled={disabled}
-            className={cn(
-              "h-10 w-full justify-between gap-2 font-normal px-3",
-              !displayLabels.length && "text-muted-foreground",
-              className
-            )}
-            title={displayLabels.join(", ") || placeholder}
-          >
-            <span className="min-w-0 flex-1 truncate text-left">
-              {triggerLabel}
-            </span>
-            <IconChevronDown className="h-4 w-4 shrink-0 opacity-50" />
-          </Button>
-        </PopoverTrigger>
+        <div className="w-full min-w-0 max-w-full overflow-hidden">
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              role="combobox"
+              disabled={disabled}
+              className={cn(
+                "grid h-10 w-full min-w-0 max-w-full shrink grid-cols-[minmax(0,1fr)_auto] items-center gap-2 overflow-hidden px-3 font-normal whitespace-normal",
+                !displayLabels.length && "text-muted-foreground",
+                className
+              )}
+              title={displayLabels.join(", ") || placeholder}
+            >
+              <span className="block min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-left">
+                {triggerLabel}
+              </span>
+              <IconChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+        </div>
         <PopoverContent
-          className="w-[var(--radix-popover-trigger-width)] overflow-hidden p-0"
+          className="flex max-h-[min(420px,var(--radix-popper-available-height))] w-[min(var(--radix-popover-trigger-width),calc(100vw-2rem))] max-w-[calc(100vw-2rem)] min-w-0 flex-col overflow-hidden p-0"
           align="start"
         >
-          <div className="p-2 border-b">
+          <div className="shrink-0 border-b p-2">
             <Input
               placeholder="Поиск..."
               value={search}
@@ -206,8 +218,125 @@ export function EntityPicker<T = unknown>(props: EntityPickerProps<T>) {
               onKeyDown={(e) => e.stopPropagation()}
             />
           </div>
-          <ScrollArea className="max-h-[min(360px,var(--radix-popper-available-height))]">
-            <div className="p-1">
+          <ScrollArea className="min-h-0 flex-1">
+            <div className="overflow-x-auto">
+              <div id={listId} className="min-w-full w-max p-1">
+                {filtered.length === 0 ? (
+                  <div className="py-4 text-center text-sm text-muted-foreground">
+                    {emptyMessage}
+                  </div>
+                ) : (
+                  pagedOptions.map((opt) => (
+                    <label
+                      key={opt.value}
+                      className="flex min-w-0 max-w-full cursor-pointer items-center gap-2 overflow-hidden rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
+                    >
+                      <Checkbox
+                        checked={selectedIds.has(opt.value)}
+                        onCheckedChange={() => toggle(opt.value)}
+                      />
+                      <span
+                        className="block min-w-0 max-w-full flex-1 overflow-hidden text-ellipsis whitespace-nowrap pr-2"
+                        title={opt.label}
+                      >
+                        {opt.label}
+                      </span>
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+          </ScrollArea>
+          <div className="z-10 flex shrink-0 items-center justify-between gap-2 border-t bg-popover p-2">
+            <div className="text-xs text-muted-foreground">
+              {filtered.length > 0 ? `${pageIndex + 1}/${pageCount}` : "0/0"}
+            </div>
+            <div className="ml-auto flex items-center gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
+                disabled={pageIndex === 0 || filtered.length === 0}
+              >
+                <IconChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() =>
+                  setPageIndex((current) => Math.min(pageCount - 1, current + 1))
+                }
+                disabled={pageIndex >= pageCount - 1 || filtered.length === 0}
+              >
+                <IconChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
+    )
+  }
+
+  // Single select
+  const valueStr = props.value != null ? String(props.value) : ""
+  const selectedOption = options.find((o) => o.value === valueStr)
+  const displayLabel = selectedOption?.label ?? null
+  const triggerLabel = clampDisplayLabel(displayLabel) || placeholder
+
+  const handleSelect = (optValue: string) => {
+    if ("dataConfig" in props && props.dataConfig) {
+      const item = getRawItem(props, optValue)
+      if (item) props.onSelect(item)
+    } else {
+      (props as EntityPickerSingleOptionsProps).onSelect(optValue)
+    }
+    setOpen(false)
+    setSearch("")
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <div className="w-full min-w-0 max-w-full overflow-hidden">
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            role="combobox"
+            disabled={disabled}
+            className={cn(
+              "grid h-10 w-full min-w-0 max-w-full shrink grid-cols-[minmax(0,1fr)_auto] items-center gap-2 overflow-hidden px-3 font-normal whitespace-normal",
+              !displayLabel && "text-muted-foreground",
+              className
+            )}
+            title={displayLabel ?? placeholder}
+          >
+            <span className="block min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-left">
+              {triggerLabel}
+            </span>
+            <IconChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+      </div>
+      <PopoverContent
+        className="flex max-h-[min(420px,var(--radix-popper-available-height))] w-[min(var(--radix-popover-trigger-width),calc(100vw-2rem))] max-w-[calc(100vw-2rem)] min-w-0 flex-col overflow-hidden p-0"
+        align="start"
+      >
+        <div className="shrink-0 border-b p-2">
+          <Input
+            placeholder="Поиск..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-8"
+            autoFocus
+            onKeyDown={(e) => e.stopPropagation()}
+          />
+        </div>
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="overflow-x-auto">
+            <div id={listId} className="min-w-full w-max p-1">
               {filtered.length === 0 ? (
                 <div className="py-4 text-center text-sm text-muted-foreground">
                   {emptyMessage}
@@ -216,19 +345,30 @@ export function EntityPicker<T = unknown>(props: EntityPickerProps<T>) {
                 pagedOptions.map((opt) => (
                   <label
                     key={opt.value}
-                    className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
+                    className="flex min-w-0 max-w-full cursor-pointer items-center gap-2 overflow-hidden rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
+                    onClick={() => handleSelect(opt.value)}
                   >
                     <Checkbox
-                      checked={selectedIds.has(opt.value)}
-                      onCheckedChange={() => toggle(opt.value)}
+                      checked={valueStr === opt.value}
+                      onCheckedChange={() => handleSelect(opt.value)}
                     />
-                    <span className="min-w-0 flex-1 truncate">{opt.label}</span>
+                    <span
+                      className="block min-w-0 max-w-full flex-1 overflow-hidden text-ellipsis whitespace-nowrap pr-2"
+                      title={opt.label}
+                    >
+                      {opt.label}
+                    </span>
                   </label>
                 ))
               )}
             </div>
-          </ScrollArea>
-          <div className="flex items-center justify-end gap-1 border-t p-2">
+          </div>
+        </ScrollArea>
+        <div className="z-10 flex shrink-0 items-center justify-between gap-2 border-t bg-popover p-2">
+          <div className="text-xs text-muted-foreground">
+            {filtered.length > 0 ? `${pageIndex + 1}/${pageCount}` : "0/0"}
+          </div>
+          <div className="ml-auto flex items-center gap-1">
             <Button
               type="button"
               variant="ghost"
@@ -252,107 +392,6 @@ export function EntityPicker<T = unknown>(props: EntityPickerProps<T>) {
               <IconChevronRight className="h-4 w-4" />
             </Button>
           </div>
-        </PopoverContent>
-      </Popover>
-    )
-  }
-
-  // Single select
-  const valueStr = props.value != null ? String(props.value) : ""
-  const selectedOption = options.find((o) => o.value === valueStr)
-  const displayLabel = selectedOption?.label ?? null
-
-  const handleSelect = (optValue: string) => {
-    if ("dataConfig" in props && props.dataConfig) {
-      const item = getRawItem(props, optValue)
-      if (item) props.onSelect(item)
-    } else {
-      (props as EntityPickerSingleOptionsProps).onSelect(optValue)
-    }
-    setOpen(false)
-    setSearch("")
-  }
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          role="combobox"
-          disabled={disabled}
-          className={cn(
-            "h-10 w-full justify-between gap-2 font-normal px-3",
-            !displayLabel && "text-muted-foreground",
-            className
-          )}
-          title={displayLabel ?? placeholder}
-        >
-          <span className="flex flex-1 min-w-0 truncate text-left">
-            {displayLabel ?? placeholder}
-          </span>
-          <IconChevronDown className="h-4 w-4 shrink-0 opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        className="w-[var(--radix-popover-trigger-width)] overflow-hidden p-0"
-        align="start"
-      >
-        <div className="p-2 border-b">
-          <Input
-            placeholder="Поиск..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="h-8"
-            autoFocus
-            onKeyDown={(e) => e.stopPropagation()}
-          />
-        </div>
-        <ScrollArea className="max-h-[min(360px,var(--radix-popper-available-height))]">
-          <div className="p-1">
-            {filtered.length === 0 ? (
-              <div className="py-4 text-center text-sm text-muted-foreground">
-                {emptyMessage}
-              </div>
-            ) : (
-              pagedOptions.map((opt) => (
-                <label
-                  key={opt.value}
-                  className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
-                  onClick={() => handleSelect(opt.value)}
-                >
-                  <Checkbox
-                    checked={valueStr === opt.value}
-                    onCheckedChange={() => handleSelect(opt.value)}
-                  />
-                  <span className="min-w-0 flex-1 truncate">{opt.label}</span>
-                </label>
-              ))
-            )}
-          </div>
-        </ScrollArea>
-        <div className="flex items-center justify-end gap-1 border-t p-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
-            disabled={pageIndex === 0 || filtered.length === 0}
-          >
-            <IconChevronLeft className="h-4 w-4" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() =>
-              setPageIndex((current) => Math.min(pageCount - 1, current + 1))
-            }
-            disabled={pageIndex >= pageCount - 1 || filtered.length === 0}
-          >
-            <IconChevronRight className="h-4 w-4" />
-          </Button>
         </div>
       </PopoverContent>
     </Popover>

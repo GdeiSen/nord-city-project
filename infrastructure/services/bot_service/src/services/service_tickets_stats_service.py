@@ -150,7 +150,7 @@ class StatsService(BaseService):
                 updated_at,
             ],
         )
-        return f"<b>{object_name}</b>\n\n{body}"
+        return body
 
     async def _create_stats_message(self, *, object_id: int, chat_id: int, text: str) -> bool:
         try:

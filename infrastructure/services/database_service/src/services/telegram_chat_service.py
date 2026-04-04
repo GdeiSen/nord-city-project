@@ -16,6 +16,19 @@ class TelegramChatService(BaseService):
     def __init__(self, db_manager: DatabaseManager):
         super().__init__(db_manager)
 
+    @staticmethod
+    def _normalize_seen_at(value: Optional[datetime | str]) -> datetime:
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            raw = value.strip()
+            if raw:
+                try:
+                    return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                except ValueError:
+                    pass
+        return datetime.now(timezone.utc)
+
     @db_session_manager
     async def upsert_chat(
         self,
@@ -31,7 +44,7 @@ class TelegramChatService(BaseService):
     ) -> TelegramChat:
         existing = await self.repository.get_by_id(session=session, entity_id=chat_id)
         payload_meta = dict(meta or {})
-        seen_at = last_seen_at or datetime.now(timezone.utc)
+        seen_at = self._normalize_seen_at(last_seen_at)
 
         if existing is None:
             created = TelegramChat(
