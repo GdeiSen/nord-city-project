@@ -1,9 +1,13 @@
+import logging
 from typing import Any, TYPE_CHECKING
 from .base_manager import BaseManager
 
 if TYPE_CHECKING:
     from telegram.ext import ContextTypes
     from bot import Bot
+
+
+logger = logging.getLogger(__name__)
 
 
 class StorageManager(BaseManager):
@@ -14,7 +18,7 @@ class StorageManager(BaseManager):
     
     async def initialize(self) -> None:
         """Инициализация менеджера хранилища"""
-        print("StorageManager initialized")
+        logger.info("StorageManager initialized")
     
     def get(self, context: "ContextTypes.DEFAULT_TYPE", key: int) -> Any:
         """

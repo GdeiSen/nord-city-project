@@ -14,13 +14,19 @@ class AuditLog(Base):
     entity_type: Mapped[str] = mapped_column(String(64))
     entity_id: Mapped[int] = mapped_column(BigInteger)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False, server_default="ENTITY_CHANGE")
+    event_category: Mapped[str] = mapped_column(String(32), nullable=False, server_default="DATA_CHANGE")
+    event_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     action: Mapped[str] = mapped_column(String(16))
     actor_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    actor_external_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     actor_type: Mapped[str] = mapped_column(String(16), nullable=False, server_default="SYSTEM")
+    actor_origin: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     source_service: Mapped[str] = mapped_column(String(64), nullable=False, server_default="database_service")
     retention_class: Mapped[str] = mapped_column(String(16), nullable=False, server_default="OPERATIONAL")
     request_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     correlation_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    operation_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    causation_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     old_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     new_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -33,4 +39,7 @@ class AuditLog(Base):
         Index("ix_audit_log_entity_created", "entity_type", "entity_id", "created_at"),
         Index("ix_audit_log_created", "created_at"),
         Index("ix_audit_log_actor_created", "actor_id", "created_at"),
+        Index("ix_audit_log_correlation_created", "correlation_id", "created_at"),
+        Index("ix_audit_log_operation_created", "operation_id", "created_at"),
+        Index("ix_audit_log_category_created", "event_category", "created_at"),
     )

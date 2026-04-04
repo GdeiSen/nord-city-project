@@ -81,6 +81,25 @@ LANGUAGE plpgsql
 AS $$
 BEGIN
     NEW.event_type := COALESCE(NULLIF(NEW.event_type, ''), 'ENTITY_CHANGE');
+    NEW.event_category := COALESCE(
+        NULLIF(NEW.event_category, ''),
+        CASE
+            WHEN COALESCE(NEW.event_type, 'ENTITY_CHANGE') LIKE 'DELIVERY_%' THEN 'DELIVERY_EVENT'
+            WHEN COALESCE(NEW.event_type, 'ENTITY_CHANGE') IN ('ENTITY_CHANGE', 'STATE_CHANGE') THEN 'DATA_CHANGE'
+            ELSE 'BUSINESS_EVENT'
+        END
+    );
+    NEW.event_name := COALESCE(
+        NULLIF(NEW.event_name, ''),
+        lower(
+            regexp_replace(
+                regexp_replace(COALESCE(NEW.entity_type, 'entity'), '(.)([A-Z][a-z]+)', '\1_\2', 'g'),
+                '([a-z0-9])([A-Z])',
+                '\1_\2',
+                'g'
+            )
+        ) || '.' || lower(COALESCE(NEW.event_type, 'event'))
+    );
     NEW.source_service := COALESCE(NULLIF(NEW.source_service, ''), 'database_service');
     NEW.retention_class := COALESCE(NULLIF(NEW.retention_class, ''), 'OPERATIONAL');
 
@@ -95,6 +114,32 @@ BEGIN
     IF NEW.meta IS NULL THEN
         NEW.meta := '{}'::json;
     END IF;
+
+    NEW.actor_external_id := COALESCE(
+        NULLIF(NEW.actor_external_id, ''),
+        NULLIF(COALESCE(NEW.meta::jsonb, '{}'::jsonb) ->> 'actor_external_id', ''),
+        NULLIF(COALESCE(NEW.meta::jsonb, '{}'::jsonb) ->> 'telegram_user_id', '')
+    );
+    NEW.actor_origin := COALESCE(
+        NULLIF(NEW.actor_origin, ''),
+        NULLIF(COALESCE(NEW.meta::jsonb, '{}'::jsonb) ->> 'actor_origin', ''),
+        CASE
+            WHEN NEW.actor_type = 'TELEGRAM_USER' THEN 'telegram'
+            WHEN NEW.actor_type = 'USER' THEN 'web'
+            WHEN NEW.actor_type = 'SERVICE' THEN 'service'
+            ELSE 'system'
+        END
+    );
+    NEW.operation_id := COALESCE(
+        NULLIF(NEW.operation_id, ''),
+        NULLIF(COALESCE(NEW.meta::jsonb, '{}'::jsonb) ->> 'operation_id', ''),
+        NULLIF(NEW.correlation_id, ''),
+        NULLIF(NEW.request_id, '')
+    );
+    NEW.causation_id := COALESCE(
+        NULLIF(NEW.causation_id, ''),
+        NULLIF(COALESCE(NEW.meta::jsonb, '{}'::jsonb) ->> 'causation_id', '')
+    );
 
     RETURN NEW;
 END;
@@ -166,7 +211,19 @@ async def migrate_audit_log(engine) -> None:
             text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS event_type VARCHAR(64) DEFAULT 'ENTITY_CHANGE'")
         )
         await conn.execute(
+            text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS event_category VARCHAR(32) DEFAULT 'DATA_CHANGE'")
+        )
+        await conn.execute(
+            text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS event_name VARCHAR(128)")
+        )
+        await conn.execute(
             text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS actor_type VARCHAR(16) DEFAULT 'SYSTEM'")
+        )
+        await conn.execute(
+            text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS actor_external_id VARCHAR(128)")
+        )
+        await conn.execute(
+            text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS actor_origin VARCHAR(32)")
         )
         await conn.execute(
             text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS source_service VARCHAR(64) DEFAULT 'database_service'")
@@ -181,10 +238,45 @@ async def migrate_audit_log(engine) -> None:
             text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS correlation_id VARCHAR(128)")
         )
         await conn.execute(
+            text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS operation_id VARCHAR(128)")
+        )
+        await conn.execute(
+            text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS causation_id VARCHAR(128)")
+        )
+        await conn.execute(
             text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS reason VARCHAR(255)")
         )
 
         await conn.execute(text("UPDATE audit_log SET event_type = COALESCE(event_type, 'ENTITY_CHANGE')"))
+        await conn.execute(
+            text(
+                """
+                UPDATE audit_log
+                SET event_category = CASE
+                    WHEN COALESCE(event_type, 'ENTITY_CHANGE') LIKE 'DELIVERY_%' THEN 'DELIVERY_EVENT'
+                    WHEN COALESCE(event_type, 'ENTITY_CHANGE') IN ('ENTITY_CHANGE', 'STATE_CHANGE') THEN 'DATA_CHANGE'
+                    ELSE 'BUSINESS_EVENT'
+                END
+                WHERE event_category IS NULL OR event_category = ''
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                UPDATE audit_log
+                SET event_name = lower(
+                    regexp_replace(
+                        regexp_replace(entity_type, '(.)([A-Z][a-z]+)', '\1_\2', 'g'),
+                        '([a-z0-9])([A-Z])',
+                        '\1_\2',
+                        'g'
+                    )
+                ) || '.' || lower(COALESCE(event_type, 'event'))
+                WHERE event_name IS NULL OR event_name = ''
+                """
+            )
+        )
         await conn.execute(
             text(
                 """
@@ -214,6 +306,59 @@ async def migrate_audit_log(engine) -> None:
             text(
                 """
                 UPDATE audit_log
+                SET actor_external_id = COALESCE(
+                    NULLIF(actor_external_id, ''),
+                    NULLIF(COALESCE(meta::jsonb, '{}'::jsonb) ->> 'actor_external_id', ''),
+                    NULLIF(COALESCE(meta::jsonb, '{}'::jsonb) ->> 'telegram_user_id', '')
+                )
+                WHERE actor_external_id IS NULL OR actor_external_id = ''
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                UPDATE audit_log
+                SET actor_origin = CASE
+                    WHEN actor_type = 'TELEGRAM_USER' THEN 'telegram'
+                    WHEN actor_type = 'USER' THEN 'web'
+                    WHEN actor_type = 'SERVICE' THEN 'service'
+                    ELSE 'system'
+                END
+                WHERE actor_origin IS NULL OR actor_origin = ''
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                UPDATE audit_log
+                SET operation_id = COALESCE(
+                    NULLIF(operation_id, ''),
+                    NULLIF(COALESCE(meta::jsonb, '{}'::jsonb) ->> 'operation_id', ''),
+                    NULLIF(correlation_id, ''),
+                    NULLIF(request_id, '')
+                )
+                WHERE operation_id IS NULL OR operation_id = ''
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                UPDATE audit_log
+                SET causation_id = COALESCE(
+                    NULLIF(causation_id, ''),
+                    NULLIF(COALESCE(meta::jsonb, '{}'::jsonb) ->> 'causation_id', '')
+                )
+                WHERE causation_id IS NULL OR causation_id = ''
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                UPDATE audit_log
                 SET retention_class = CASE entity_type
                     WHEN 'User' THEN 'CRITICAL'
                     WHEN 'Object' THEN 'CRITICAL'
@@ -235,6 +380,21 @@ async def migrate_audit_log(engine) -> None:
         await conn.execute(
             text(
                 "CREATE INDEX IF NOT EXISTS ix_audit_log_actor_created ON audit_log (actor_id, created_at)"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_audit_log_correlation_created ON audit_log (correlation_id, created_at)"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_audit_log_operation_created ON audit_log (operation_id, created_at)"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_audit_log_category_created ON audit_log (event_category, created_at)"
             )
         )
         await conn.execute(text(AUDIT_TRIGGER_DROP_USER_TRIGGERS_SQL))

@@ -17,10 +17,15 @@ import argparse
 import ast
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
 GET_TEXT_PATTERN = re.compile(r'get_text\(\s*["\']([^"\']+)["\']')
+
+
+def _write_line(text: str = "") -> None:
+    sys.stdout.write(f"{text}\n")
 
 
 def _collect_from_keyboard_arg(node: ast.AST, sink: set[str]) -> None:
@@ -142,25 +147,26 @@ def main() -> int:
     }
 
     if args.format == "json":
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        json.dump(result, sys.stdout, ensure_ascii=False, indent=2)
+        sys.stdout.write("\n")
         return 0
 
-    print(f"Source: {src_root}")
-    print(f"Localization: {locale_path}")
-    print(f"Total keys: {result['total_keys']}")
-    print(f"Used keys: {result['used_keys']}")
-    print(f"Unused keys: {result['unused_keys']}")
-    print(f"Missing keys: {result['missing_keys']}")
+    _write_line(f"Source: {src_root}")
+    _write_line(f"Localization: {locale_path}")
+    _write_line(f"Total keys: {result['total_keys']}")
+    _write_line(f"Used keys: {result['used_keys']}")
+    _write_line(f"Unused keys: {result['unused_keys']}")
+    _write_line(f"Missing keys: {result['missing_keys']}")
 
     if missing_keys:
-        print("\nMissing keys (referenced in code/assets, absent in localization):")
+        _write_line("\nMissing keys (referenced in code/assets, absent in localization):")
         for key in missing_keys:
-            print(f"- {key}")
+            _write_line(f"- {key}")
 
     if unused_keys:
-        print("\nUnused keys (present in localization, not referenced):")
+        _write_line("\nUnused keys (present in localization, not referenced):")
         for key in unused_keys:
-            print(f"- {key}")
+            _write_line(f"- {key}")
 
     return 0
 

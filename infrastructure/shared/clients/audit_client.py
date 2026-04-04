@@ -77,6 +77,33 @@ class AuditClient:
                     result["data"] = Converter.from_dict(_model_class, data)
         return result
 
+    @staticmethod
+    def _should_fallback_to_database(error: Optional[str]) -> bool:
+        text = str(error or "").lower()
+        if not text:
+            return False
+        return any(
+            marker in text
+            for marker in (
+                "rpc connection error",
+                "all connection attempts failed",
+                "connection refused",
+                "failed to connect",
+            )
+        )
+
+    async def _append_event_via_database_service(self, **params) -> Dict[str, Any]:
+        from shared.clients.database_client import db_client
+
+        logger.warning(
+            "Falling back to database_service for audit append_event: entity=%s id=%s event_type=%s action=%s",
+            params.get("entity_type"),
+            params.get("entity_id"),
+            params.get("event_type"),
+            params.get("action"),
+        )
+        return await db_client.audit_log.append_event(**params)
+
     async def append_event(
         self,
         *,
@@ -84,12 +111,18 @@ class AuditClient:
         entity_id: int,
         action: str,
         event_type: str = "ENTITY_CHANGE",
+        event_category: Optional[str] = None,
+        event_name: Optional[str] = None,
         actor_id: Optional[int] = None,
+        actor_external_id: Optional[str] = None,
         actor_type: str = "SYSTEM",
+        actor_origin: Optional[str] = None,
         source_service: str = "database_service",
         retention_class: str = "OPERATIONAL",
         request_id: Optional[str] = None,
         correlation_id: Optional[str] = None,
+        operation_id: Optional[str] = None,
+        causation_id: Optional[str] = None,
         reason: Optional[str] = None,
         old_data: Optional[dict] = None,
         new_data: Optional[dict] = None,
@@ -104,13 +137,19 @@ class AuditClient:
                 entity_type=entity_type,
                 entity_id=entity_id,
                 event_type=event_type,
+                event_category=event_category,
+                event_name=event_name,
                 action=action,
                 actor_id=actor_id,
+                actor_external_id=actor_external_id,
                 actor_type=actor_type,
+                actor_origin=actor_origin,
                 source_service=source_service,
                 retention_class=retention_class,
                 request_id=request_id,
                 correlation_id=correlation_id,
+                operation_id=operation_id,
+                causation_id=causation_id,
                 reason=reason,
                 old_data=old_data,
                 new_data=new_data,
@@ -118,24 +157,56 @@ class AuditClient:
                 audit_type=audit_type,
             )
             return {"success": True, "data": Converter.to_dict(data), "error": None}
-        return await self._call(
+        result = await self._call(
             "append_event",
             _model_class=model_class,
             entity_type=entity_type,
             entity_id=entity_id,
             event_type=event_type,
+            event_category=event_category,
+            event_name=event_name,
             action=action,
             actor_id=actor_id,
+            actor_external_id=actor_external_id,
             actor_type=actor_type,
+            actor_origin=actor_origin,
             source_service=source_service,
             retention_class=retention_class,
             request_id=request_id,
             correlation_id=correlation_id,
+            operation_id=operation_id,
+            causation_id=causation_id,
             reason=reason,
             old_data=old_data,
             new_data=new_data,
             meta=meta or {},
             audit_type=audit_type,
+        )
+        if result.get("success") or not self._should_fallback_to_database(result.get("error")):
+            return result
+        return await self._append_event_via_database_service(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            event_type=event_type,
+            event_category=event_category,
+            event_name=event_name,
+            action=action,
+            actor_id=actor_id,
+            actor_external_id=actor_external_id,
+            actor_type=actor_type,
+            actor_origin=actor_origin,
+            source_service=source_service,
+            retention_class=retention_class,
+            request_id=request_id,
+            correlation_id=correlation_id,
+            operation_id=operation_id,
+            causation_id=causation_id,
+            reason=reason,
+            old_data=old_data,
+            new_data=new_data,
+            meta=meta or {},
+            audit_type=audit_type,
+            model_class=model_class,
         )
 
     async def find_by_entity(

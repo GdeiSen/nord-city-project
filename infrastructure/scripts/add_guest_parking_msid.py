@@ -3,6 +3,7 @@
 Миграция: добавление колонки msid в guest_parking_requests.
 Для синхронизации сообщений в чате администраторов при редактировании/удалении через сайт.
 """
+import logging
 import os
 import sys
 from pathlib import Path
@@ -22,11 +23,14 @@ if env_path.exists():
 required = ["DB_HOST", "DB_NAME", "DB_USER", "DB_PASSWORD"]
 missing = [v for v in required if not os.getenv(v)]
 if missing:
-    print(f"Ошибка: не заданы переменные: {', '.join(missing)}")
+    logger.error("Не заданы переменные окружения: %s", ", ".join(missing))
     sys.exit(1)
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
 
 def get_db_url() -> str:
@@ -46,7 +50,7 @@ async def run_migration():
         await conn.execute(text(
             "ALTER TABLE guest_parking_requests ADD COLUMN IF NOT EXISTS msid BIGINT"
         ))
-        print("Колонка msid добавлена (или уже существует).")
+        logger.info("Колонка msid добавлена или уже существует")
 
     await engine.dispose()
 
@@ -56,7 +60,7 @@ def main():
     try:
         asyncio.run(run_migration())
     except Exception as e:
-        print(f"Ошибка миграции: {e}")
+        logger.exception("Ошибка миграции add_guest_parking_msid: %s", e)
         sys.exit(1)
 
 

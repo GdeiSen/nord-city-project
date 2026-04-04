@@ -33,6 +33,7 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
 const ACTION_LABELS: Record<string, string> = {
   create: "Создание",
   update: "Изменение",
+  edit: "Изменение",
   delete: "Удаление",
 }
 

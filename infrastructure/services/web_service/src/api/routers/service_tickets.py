@@ -112,10 +112,11 @@ def _get_ticket_export_value(col_id: str):
 async def create_service_ticket(body: CreateServiceTicketRequest, request: Request):
     data = _inject_attachment_meta(body.model_dump())
     data["status"] = ServiceTicketStatus.NEW  # Always NEW for new tickets
+    audit_ctx = get_audit_context(request, get_optional_current_user(request))
     response = await db_client.service_ticket.create(
         model_data=data,
         model_class=ServiceTicketSchema,
-        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+        _audit_context=audit_ctx,
     )
     if not response.get("success"):
         error = response.get("error", "Failed to create service ticket")
@@ -126,11 +127,11 @@ async def create_service_ticket(body: CreateServiceTicketRequest, request: Reque
     ticket_id = ticket_schema.id if ticket_schema else None
     if ticket_id is not None:
         try:
-            await bot_client.notification.notify_new_ticket(ticket_id=ticket_id)
+            await bot_client.notification.notify_new_ticket(ticket_id=ticket_id, _audit_context=audit_ctx)
         except Exception as e:
             logger.warning("Bot notification for new ticket failed: %s", e)
         try:
-            await bot_client.stats.sync_stats_message()
+            await bot_client.stats.sync_stats_message(_audit_context=audit_ctx)
         except Exception as e:
             logger.warning("Bot stats sync for new ticket failed: %s", e)
     items = await enrich_service_tickets_with_users_and_objects([ticket_schema])
@@ -261,16 +262,16 @@ async def update_service_ticket(entity_id: int, body: UpdateServiceTicketBody, r
         raise HTTPException(status_code=code, detail=error)
     if not status_changed_to_completed:
         try:
-            await bot_client.notification.edit_ticket_message(ticket_id=entity_id)
+            await bot_client.notification.edit_ticket_message(ticket_id=entity_id, _audit_context=audit_ctx)
         except Exception as e:
             logger.warning("Bot edit of ticket message failed: %s", e)
     if status_changed_to_completed:
         try:
-            await bot_client.notification.notify_ticket_completion(ticket_id=entity_id)
+            await bot_client.notification.notify_ticket_completion(ticket_id=entity_id, _audit_context=audit_ctx)
         except Exception as e:
             logger.warning("Bot notification for ticket completion failed: %s", e)
     try:
-        await bot_client.stats.sync_stats_message()
+        await bot_client.stats.sync_stats_message(_audit_context=audit_ctx)
     except Exception as e:
         logger.warning("Bot stats sync for ticket update failed: %s", e)
     return MessageResponse(message="Service ticket updated successfully", id=entity_id)
@@ -278,20 +279,21 @@ async def update_service_ticket(entity_id: int, body: UpdateServiceTicketBody, r
 
 @router.delete("/{entity_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_service_ticket(entity_id: int, request: Request):
+    audit_ctx = get_audit_context(request, get_optional_current_user(request))
     try:
-        await bot_client.notification.delete_ticket_messages(ticket_id=entity_id)
+        await bot_client.notification.delete_ticket_messages(ticket_id=entity_id, _audit_context=audit_ctx)
     except Exception as e:
         logger.warning("Bot deletion of ticket messages failed: %s", e)
     response = await db_client.service_ticket.delete(
         entity_id=entity_id,
-        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+        _audit_context=audit_ctx,
     )
     if not response.get("success"):
         error = response.get("error", "Failed to delete service ticket")
         code = status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=code, detail=error)
     try:
-        await bot_client.stats.sync_stats_message()
+        await bot_client.stats.sync_stats_message(_audit_context=audit_ctx)
     except Exception as e:
         logger.warning("Bot stats sync for ticket delete failed: %s", e)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

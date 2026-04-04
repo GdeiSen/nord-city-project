@@ -31,7 +31,7 @@ class StatsService(BaseService):
         self.bot.managers.event.on("service_ticket_deleted", self._on_ticket_event)
         self._periodic_task = asyncio.create_task(self._run_periodic_sync())
         await self.sync_stats_message()
-        print("StatsService initialized")
+        logger.info("StatsService initialized")
 
     @staticmethod
     def _zero_stats(object_id: int) -> ObjectServiceTicketsStatsSchema:
@@ -152,7 +152,14 @@ class StatsService(BaseService):
         )
         return body
 
-    async def _create_stats_message(self, *, object_id: int, chat_id: int, text: str) -> bool:
+    async def _create_stats_message(
+        self,
+        *,
+        object_id: int,
+        chat_id: int,
+        text: str,
+        audit_context: dict | None = None,
+    ) -> bool:
         try:
             message = await self.bot.application.bot.send_message(
                 chat_id=chat_id,
@@ -166,14 +173,66 @@ class StatsService(BaseService):
                     disable_notification=True,
                 )
             except Exception:
-                pass
+                await self.append_business_audit_event(
+                    entity_type="Object",
+                    entity_id=int(object_id),
+                    event_type="DELIVERY_WARNING",
+                    action="pin",
+                    audit_context=self.derive_audit_context(
+                        audit_context,
+                        source_service="bot_service",
+                        reason="stats_message_pin_failed",
+                    ),
+                    reason="stats_message_pin_failed",
+                    meta={
+                        "delivery_channel": "telegram_admin_chat",
+                        "target_chat_id": int(chat_id),
+                        "telegram_message_id": int(message.message_id),
+                    },
+                )
             await self._upsert_message_ref(
                 object_id=object_id,
                 chat_id=chat_id,
                 message_id=message.message_id,
             )
+            await self.append_business_audit_event(
+                entity_type="Object",
+                entity_id=int(object_id),
+                event_type="DELIVERY_SUCCESS",
+                action="send",
+                audit_context=self.derive_audit_context(
+                    audit_context,
+                    source_service="bot_service",
+                    reason="stats_message_created",
+                ),
+                reason="stats_message_created",
+                meta={
+                    "delivery_channel": "telegram_admin_chat",
+                    "target_chat_id": int(chat_id),
+                    "telegram_message_id": int(message.message_id),
+                    "message_kind": "stats",
+                },
+            )
             return True
         except Exception as exc:
+            await self.append_business_audit_event(
+                entity_type="Object",
+                entity_id=int(object_id),
+                event_type="DELIVERY_FAILED",
+                action="send",
+                audit_context=self.derive_audit_context(
+                    audit_context,
+                    source_service="bot_service",
+                    reason="stats_message_create_failed",
+                ),
+                reason="stats_message_create_failed",
+                meta={
+                    "delivery_channel": "telegram_admin_chat",
+                    "target_chat_id": int(chat_id),
+                    "message_kind": "stats",
+                    "error": str(exc),
+                },
+            )
             logger.warning("Failed to create stats message for object_id=%s: %s", object_id, exc)
             return False
 
@@ -182,6 +241,7 @@ class StatsService(BaseService):
         *,
         obj: ObjectSchema,
         stats: ObjectServiceTicketsStatsSchema,
+        audit_context: dict | None = None,
     ) -> bool:
         object_id = int(obj.id)
         target_chat_id = int(obj.admin_chat_id)
@@ -189,12 +249,39 @@ class StatsService(BaseService):
         primary_ref = await self._get_primary_message_ref(object_id=object_id)
 
         if primary_ref is None:
-            return await self._create_stats_message(object_id=object_id, chat_id=target_chat_id, text=text)
+            return await self._create_stats_message(
+                object_id=object_id,
+                chat_id=target_chat_id,
+                text=text,
+                audit_context=audit_context,
+            )
 
         current_chat_id = int(primary_ref.chat_id)
         if current_chat_id != target_chat_id:
             await self._delete_existing_stats_messages(object_id=object_id)
-            return await self._create_stats_message(object_id=object_id, chat_id=target_chat_id, text=text)
+            await self.append_business_audit_event(
+                entity_type="Object",
+                entity_id=object_id,
+                event_type="ROUTE_RESYNC",
+                action="reroute",
+                audit_context=self.derive_audit_context(
+                    audit_context,
+                    source_service="bot_service",
+                    reason="stats_message_rerouted",
+                ),
+                reason="stats_message_rerouted",
+                meta={
+                    "previous_chat_id": current_chat_id,
+                    "target_chat_id": target_chat_id,
+                    "message_kind": "stats",
+                },
+            )
+            return await self._create_stats_message(
+                object_id=object_id,
+                chat_id=target_chat_id,
+                text=text,
+                audit_context=audit_context,
+            )
 
         result = await self.bot.managers.message.edit_message_detailed(
             chat_id=current_chat_id,
@@ -203,12 +290,41 @@ class StatsService(BaseService):
             parse_mode=ParseMode.HTML,
         )
         if result.success:
+            await self.append_business_audit_event(
+                entity_type="Object",
+                entity_id=object_id,
+                event_type="DELIVERY_UPDATED",
+                action="edit",
+                audit_context=self.derive_audit_context(
+                    audit_context,
+                    source_service="bot_service",
+                    reason="stats_message_updated",
+                ),
+                reason="stats_message_updated",
+                meta={
+                    "delivery_channel": "telegram_admin_chat",
+                    "target_chat_id": current_chat_id,
+                    "telegram_message_id": int(primary_ref.message_id),
+                    "message_kind": "stats",
+                    "result_reason": result.reason,
+                },
+            )
             return True
 
         await self._delete_existing_stats_messages(object_id=object_id)
-        return await self._create_stats_message(object_id=object_id, chat_id=target_chat_id, text=text)
+        return await self._create_stats_message(
+            object_id=object_id,
+            chat_id=target_chat_id,
+            text=text,
+            audit_context=self.derive_audit_context(
+                audit_context,
+                source_service="bot_service",
+                reason="stats_message_recreated",
+                meta_updates={"previous_chat_id": current_chat_id},
+            ),
+        )
 
-    async def _sync_all_objects(self) -> bool:
+    async def _sync_all_objects(self, *, audit_context: dict | None = None) -> bool:
         objects = await self._get_all_objects()
         stats_map = await self._get_stats_map()
         updated = False
@@ -230,7 +346,11 @@ class StatsService(BaseService):
                 await self._delete_existing_stats_messages(object_id=object_id)
                 continue
             stats = stats_map.get(object_id) or self._zero_stats(object_id)
-            synced = await self._sync_object_stats_message(obj=obj, stats=stats)
+            synced = await self._sync_object_stats_message(
+                obj=obj,
+                stats=stats,
+                audit_context=audit_context,
+            )
             updated = updated or synced
 
         return updated
@@ -238,16 +358,16 @@ class StatsService(BaseService):
     async def _on_ticket_event(self, _: Any) -> None:
         await self.sync_stats_message()
 
-    async def sync_stats_message(self) -> dict[str, Any]:
+    async def sync_stats_message(self, _audit_context: dict | None = None) -> dict[str, Any]:
         async with self._update_lock:
-            updated = await self._sync_all_objects()
+            updated = await self._sync_all_objects(audit_context=_audit_context)
             return {"success": True, "data": {"updated": updated}, "error": None}
 
-    async def recreate_stats_message(self) -> bool:
+    async def recreate_stats_message(self, _audit_context: dict | None = None) -> bool:
         async with self._update_lock:
             objects = await self._get_all_objects()
             for obj in objects:
                 if obj.id is None:
                     continue
                 await self._delete_existing_stats_messages(object_id=int(obj.id))
-            return await self._sync_all_objects()
+            return await self._sync_all_objects(audit_context=_audit_context)

@@ -1,8 +1,8 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from api.dependencies import get_current_user
+from api.dependencies import get_audit_context, get_current_user
 from api.schemas.notifications import (
     NotificationBroadcastRequest,
     NotificationBroadcastResponse,
@@ -130,6 +130,7 @@ def _extract_user_id(user: UserSchema | dict) -> int | None:
 @router.post("/broadcast", response_model=NotificationBroadcastResponse)
 async def broadcast_notification(
     body: NotificationBroadcastRequest,
+    request: Request,
     _: dict = Depends(_require_admin),
 ):
     attachment_urls, attachment_paths = _normalize_attachment_urls(body.attachment_urls or body.image_urls)
@@ -164,6 +165,7 @@ async def broadcast_notification(
         title=body.title,
         message=body.message,
         attachment_urls=attachment_urls,
+        _audit_context=get_audit_context(request, _),
     )
     if not bot_response.get("success"):
         error = bot_response.get("error", "Не удалось отправить уведомление.")

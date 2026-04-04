@@ -5,11 +5,11 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
-from shared.clients.audit_client import audit_client
 from shared.clients.bot_client import bot_client
 from shared.constants import AuditRetentionClass, Roles
 from shared.clients.database_client import db_client
 from shared.schemas.poll_answer import PollAnswerSchema
+from shared.utils.audit_events import append_business_audit_event
 from api.dependencies import get_audit_context, get_current_user, get_optional_current_user
 from api.schemas.common import MessageResponse
 from api.schemas.polls import (
@@ -188,17 +188,15 @@ async def update_poll_google_form_settings(
         )
 
     audit_ctx = get_audit_context(request, current_user)
-    audit_response = await audit_client.append_event(
+    audit_response = await append_business_audit_event(
         entity_type="BotConfig",
         entity_id=1,
         event_type="CONFIG_CHANGE",
+        event_name="bot_config.poll_google_form_link_updated",
         action="update",
-        actor_id=audit_ctx.get("actor_id"),
-        actor_type=audit_ctx.get("actor_type", "USER"),
-        source_service=audit_ctx.get("source", "web_service"),
+        source_service="web_service",
+        audit_context=audit_ctx,
         retention_class=AuditRetentionClass.CRITICAL,
-        request_id=audit_ctx.get("request_id"),
-        correlation_id=audit_ctx.get("correlation_id"),
         reason="poll_google_form_link_updated",
         old_data={locale_key: {_POLL_HEADER_KEY: old_poll_header}},
         new_data={locale_key: {_POLL_HEADER_KEY: new_poll_header}},

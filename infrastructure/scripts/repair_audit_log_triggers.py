@@ -12,12 +12,16 @@ Hotfix: пересоздание пользовательских trigger-ов a
     python infrastructure/scripts/repair_audit_log_triggers.py
 """
 
+import logging
 import os
 import sys
 from pathlib import Path
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 INFRASTRUCTURE_ROOT = _SCRIPT_DIR.parent
@@ -37,7 +41,7 @@ if env_path.exists():
 required = ["DB_HOST", "DB_NAME", "DB_USER", "DB_PASSWORD"]
 missing = [v for v in required if not os.getenv(v)]
 if missing:
-    print(f"Ошибка: не заданы переменные окружения: {', '.join(missing)}")
+    logger.error("Не заданы переменные окружения: %s", ", ".join(missing))
     sys.exit(1)
 
 
@@ -114,7 +118,7 @@ async def run_migration():
             await conn.execute(text(CREATE_TRIGGER_FUNCTION_SQL))
             await conn.execute(text(DROP_TRIGGER_SQL))
             await conn.execute(text(CREATE_TRIGGER_SQL))
-        print("Пользовательские trigger-ы audit_log пересозданы под actor_id.")
+        logger.info("Пользовательские trigger-ы audit_log пересозданы под actor_id")
     finally:
         await engine.dispose()
 
@@ -125,7 +129,7 @@ def main():
     try:
         asyncio.run(run_migration())
     except Exception as e:
-        print(f"Ошибка миграции: {e}")
+        logger.exception("Ошибка миграции audit_log triggers: %s", e)
         sys.exit(1)
 
 

@@ -146,8 +146,15 @@ class StorageFileCategory:
 
 class AuditActorType:
     USER = "USER"
+    TELEGRAM_USER = "TELEGRAM_USER"
     SYSTEM = "SYSTEM"
     SERVICE = "SERVICE"
+
+
+class AuditEventCategory:
+    DATA_CHANGE = "DATA_CHANGE"
+    BUSINESS_EVENT = "BUSINESS_EVENT"
+    DELIVERY_EVENT = "DELIVERY_EVENT"
 
 
 class AuditRetentionClass:

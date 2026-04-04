@@ -17,16 +17,17 @@ router = APIRouter(prefix="/rental-objects", tags=["Rental Objects"])
 
 @router.post("/", response_model=ObjectResponse, status_code=status.HTTP_201_CREATED)
 async def create_object(body: CreateObjectRequest, request: Request):
+    audit_ctx = get_audit_context(request, get_optional_current_user(request))
     response = await db_client.object.create(
         model_data=body.model_dump(),
         model_class=ObjectSchema,
-        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+        _audit_context=audit_ctx,
     )
     if not response.get("success"):
         error = response.get("error", "Failed to create rental object")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error)
     try:
-        await bot_client.stats.sync_stats_message()
+        await bot_client.stats.sync_stats_message(_audit_context=audit_ctx)
     except Exception as e:
         logger.warning("Bot stats sync after object create failed: %s", e)
     items = await enrich_objects_with_chats([response["data"]])
@@ -85,22 +86,23 @@ async def update_object(entity_id: int, body: UpdateObjectBody, request: Request
         )
         existing_object = existing_response.get("data") if existing_response.get("success") else None
         previous_admin_chat_id = getattr(existing_object, "admin_chat_id", None) if existing_object is not None else None
+    audit_ctx = get_audit_context(request, get_optional_current_user(request))
     response = await db_client.object.update(
         entity_id=entity_id,
         update_data=update_data,
-        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+        _audit_context=audit_ctx,
     )
     if not response.get("success"):
         error = response.get("error", "Failed to update rental object")
         code = status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=code, detail=error)
     try:
-        await bot_client.stats.sync_stats_message()
+        await bot_client.stats.sync_stats_message(_audit_context=audit_ctx)
     except Exception as e:
         logger.warning("Bot stats sync after object update failed: %s", e)
     if "admin_chat_id" in update_data and update_data.get("admin_chat_id") != previous_admin_chat_id:
         try:
-            await bot_client.notification.resync_object_routes(object_id=entity_id)
+            await bot_client.notification.resync_object_routes(object_id=entity_id, _audit_context=audit_ctx)
         except Exception as e:
             logger.warning("Bot object route re-sync after object update failed: %s", e)
     return MessageResponse(message="Rental object updated successfully", id=entity_id)
@@ -108,16 +110,17 @@ async def update_object(entity_id: int, body: UpdateObjectBody, request: Request
 
 @router.delete("/{entity_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_object(entity_id: int, request: Request):
+    audit_ctx = get_audit_context(request, get_optional_current_user(request))
     response = await db_client.object.delete(
         entity_id=entity_id,
-        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+        _audit_context=audit_ctx,
     )
     if not response.get("success"):
         error = response.get("error", "Failed to delete rental object")
         code = status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=code, detail=error)
     try:
-        await bot_client.stats.sync_stats_message()
+        await bot_client.stats.sync_stats_message(_audit_context=audit_ctx)
     except Exception as e:
         logger.warning("Bot stats sync after object delete failed: %s", e)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

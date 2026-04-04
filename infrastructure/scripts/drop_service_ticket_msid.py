@@ -15,6 +15,7 @@
     в окружении должна быть задана переменная ADMIN_CHAT_ID.
 """
 
+import logging
 import os
 import sys
 from pathlib import Path
@@ -40,7 +41,7 @@ if env_path.exists():
 required = ["DB_HOST", "DB_NAME", "DB_USER", "DB_PASSWORD"]
 missing = [v for v in required if not os.getenv(v)]
 if missing:
-    print(f"Ошибка: не заданы переменные окружения: {', '.join(missing)}")
+    logger.error("Не заданы переменные окружения: %s", ", ".join(missing))
     sys.exit(1)
 
 db_src = INFRASTRUCTURE_ROOT / "services" / "database_service" / "src"
@@ -48,6 +49,9 @@ if str(db_src) not in sys.path:
     sys.path.insert(0, str(db_src))
 
 from models.bot_message_ref import BotMessageRef
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
 
 def get_db_url() -> str:
@@ -75,7 +79,7 @@ async def run_migration():
                 )
             )
             if not column_exists:
-                print("Колонка service_tickets.msid уже отсутствует.")
+                logger.info("Колонка service_tickets.msid уже отсутствует")
                 return
 
             await conn.run_sync(lambda c: BotMessageRef.__table__.create(c, checkfirst=True))
@@ -172,8 +176,8 @@ async def run_migration():
             )
 
             if pending_backfill > 0:
-                print(f"Перенесено PRIMARY message refs: {inserted}")
-            print("Колонка service_tickets.msid удалена или отсутствовала.")
+                logger.info("Перенесено PRIMARY message refs: %s", inserted)
+            logger.info("Колонка service_tickets.msid удалена или отсутствовала")
     finally:
         await engine.dispose()
 
@@ -184,7 +188,7 @@ def main():
     try:
         asyncio.run(run_migration())
     except Exception as e:
-        print(f"Ошибка миграции: {e}")
+        logger.exception("Ошибка миграции drop_service_ticket_msid: %s", e)
         sys.exit(1)
 
 

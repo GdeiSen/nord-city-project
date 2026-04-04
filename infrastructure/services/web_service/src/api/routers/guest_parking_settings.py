@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from api.dependencies import get_current_user
+from api.dependencies import get_audit_context, get_current_user
 from api.schemas.guest_parking_settings import (
     GuestParkingSettingsResponse,
     UpdateGuestParkingSettingsBody,
@@ -75,12 +75,13 @@ async def get_guest_parking_settings(_: dict = Depends(_require_admin)):
 @router.put("/", response_model=GuestParkingSettingsResponse)
 async def update_guest_parking_settings(
     body: UpdateGuestParkingSettingsBody,
+    request: Request,
     current_user: dict = Depends(_require_admin),
 ):
     response = await db_client.guest_parking_settings.save_settings(
         route_images=_normalize_route_images(body.route_images),
         model_class=GuestParkingSettingsSchema,
-        _audit_context={"source": "web_service", "actor_id": current_user["user_id"], "actor_type": "USER"},
+        _audit_context=get_audit_context(request, current_user),
     )
     if not response.get("success"):
         raise HTTPException(

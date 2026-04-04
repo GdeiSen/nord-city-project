@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from functools import wraps
 from typing import Type, TypeVar, Any, Optional, List, Dict
 
@@ -20,8 +21,10 @@ from shared.constants import (
     AUDIT_HEAVY_MAX_JSON_BYTES,
     AUDIT_ENTITY_RETENTION_CLASS,
     AuditActorType,
+    AuditEventCategory,
     AuditRetentionClass,
 )
+from shared.utils.audit_context import normalize_audit_context
 
 ModelType = TypeVar('ModelType', bound=DeclarativeBase)
 
@@ -29,6 +32,8 @@ logger = logging.getLogger(__name__)
 
 DDID_REGISTRY_MODEL_NAME = "DynamicDialogBinding"
 DDID_PLACEHOLDER = "0000-0000-0000"
+_FIRST_CAP_RE = re.compile(r"(.)([A-Z][a-z]+)")
+_ALL_CAP_RE = re.compile(r"([a-z0-9])([A-Z])")
 
 def db_session_manager(func):
     """
@@ -130,34 +135,39 @@ class BaseService:
 
     def _normalize_audit_context(self, audit_context: Optional[dict]) -> dict:
         ctx = dict(audit_context or {})
-        actor_id = ctx.get("actor_id")
-        if actor_id is None:
-            actor_id = ctx.get("assignee_id")
-        if actor_id is None:
-            actor_id = ctx.get("user_id")
-        source_service = str(ctx.get("source") or "database_service")
-        actor_type = str(ctx.get("actor_type") or "").upper()
-        if not actor_type:
-            try:
-                numeric_actor_id = int(actor_id) if actor_id is not None else None
-            except (TypeError, ValueError):
-                numeric_actor_id = None
-            if numeric_actor_id is not None and numeric_actor_id > 1:
-                actor_type = AuditActorType.USER
-            elif source_service not in {"database_service", "web_service"}:
-                actor_type = AuditActorType.SERVICE
-            else:
-                actor_type = AuditActorType.SYSTEM
+        actor_id = ctx.get("actor_id", ctx.get("assignee_id", ctx.get("user_id")))
+        actor_external_id = ctx.get("actor_external_id")
         meta = ctx.get("meta") if isinstance(ctx.get("meta"), dict) else {}
-        return {
-            "actor_id": actor_id,
-            "actor_type": actor_type,
-            "source_service": source_service,
-            "request_id": ctx.get("request_id"),
-            "correlation_id": ctx.get("correlation_id"),
-            "reason": ctx.get("reason"),
-            "meta": dict(meta),
-        }
+        return normalize_audit_context(
+            ctx,
+            source_service=str(ctx.get("source") or ctx.get("source_service") or "database_service"),
+            actor_id=actor_id,
+            actor_external_id=actor_external_id,
+            actor_type=str(ctx.get("actor_type") or "").upper() or None,
+            actor_origin=ctx.get("actor_origin"),
+            request_id=ctx.get("request_id"),
+            correlation_id=ctx.get("correlation_id"),
+            operation_id=ctx.get("operation_id"),
+            causation_id=ctx.get("causation_id"),
+            reason=ctx.get("reason"),
+            meta=meta,
+        )
+
+    def _to_snake_case(self, value: str) -> str:
+        step1 = _FIRST_CAP_RE.sub(r"\1_\2", value or "")
+        return _ALL_CAP_RE.sub(r"\1_\2", step1).lower()
+
+    def _build_entity_event_name(
+        self,
+        *,
+        action: str,
+        event_type: str,
+        stored_new: Optional[dict],
+    ) -> str:
+        entity_name = self._to_snake_case(self.model_class.__name__)
+        if event_type == "STATE_CHANGE" and isinstance(stored_new, dict) and "status" in stored_new:
+            return f"{entity_name}.status_changed"
+        return f"{entity_name}.{action}"
 
     def _limit_audit_json_size(self, data: Optional[dict]) -> Optional[dict]:
         """Limit JSON size for heavy audit; replace with placeholder if exceeded."""
@@ -223,9 +233,17 @@ class BaseService:
                 entity_type=self.model_class.__name__,
                 entity_id=entity_id,
                 event_type=event_type,
+                event_category=AuditEventCategory.DATA_CHANGE,
+                event_name=self._build_entity_event_name(
+                    action=action,
+                    event_type=event_type,
+                    stored_new=stored_new,
+                ),
                 action=action,
                 actor_id=normalized_ctx["actor_id"],
+                actor_external_id=normalized_ctx.get("actor_external_id"),
                 actor_type=normalized_ctx["actor_type"],
+                actor_origin=normalized_ctx.get("actor_origin"),
                 source_service=normalized_ctx["source_service"],
                 retention_class=AUDIT_ENTITY_RETENTION_CLASS.get(
                     self.model_class.__name__,
@@ -233,6 +251,8 @@ class BaseService:
                 ),
                 request_id=normalized_ctx["request_id"],
                 correlation_id=normalized_ctx["correlation_id"],
+                operation_id=normalized_ctx.get("operation_id"),
+                causation_id=normalized_ctx.get("causation_id"),
                 reason=normalized_ctx["reason"],
                 old_data=stored_old,
                 new_data=stored_new,

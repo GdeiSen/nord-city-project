@@ -67,10 +67,7 @@ try:
     from rich.table import Table
     from rich.text import Text
 except ImportError:
-    print(
-        "ERROR: 'rich' package is required.\n  pip install rich>=13.7.0",
-        file=sys.stderr,
-    )
+    sys.stderr.write("ERROR: 'rich' package is required.\n  pip install rich>=13.7.0\n")
     sys.exit(1)
 
 # ---------------------------------------------------------------------------
@@ -153,7 +150,7 @@ SERVICES: Dict[str, ServiceInfo] = {
         command=[sys.executable, "main.py"],
         port=8002,
         health_url="http://127.0.0.1:{port}/health",
-        depends_on=["db"],
+        depends_on=["db", "audit"],
     ),
     "audit": ServiceInfo(
         name="Audit Service",
@@ -309,8 +306,8 @@ class Orchestrator:
         if proc is None or proc.stdout is None:
             return
         try:
-            for raw_line in iter(proc.stdout.readline, b""):
-                text = raw_line.decode("utf-8", errors="replace").rstrip()
+            for text in iter(proc.stdout.readline, ""):
+                text = text.rstrip()
                 if text:
                     runtime.log_buffer.append(text)
                     if self.stream_logs:
@@ -349,6 +346,9 @@ class Orchestrator:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     bufsize=1,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
                 )
             rt.process = proc
             rt.started_at = datetime.now()
@@ -840,7 +840,7 @@ def launch_background(
 def run_single_service(alias: str, env_file: Optional[Path] = None):
     """Start a single service in foreground."""
     if alias not in SERVICES:
-        print(f"Unknown service: '{alias}'", file=sys.stderr)
+        sys.stderr.write(f"Unknown service: '{alias}'\n")
         sys.exit(1)
 
     env_path = env_file or (PROJECT_ROOT / ".env")

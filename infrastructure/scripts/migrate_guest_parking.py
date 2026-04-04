@@ -12,6 +12,7 @@
 или из корня проекта (с PYTHONPATH):
     PYTHONPATH=infrastructure python infrastructure/scripts/migrate_guest_parking.py
 """
+import logging
 import os
 import sys
 from pathlib import Path
@@ -36,12 +37,15 @@ if env_path.exists():
 required = ["DB_HOST", "DB_NAME", "DB_USER", "DB_PASSWORD"]
 missing = [v for v in required if not os.getenv(v)]
 if missing:
-    print(f"Ошибка: не заданы переменные окружения: {', '.join(missing)}")
-    print(f"Убедитесь, что файл .env существует в {PROJECT_ROOT}")
+    logger.error("Не заданы переменные окружения: %s", ", ".join(missing))
+    logger.error("Убедитесь, что файл .env существует в %s", PROJECT_ROOT)
     sys.exit(1)
 
 # Импорты после загрузки .env
 from sqlalchemy.ext.asyncio import create_async_engine
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
 # ORM теперь в database_service
 db_src = INFRASTRUCTURE_ROOT / "services" / "database_service" / "src"
@@ -68,7 +72,7 @@ async def run_migration():
         await conn.run_sync(
             lambda c: GuestParkingRequest.__table__.create(c, checkfirst=True)
         )
-        print("Таблица guest_parking_requests успешно создана (или уже существует).")
+        logger.info("Таблица guest_parking_requests успешно создана или уже существует")
 
     await engine.dispose()
 
@@ -78,7 +82,7 @@ def main():
     try:
         asyncio.run(run_migration())
     except Exception as e:
-        print(f"Ошибка миграции: {e}")
+        logger.exception("Ошибка миграции guest_parking: %s", e)
         sys.exit(1)
 
 

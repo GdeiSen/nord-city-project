@@ -2,6 +2,7 @@
 import asyncio
 import io
 import json
+import logging
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Dict, Any
@@ -29,6 +30,7 @@ from shared.schemas import (
 if TYPE_CHECKING:
     from bot import Bot
 
+logger = logging.getLogger(__name__)
 
 class NotificationService(BaseService):
     """
@@ -52,7 +54,11 @@ class NotificationService(BaseService):
         self._admin_chat_id = self.bot.managers.headers.get("ADMIN_CHAT_ID")
         self._chief_engineer_chat_id = self.bot.managers.headers.get("CHIEF_ENGINEER_CHAT_ID")
         self._reminder_scheduler_task = asyncio.create_task(self._run_reminder_scheduler())
-        print("NotificationService initialized")
+        logger.info(
+            "NotificationService initialized fallback_admin_chat=%s chief_engineer_chat=%s",
+            bool(self._admin_chat_id),
+            bool(self._chief_engineer_chat_id),
+        )
 
     @staticmethod
     def _coerce_chat_id(value: Any) -> Optional[int]:
@@ -89,6 +95,46 @@ class NotificationService(BaseService):
             except (TypeError, ValueError):
                 return {}
         return {}
+
+    @staticmethod
+    def _build_delivery_meta(
+        *,
+        delivery_channel: str,
+        target_chat_id: Optional[int] = None,
+        fallback_used: Optional[bool] = None,
+        status: Optional[str] = None,
+        extra: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        meta = dict(extra or {})
+        meta["delivery_channel"] = delivery_channel
+        if target_chat_id is not None:
+            meta["target_chat_id"] = int(target_chat_id)
+        if fallback_used is not None:
+            meta["fallback_used"] = bool(fallback_used)
+        if status:
+            meta["delivery_status"] = status
+        return meta
+
+    async def _append_delivery_audit_event(
+        self,
+        *,
+        entity_type: str,
+        entity_id: int,
+        event_type: str,
+        action: str,
+        reason: str,
+        audit_context: Optional[dict] = None,
+        meta: Optional[dict[str, Any]] = None,
+    ) -> None:
+        await self.append_business_audit_event(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            event_type=event_type,
+            action=action,
+            audit_context=audit_context,
+            reason=reason,
+            meta=meta,
+        )
 
     async def _delete_message_refs_with_messages(
         self,
@@ -541,6 +587,7 @@ class NotificationService(BaseService):
         title: str,
         message: str,
         attachment_urls: list[str] | None = None,
+        _audit_context: Optional[dict] = None,
     ) -> Dict[str, Any]:
         """Send a site-created announcement to multiple Telegram users."""
         normalized_user_ids = sorted({int(user_id) for user_id in (user_ids or [])})
@@ -555,6 +602,27 @@ class NotificationService(BaseService):
         image_urls, document_urls = self._split_broadcast_attachments(normalized_attachments)
         image_refs = await self._prepare_broadcast_attachment_refs(image_urls)
         document_refs = await self._prepare_broadcast_attachment_refs(document_urls)
+        broadcast_id = int(now().timestamp() * 1000)
+
+        await self.append_business_audit_event(
+            entity_type="NotificationBroadcast",
+            entity_id=broadcast_id,
+            event_type="BROADCAST_STARTED",
+            action="send",
+            audit_context=self.derive_audit_context(
+                _audit_context,
+                source_service="bot_service",
+                reason="notification_broadcast_started",
+            ),
+            reason="notification_broadcast_started",
+            meta={
+                "recipient_count": len(normalized_user_ids),
+                "attachment_count": len(normalized_attachments),
+                "image_count": len(image_refs),
+                "document_count": len(document_refs),
+            },
+        )
+
         delivered_user_ids: list[int] = []
         failed_deliveries: list[dict[str, Any]] = []
 
@@ -575,6 +643,29 @@ class NotificationService(BaseService):
                     }
                 )
 
+        await self.append_business_audit_event(
+            entity_type="NotificationBroadcast",
+            entity_id=broadcast_id,
+            event_type="BROADCAST_COMPLETED",
+            action="send",
+            audit_context=self.derive_audit_context(
+                _audit_context,
+                source_service="bot_service",
+                reason="notification_broadcast_completed",
+            ),
+            reason="notification_broadcast_completed",
+            meta={
+                "requested_count": len(normalized_user_ids),
+                "sent_count": len(delivered_user_ids),
+                "failed_count": len(failed_deliveries),
+                "failed_user_ids": [
+                    int(item["user_id"])
+                    for item in failed_deliveries
+                    if isinstance(item, dict) and item.get("user_id") is not None
+                ],
+            },
+        )
+
         return {
             "success": True,
             "data": {
@@ -588,7 +679,7 @@ class NotificationService(BaseService):
         }
 
     async def notify_new_ticket(
-        self, ticket=None, *, ticket_id: Optional[int] = None
+        self, ticket=None, *, ticket_id: Optional[int] = None, _audit_context: Optional[dict] = None
     ) -> Dict[str, Any]:
         """
         Sends a notification to administrators about a new service ticket.
@@ -605,8 +696,32 @@ class NotificationService(BaseService):
                 ticket = await self.bot.services.service_ticket.get_service_ticket_by_id(ticket_id)
             if ticket is None:
                 return {"success": False, "error": "ticket_not_found"}
-            target_chat_id = await self._resolve_ticket_chat_id(ticket)
+
+            object_id = getattr(ticket, "object_id", None)
+            routed_chat_id = await self.bot.services.chat_routing.resolve_chat_for_ticket(ticket=ticket)
+            target_chat_id = routed_chat_id if routed_chat_id is not None else self._get_fallback_admin_chat_id()
+            fallback_used = routed_chat_id is None and target_chat_id is not None
+
             if target_chat_id is None:
+                await self._append_delivery_audit_event(
+                    entity_type="ServiceTicket",
+                    entity_id=int(ticket.id),
+                    event_type="DELIVERY_SKIPPED",
+                    action="send",
+                    reason="ticket_admin_chat_unresolved",
+                    audit_context=self.derive_audit_context(
+                        _audit_context,
+                        source_service="bot_service",
+                        reason="ticket_admin_chat_unresolved",
+                    ),
+                    meta=self._build_delivery_meta(
+                        delivery_channel="telegram_admin_chat",
+                        target_chat_id=None,
+                        fallback_used=False,
+                        status="skipped",
+                        extra={"object_id": object_id},
+                    ),
+                )
                 return {"success": True, "error": None}
 
             # Get user info from the database (через сервис)
@@ -656,13 +771,69 @@ class NotificationService(BaseService):
                     kind="PRIMARY",
                     meta={"user_id": ticket.user_id},
                 )
+            await self._append_delivery_audit_event(
+                entity_type="ServiceTicket",
+                entity_id=int(ticket.id),
+                event_type="DELIVERY_SUCCESS",
+                action="send",
+                reason="ticket_admin_chat_notified",
+                audit_context=self.derive_audit_context(
+                    _audit_context,
+                    source_service="bot_service",
+                    reason="ticket_admin_chat_notified",
+                ),
+                meta=self._build_delivery_meta(
+                    delivery_channel="telegram_admin_chat",
+                    target_chat_id=target_chat_id,
+                    fallback_used=fallback_used,
+                    status="success",
+                    extra={
+                        "object_id": object_id,
+                        "telegram_message_id": getattr(message, "message_id", None),
+                    },
+                ),
+            )
+            logger.info(
+                "Delivered service ticket to admin chat ticket_id=%s chat_id=%s fallback_used=%s object_id=%s message_id=%s",
+                ticket.id,
+                target_chat_id,
+                fallback_used,
+                object_id,
+                getattr(message, "message_id", None),
+            )
             return {"success": True, "error": None}
         except Exception as e:
-            print(f"Error sending ticket notification to admin chat: {e}")
+            try:
+                failed_entity_id = int(ticket.id) if ticket is not None and getattr(ticket, "id", None) is not None else int(ticket_id or 0)
+            except (TypeError, ValueError):
+                failed_entity_id = 0
+            if failed_entity_id:
+                await self._append_delivery_audit_event(
+                    entity_type="ServiceTicket",
+                    entity_id=failed_entity_id,
+                    event_type="DELIVERY_FAILED",
+                    action="send",
+                    reason="ticket_admin_chat_notification_failed",
+                    audit_context=self.derive_audit_context(
+                        _audit_context,
+                        source_service="bot_service",
+                        reason="ticket_admin_chat_notification_failed",
+                    ),
+                    meta=self._build_delivery_meta(
+                        delivery_channel="telegram_admin_chat",
+                        status="failed",
+                        extra={"error": str(e)},
+                    ),
+                )
+            logger.exception(
+                "Failed to deliver service ticket to admin chat ticket_id=%s: %s",
+                getattr(ticket, "id", ticket_id),
+                e,
+            )
             return {"success": False, "error": str(e)}
 
     async def edit_ticket_message(
-        self, ticket=None, *, ticket_id: Optional[int] = None
+        self, ticket=None, *, ticket_id: Optional[int] = None, _audit_context: Optional[dict] = None
     ) -> Dict[str, Any]:
         """
         Edits the ticket message in the admin chat with current data.
@@ -691,9 +862,9 @@ class NotificationService(BaseService):
                     entity_type="ServiceTicket",
                     entity_id=ticket.id,
                 )
-                return await self.notify_new_ticket(ticket=ticket)
+                return await self.notify_new_ticket(ticket=ticket, _audit_context=_audit_context)
             if not message_id:
-                return await self.notify_new_ticket(ticket=ticket)
+                return await self.notify_new_ticket(ticket=ticket, _audit_context=_audit_context)
             current_chat_id = current_chat_id or target_chat_id
 
             user = await self.bot.services.user.get_user_by_id(ticket.user_id)
@@ -746,11 +917,59 @@ class NotificationService(BaseService):
                 text=admin_text,
                 parse_mode=ParseMode.HTML,
             )
+            await self._append_delivery_audit_event(
+                entity_type="ServiceTicket",
+                entity_id=int(ticket.id),
+                event_type="DELIVERY_UPDATED",
+                action="edit",
+                reason="ticket_admin_chat_message_updated",
+                audit_context=self.derive_audit_context(
+                    _audit_context,
+                    source_service="bot_service",
+                    reason="ticket_admin_chat_message_updated",
+                ),
+                meta=self._build_delivery_meta(
+                    delivery_channel="telegram_admin_chat",
+                    target_chat_id=current_chat_id,
+                    status="success",
+                    extra={"telegram_message_id": message_id},
+                ),
+            )
+            logger.info(
+                "Updated service ticket admin message ticket_id=%s chat_id=%s message_id=%s",
+                ticket.id,
+                current_chat_id,
+                message_id,
+            )
             return {"success": True, "error": None}
         except Exception as e:
-            print(f"Error editing ticket message: {e}")
-            import traceback
-            traceback.print_exc()
+            try:
+                failed_entity_id = int(ticket.id) if ticket is not None and getattr(ticket, "id", None) is not None else int(ticket_id or 0)
+            except (TypeError, ValueError):
+                failed_entity_id = 0
+            if failed_entity_id:
+                await self._append_delivery_audit_event(
+                    entity_type="ServiceTicket",
+                    entity_id=failed_entity_id,
+                    event_type="DELIVERY_FAILED",
+                    action="edit",
+                    reason="ticket_admin_chat_message_update_failed",
+                    audit_context=self.derive_audit_context(
+                        _audit_context,
+                        source_service="bot_service",
+                        reason="ticket_admin_chat_message_update_failed",
+                    ),
+                    meta=self._build_delivery_meta(
+                        delivery_channel="telegram_admin_chat",
+                        status="failed",
+                        extra={"error": str(e)},
+                    ),
+                )
+            logger.exception(
+                "Failed to update service ticket admin message ticket_id=%s: %s",
+                getattr(ticket, "id", ticket_id),
+                e,
+            )
             return {"success": False, "error": str(e)}
 
     async def handle_admin_reply(self, update: "Update", context: "ContextTypes.DEFAULT_TYPE") -> bool:
@@ -795,9 +1014,12 @@ class NotificationService(BaseService):
             )
             return True
         except Exception as e:
-            print(f"Error handling admin reply: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.exception(
+                "Failed to process admin reply chat_id=%s message_id=%s: %s",
+                getattr(getattr(update, "effective_chat", None), "id", None),
+                getattr(getattr(update, "message", None), "message_id", None),
+                e,
+            )
             return False
 
     async def ensure_user_exists(self, user_id: int):
@@ -846,6 +1068,14 @@ class NotificationService(BaseService):
         await self.ensure_user_exists(user_id)
         log = await self.bot.services.service_ticket.update_service_ticket_status(ticket.id, ServiceTicketStatus.COMPLETED, update.message.message_id, user_id)
         if log is not None:
+            telegram_audit_context = self.build_telegram_actor_audit_context(
+                telegram_user_id=user_id,
+                reason="ticket_completed_via_telegram_reply",
+                meta_updates={
+                    "reply_message_id": getattr(update.message, "message_id", None),
+                    "reply_chat_id": getattr(getattr(update, "effective_chat", None), "id", None),
+                },
+            )
             confirmation_message = await self.bot.managers.message.reply_message(
                 update, context, "ticket_completed", payload=[str(ticket.id)]
             )
@@ -858,10 +1088,14 @@ class NotificationService(BaseService):
                     kind="REPLY",
                     meta={"status": ServiceTicketStatus.COMPLETED, "user_id": user_id},
                 )
-            await self.notify_ticket_completion(ticket_id=ticket.id, user_id=ticket.user_id)
+            await self.notify_ticket_completion(
+                ticket_id=ticket.id,
+                user_id=ticket.user_id,
+                _audit_context=telegram_audit_context,
+            )
 
     async def notify_ticket_completion(
-        self, ticket_id: int, user_id: Optional[int] = None
+        self, ticket_id: int, user_id: Optional[int] = None, _audit_context: Optional[dict] = None
     ) -> Dict[str, Any]:
         """
         Notifies a user about the completion of their ticket and prompts for feedback.
@@ -882,6 +1116,28 @@ class NotificationService(BaseService):
                 reply_markup=keyboard,
                 parse_mode=ParseMode.HTML
             )
+            await self._append_delivery_audit_event(
+                entity_type="ServiceTicket",
+                entity_id=int(ticket_id),
+                event_type="DELIVERY_SUCCESS",
+                action="send",
+                reason="ticket_completion_user_notified",
+                audit_context=self.derive_audit_context(
+                    _audit_context,
+                    source_service="bot_service",
+                    reason="ticket_completion_user_notified",
+                ),
+                meta={
+                    "delivery_channel": "telegram_user_dm",
+                    "target_user_id": int(uid),
+                    "delivery_status": "success",
+                },
+            )
+            logger.info(
+                "Delivered ticket completion notification ticket_id=%s user_id=%s",
+                ticket_id,
+                uid,
+            )
             await self._delete_all_ticket_replies(ticket)
             primary_ref = await self._get_primary_message_ref(
                 entity_type="ServiceTicket",
@@ -898,7 +1154,13 @@ class NotificationService(BaseService):
                         message_id=primary_message_id,
                     )
                 except Exception as e:
-                    print(f"Error deleting ticket message (message_id={primary_message_id}): {e}")
+                    logger.warning(
+                        "Failed to delete primary ticket message ticket_id=%s chat_id=%s message_id=%s: %s",
+                        ticket.id,
+                        primary_chat_id,
+                        primary_message_id,
+                        e,
+                    )
                 await self._delete_message_refs(entity_type="ServiceTicket", entity_id=ticket.id)
                 admin_text = self.bot.get_text("ticket_completed_admin", [ticket_id])
                 await self.bot.application.bot.send_message(
@@ -908,9 +1170,30 @@ class NotificationService(BaseService):
                 )
             return {"success": True, "error": None}
         except Exception as e:
-            print(f"Error notifying user about ticket completion: {e}")
-            import traceback
-            traceback.print_exc()
+            await self._append_delivery_audit_event(
+                entity_type="ServiceTicket",
+                entity_id=int(ticket_id),
+                event_type="DELIVERY_FAILED",
+                action="send",
+                reason="ticket_completion_user_notification_failed",
+                audit_context=self.derive_audit_context(
+                    _audit_context,
+                    source_service="bot_service",
+                    reason="ticket_completion_user_notification_failed",
+                ),
+                meta={
+                    "delivery_channel": "telegram_user_dm",
+                    "delivery_status": "failed",
+                    "target_user_id": int(user_id) if user_id is not None else None,
+                    "error": str(e),
+                },
+            )
+            logger.exception(
+                "Failed to deliver ticket completion notification ticket_id=%s user_id=%s: %s",
+                ticket_id,
+                user_id,
+                e,
+            )
             return {"success": False, "error": str(e)}
 
     async def send_feedback_to_managers(self, ticket_id: int, feedback_message: str):
@@ -918,7 +1201,7 @@ class NotificationService(BaseService):
         try:
             ticket = await self.bot.services.service_ticket.get_service_ticket_by_id(ticket_id)
             if not ticket:
-                print(f"Ticket not found for feedback: {ticket_id}")
+                logger.warning("Ticket not found for manager feedback ticket_id=%s", ticket_id)
                 return
 
             user = await self.bot.services.user.get_user_by_id(ticket.user_id)
@@ -950,6 +1233,11 @@ class NotificationService(BaseService):
                         text=message_text,
                         parse_mode=ParseMode.HTML,
                     )
+                logger.info(
+                    "Delivered service feedback ticket_id=%s recipient_count=%s mode=direct_users",
+                    ticket_id,
+                    len(recipient_ids),
+                )
                 return
 
             fallback_chat_id = self._coerce_chat_id(self._chief_engineer_chat_id)
@@ -959,8 +1247,13 @@ class NotificationService(BaseService):
                     text=message_text,
                     parse_mode=ParseMode.HTML
                 )
+                logger.info(
+                    "Delivered service feedback ticket_id=%s fallback_chat_id=%s",
+                    ticket_id,
+                    fallback_chat_id,
+                )
         except Exception as e:
-            print(f"Error sending feedback to managers: {e}")
+            logger.exception("Failed to deliver service feedback ticket_id=%s: %s", ticket_id, e)
 
     async def send_feedback_to_chief_engineer(self, ticket_id: int, feedback_message: str):
         """Backward-compatible alias for service feedback delivery."""
@@ -984,7 +1277,7 @@ class NotificationService(BaseService):
             return []
         return response.get("data") or []
 
-    async def resync_object_routes(self, object_id: int) -> Dict[str, Any]:
+    async def resync_object_routes(self, object_id: int, _audit_context: Optional[dict] = None) -> Dict[str, Any]:
         """
         Re-sync active ticket and guest parking messages when an object's admin chat changes.
         """
@@ -1002,7 +1295,7 @@ class NotificationService(BaseService):
             for ticket in tickets:
                 if getattr(ticket, "status", None) not in active_statuses:
                     continue
-                await self.edit_ticket_message(ticket=ticket)
+                await self.edit_ticket_message(ticket=ticket, _audit_context=_audit_context)
                 ticket_count += 1
 
             guest_parking_requests = await self._find_guest_parking_for_object(object_id)
@@ -1010,8 +1303,31 @@ class NotificationService(BaseService):
                 request_id = getattr(request, "id", None)
                 if request_id is None:
                     continue
-                await self.edit_guest_parking_message(req_id=int(request_id))
+                await self.edit_guest_parking_message(req_id=int(request_id), _audit_context=_audit_context)
                 guest_parking_count += 1
+
+            await self.append_business_audit_event(
+                entity_type="Object",
+                entity_id=int(object_id),
+                event_type="ROUTE_RESYNC",
+                action="sync",
+                audit_context=self.derive_audit_context(
+                    _audit_context,
+                    source_service="bot_service",
+                    reason="object_chat_routes_resynced",
+                ),
+                reason="object_chat_routes_resynced",
+                meta={
+                    "ticket_count": ticket_count,
+                    "guest_parking_count": guest_parking_count,
+                },
+            )
+            logger.info(
+                "Resynced object chat routes object_id=%s ticket_count=%s guest_parking_count=%s",
+                object_id,
+                ticket_count,
+                guest_parking_count,
+            )
 
             return {
                 "success": True,
@@ -1022,9 +1338,20 @@ class NotificationService(BaseService):
                 "error": None,
             }
         except Exception as e:
-            print(f"Error re-syncing object routes for object_id={object_id}: {e}")
-            import traceback
-            traceback.print_exc()
+            await self.append_business_audit_event(
+                entity_type="Object",
+                entity_id=int(object_id),
+                event_type="ROUTE_RESYNC_FAILED",
+                action="sync",
+                audit_context=self.derive_audit_context(
+                    _audit_context,
+                    source_service="bot_service",
+                    reason="object_chat_routes_resync_failed",
+                ),
+                reason="object_chat_routes_resync_failed",
+                meta={"error": str(e)},
+            )
+            logger.exception("Failed to resync object chat routes object_id=%s: %s", object_id, e)
             return {"success": False, "error": str(e)}
 
     async def notify_user_deleted(
@@ -1081,15 +1408,14 @@ class NotificationService(BaseService):
                 chat_id=self._admin_chat_id,
                 text="\n".join(lines),
             )
+            logger.info("Delivered user deletion notification user_id=%s", user_id)
             return {"success": True, "error": None}
         except Exception as e:
-            print(f"Error notifying admins about user deletion: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.exception("Failed to notify admins about deleted user user_id=%s: %s", user_id, e)
             return {"success": False, "error": str(e)}
 
     async def delete_ticket_messages(
-        self, ticket=None, *, ticket_id: Optional[int] = None
+        self, ticket=None, *, ticket_id: Optional[int] = None, _audit_context: Optional[dict] = None
     ) -> Dict[str, Any]:
         """
         Deletes the ticket message and all reply messages from the admin chat.
@@ -1119,11 +1445,57 @@ class NotificationService(BaseService):
                     text=admin_text,
                     parse_mode=ParseMode.HTML,
                 )
+            await self._append_delivery_audit_event(
+                entity_type="ServiceTicket",
+                entity_id=int(ticket.id),
+                event_type="DELIVERY_DELETED",
+                action="delete",
+                reason="ticket_admin_chat_messages_deleted",
+                audit_context=self.derive_audit_context(
+                    _audit_context,
+                    source_service="bot_service",
+                    reason="ticket_admin_chat_messages_deleted",
+                ),
+                meta=self._build_delivery_meta(
+                    delivery_channel="telegram_admin_chat",
+                    status="success",
+                    extra={"target_chat_ids": touched_chat_ids},
+                ),
+            )
+            logger.info(
+                "Deleted service ticket admin messages ticket_id=%s touched_chat_ids=%s",
+                ticket.id,
+                touched_chat_ids,
+            )
             return {"success": True, "error": None}
         except Exception as e:
-            print(f"Error deleting ticket messages: {e}")
-            import traceback
-            traceback.print_exc()
+            try:
+                failed_entity_id = int(ticket.id) if ticket is not None and getattr(ticket, "id", None) is not None else int(ticket_id or 0)
+            except (TypeError, ValueError):
+                failed_entity_id = 0
+            if failed_entity_id:
+                await self._append_delivery_audit_event(
+                    entity_type="ServiceTicket",
+                    entity_id=failed_entity_id,
+                    event_type="DELIVERY_FAILED",
+                    action="delete",
+                    reason="ticket_admin_chat_message_delete_failed",
+                    audit_context=self.derive_audit_context(
+                        _audit_context,
+                        source_service="bot_service",
+                        reason="ticket_admin_chat_message_delete_failed",
+                    ),
+                    meta=self._build_delivery_meta(
+                        delivery_channel="telegram_admin_chat",
+                        status="failed",
+                        extra={"error": str(e)},
+                    ),
+                )
+            logger.exception(
+                "Failed to delete service ticket admin messages ticket_id=%s: %s",
+                getattr(ticket, "id", ticket_id),
+                e,
+            )
             return {"success": False, "error": str(e)}
 
     async def _delete_all_ticket_replies(self, ticket) -> None:
@@ -1159,9 +1531,11 @@ class NotificationService(BaseService):
                 except Exception:
                     pass
         except Exception as e:
-            print(f"Error deleting ticket reply messages: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.exception(
+                "Failed to delete service ticket reply messages ticket_id=%s: %s",
+                getattr(ticket, "id", None),
+                e,
+            )
 
     async def notify_guest_parking_request(
         self, req_id: int, data: dict, user_id: int
@@ -1210,9 +1584,21 @@ class NotificationService(BaseService):
                         kind="PRIMARY",
                     )
                 except Exception as upd_e:
-                    print(f"Error saving message ref for guest parking {req_id}: {upd_e}")
+                    logger.exception(
+                        "Failed to save guest parking message ref request_id=%s chat_id=%s message_id=%s: %s",
+                        req_id,
+                        target_chat_id,
+                        getattr(message, "message_id", None),
+                        upd_e,
+                    )
+            logger.info(
+                "Delivered guest parking request to admin chat request_id=%s chat_id=%s message_id=%s",
+                req_id,
+                target_chat_id,
+                getattr(message, "message_id", None),
+            )
         except Exception as e:
-            print(f"Error notifying admin about guest parking request: {e}")
+            logger.exception("Failed to deliver guest parking request request_id=%s: %s", req_id, e)
 
     async def schedule_guest_parking_reminder(
         self, req_id: int, data: dict
@@ -1223,14 +1609,15 @@ class NotificationService(BaseService):
     async def _run_reminder_scheduler(self) -> None:
         """Фоновый планировщик: каждую минуту проверяет заявки, по которым нужно отправить напоминание."""
         try:
+            logger.info("Guest parking reminder scheduler started")
             while True:
                 try:
                     await self.check_guest_parking_reminders()
                 except Exception as e:
-                    print(f"Error in guest parking reminder scheduler: {e}")
+                    logger.exception("Guest parking reminder scheduler iteration failed: %s", e)
                 await asyncio.sleep(60)
         except asyncio.CancelledError:
-            pass
+            logger.info("Guest parking reminder scheduler stopped")
 
     async def check_guest_parking_reminders(self) -> None:
         """
@@ -1245,7 +1632,10 @@ class NotificationService(BaseService):
             )
             if not result.get("success"):
                 if result.get("error"):
-                    print(f"Guest parking reminder check failed: {result['error']}")
+                    logger.warning(
+                        "Guest parking reminder check failed: %s",
+                        result["error"],
+                    )
                 return
             items = result.get("data") or []
             if not items:
@@ -1260,11 +1650,15 @@ class NotificationService(BaseService):
                 }
                 try:
                     await self._send_guest_parking_reminder(req_id, data)
-                    print(f"Guest parking reminder sent for request {req_id}")
+                    logger.info("Delivered guest parking reminder request_id=%s", req_id)
                 except Exception as e:
-                    print(f"Error sending guest parking reminder for request {req_id}: {e}")
+                    logger.exception(
+                        "Failed to deliver guest parking reminder request_id=%s: %s",
+                        req_id,
+                        e,
+                    )
         except Exception as e:
-            print(f"Error checking guest parking reminders: {e}")
+            logger.exception("Failed to check guest parking reminders: %s", e)
 
     async def _send_guest_parking_reminder(self, req_id: int, data: dict) -> None:
         """Отправляет напоминание о гостевой парковке администраторам. Учёт отправленных — в кэше database_service."""
@@ -1281,7 +1675,7 @@ class NotificationService(BaseService):
             parse_mode=ParseMode.HTML,
         )
 
-    async def notify_new_guest_parking(self, req_id: int) -> Dict[str, Any]:
+    async def notify_new_guest_parking(self, req_id: int, _audit_context: Optional[dict] = None) -> Dict[str, Any]:
         """
         Отправляет заявку на гостевую парковку в чат администраторов (при создании с сайта).
         Сохраняет msid для последующего редактирования/удаления.
@@ -1293,8 +1687,31 @@ class NotificationService(BaseService):
             if not resp.get("success") or not resp.get("data"):
                 return {"success": False, "error": "request_not_found"}
             req = resp["data"]
-            target_chat_id = await self._resolve_guest_parking_chat_id(request=req, req_id=req_id)
+            object_id = req.get("object_id") if isinstance(req, dict) else getattr(req, "object_id", None)
+            routed_chat_id = await self.bot.services.chat_routing.resolve_chat_for_guest_parking(
+                request=req,
+                req_id=req_id,
+            )
+            target_chat_id = routed_chat_id if routed_chat_id is not None else self._get_fallback_admin_chat_id()
+            fallback_used = routed_chat_id is None and target_chat_id is not None
             if target_chat_id is None:
+                await self._append_delivery_audit_event(
+                    entity_type="GuestParkingRequest",
+                    entity_id=int(req_id),
+                    event_type="DELIVERY_SKIPPED",
+                    action="send",
+                    reason="guest_parking_admin_chat_unresolved",
+                    audit_context=self.derive_audit_context(
+                        _audit_context,
+                        source_service="bot_service",
+                        reason="guest_parking_admin_chat_unresolved",
+                    ),
+                    meta=self._build_delivery_meta(
+                        delivery_channel="telegram_admin_chat",
+                        status="skipped",
+                        extra={"object_id": object_id},
+                    ),
+                )
                 return {"success": True, "error": None}
             if isinstance(req, dict):
                 req_id_val = req.get("id")
@@ -1349,14 +1766,65 @@ class NotificationService(BaseService):
                     kind="PRIMARY",
                 )
                 if not upd.get("success"):
-                    print(f"Failed to save message ref for guest_parking {req_id_val}: {upd.get('error')}")
+                    logger.error(
+                        "Failed to save guest parking message ref request_id=%s chat_id=%s: %s",
+                        req_id_val,
+                        target_chat_id,
+                        upd.get("error"),
+                    )
                     return {"success": False, "error": upd.get("error", "message_ref_update_failed")}
+            await self._append_delivery_audit_event(
+                entity_type="GuestParkingRequest",
+                entity_id=int(req_id),
+                event_type="DELIVERY_SUCCESS",
+                action="send",
+                reason="guest_parking_admin_chat_notified",
+                audit_context=self.derive_audit_context(
+                    _audit_context,
+                    source_service="bot_service",
+                    reason="guest_parking_admin_chat_notified",
+                ),
+                meta=self._build_delivery_meta(
+                    delivery_channel="telegram_admin_chat",
+                    target_chat_id=target_chat_id,
+                    fallback_used=fallback_used,
+                    status="success",
+                    extra={
+                        "object_id": object_id,
+                        "telegram_message_id": getattr(message, "message_id", None),
+                    },
+                ),
+            )
+            logger.info(
+                "Delivered new guest parking admin notification request_id=%s chat_id=%s fallback_used=%s message_id=%s",
+                req_id,
+                target_chat_id,
+                fallback_used,
+                getattr(message, "message_id", None),
+            )
             return {"success": True, "error": None}
         except Exception as e:
-            print(f"Error notifying new guest parking {req_id}: {e}")
+            await self._append_delivery_audit_event(
+                entity_type="GuestParkingRequest",
+                entity_id=int(req_id),
+                event_type="DELIVERY_FAILED",
+                action="send",
+                reason="guest_parking_admin_chat_notification_failed",
+                audit_context=self.derive_audit_context(
+                    _audit_context,
+                    source_service="bot_service",
+                    reason="guest_parking_admin_chat_notification_failed",
+                ),
+                meta=self._build_delivery_meta(
+                    delivery_channel="telegram_admin_chat",
+                    status="failed",
+                    extra={"error": str(e)},
+                ),
+            )
+            logger.exception("Failed to deliver new guest parking admin notification request_id=%s: %s", req_id, e)
             return {"success": False, "error": str(e)}
 
-    async def edit_guest_parking_message(self, req_id: int) -> Dict[str, Any]:
+    async def edit_guest_parking_message(self, req_id: int, _audit_context: Optional[dict] = None) -> Dict[str, Any]:
         """Редактирует сообщение заявки в чате администраторов. Вызывать при изменении с сайта."""
         try:
             resp = await self.bot.managers.database.guest_parking.get_by_id(entity_id=req_id)
@@ -1377,9 +1845,9 @@ class NotificationService(BaseService):
                     entity_type="GuestParkingRequest",
                     entity_id=req_id,
                 )
-                return await self.notify_new_guest_parking(req_id)
+                return await self.notify_new_guest_parking(req_id, _audit_context=_audit_context)
             if not msid:
-                return await self.notify_new_guest_parking(req_id)
+                return await self.notify_new_guest_parking(req_id, _audit_context=_audit_context)
             current_chat_id = current_chat_id or target_chat_id
 
             if isinstance(req, dict):
@@ -1429,12 +1897,53 @@ class NotificationService(BaseService):
                 text=admin_text,
                 parse_mode=ParseMode.HTML,
             )
+            await self._append_delivery_audit_event(
+                entity_type="GuestParkingRequest",
+                entity_id=int(req_id),
+                event_type="DELIVERY_UPDATED",
+                action="edit",
+                reason="guest_parking_admin_chat_message_updated",
+                audit_context=self.derive_audit_context(
+                    _audit_context,
+                    source_service="bot_service",
+                    reason="guest_parking_admin_chat_message_updated",
+                ),
+                meta=self._build_delivery_meta(
+                    delivery_channel="telegram_admin_chat",
+                    target_chat_id=current_chat_id,
+                    status="success",
+                    extra={"telegram_message_id": msid},
+                ),
+            )
+            logger.info(
+                "Updated guest parking admin message request_id=%s chat_id=%s message_id=%s",
+                req_id,
+                current_chat_id,
+                msid,
+            )
             return {"success": True, "error": None}
         except Exception as e:
-            print(f"Error editing guest parking message {req_id}: {e}")
+            await self._append_delivery_audit_event(
+                entity_type="GuestParkingRequest",
+                entity_id=int(req_id),
+                event_type="DELIVERY_FAILED",
+                action="edit",
+                reason="guest_parking_admin_chat_message_update_failed",
+                audit_context=self.derive_audit_context(
+                    _audit_context,
+                    source_service="bot_service",
+                    reason="guest_parking_admin_chat_message_update_failed",
+                ),
+                meta=self._build_delivery_meta(
+                    delivery_channel="telegram_admin_chat",
+                    status="failed",
+                    extra={"error": str(e)},
+                ),
+            )
+            logger.exception("Failed to update guest parking admin message request_id=%s: %s", req_id, e)
             return {"success": False, "error": str(e)}
 
-    async def delete_guest_parking_messages(self, req_id: int) -> Dict[str, Any]:
+    async def delete_guest_parking_messages(self, req_id: int, _audit_context: Optional[dict] = None) -> Dict[str, Any]:
         """Удаляет сообщение заявки из чата администраторов. Вызывать перед удалением из БД."""
         try:
             resp = await self.bot.managers.database.guest_parking.get_by_id(entity_id=req_id)
@@ -1455,9 +1964,48 @@ class NotificationService(BaseService):
                     text=admin_text,
                     parse_mode=ParseMode.HTML,
                 )
+            await self._append_delivery_audit_event(
+                entity_type="GuestParkingRequest",
+                entity_id=int(req_id),
+                event_type="DELIVERY_DELETED",
+                action="delete",
+                reason="guest_parking_admin_chat_messages_deleted",
+                audit_context=self.derive_audit_context(
+                    _audit_context,
+                    source_service="bot_service",
+                    reason="guest_parking_admin_chat_messages_deleted",
+                ),
+                meta=self._build_delivery_meta(
+                    delivery_channel="telegram_admin_chat",
+                    status="success",
+                    extra={"target_chat_ids": touched_chat_ids},
+                ),
+            )
+            logger.info(
+                "Deleted guest parking admin messages request_id=%s touched_chat_ids=%s",
+                req_id,
+                touched_chat_ids,
+            )
             return {"success": True, "error": None}
         except Exception as e:
-            print(f"Error deleting guest parking message {req_id}: {e}")
+            await self._append_delivery_audit_event(
+                entity_type="GuestParkingRequest",
+                entity_id=int(req_id),
+                event_type="DELIVERY_FAILED",
+                action="delete",
+                reason="guest_parking_admin_chat_message_delete_failed",
+                audit_context=self.derive_audit_context(
+                    _audit_context,
+                    source_service="bot_service",
+                    reason="guest_parking_admin_chat_message_delete_failed",
+                ),
+                meta=self._build_delivery_meta(
+                    delivery_channel="telegram_admin_chat",
+                    status="failed",
+                    extra={"error": str(e)},
+                ),
+            )
+            logger.exception("Failed to delete guest parking admin messages request_id=%s: %s", req_id, e)
             return {"success": False, "error": str(e)}
 
     async def is_admin_chat(self, chat_id: int) -> bool:

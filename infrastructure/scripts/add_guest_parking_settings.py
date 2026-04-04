@@ -5,6 +5,7 @@
 Использование:
     python infrastructure/scripts/add_guest_parking_settings.py
 """
+import logging
 import os
 import sys
 from pathlib import Path
@@ -27,10 +28,13 @@ if env_path.exists():
 required = ["DB_HOST", "DB_NAME", "DB_USER", "DB_PASSWORD"]
 missing = [v for v in required if not os.getenv(v)]
 if missing:
-    print(f"Ошибка: не заданы переменные окружения: {', '.join(missing)}")
+    logger.error("Не заданы переменные окружения: %s", ", ".join(missing))
     sys.exit(1)
 
 from sqlalchemy.ext.asyncio import create_async_engine
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
 db_src = INFRASTRUCTURE_ROOT / "services" / "database_service" / "src"
 if str(db_src) not in sys.path:
@@ -53,7 +57,7 @@ async def run_migration():
         await conn.run_sync(
             lambda c: GuestParkingSettings.__table__.create(c, checkfirst=True)
         )
-        print("Таблица guest_parking_settings создана или уже существует.")
+        logger.info("Таблица guest_parking_settings создана или уже существует")
     await engine.dispose()
 
 
@@ -63,7 +67,7 @@ def main():
     try:
         asyncio.run(run_migration())
     except Exception as e:
-        print(f"Ошибка миграции: {e}")
+        logger.exception("Ошибка миграции add_guest_parking_settings: %s", e)
         sys.exit(1)
 
 

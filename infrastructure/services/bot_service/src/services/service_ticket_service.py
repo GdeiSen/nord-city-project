@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, List, Optional, Dict, Any
 from .base_service import BaseService
 from shared.schemas import ServiceTicketSchema
+from shared.constants import AuditActorType
 if TYPE_CHECKING:
     from bot import Bot
 
@@ -79,6 +80,7 @@ class ServiceTicketService(BaseService):
                 _audit_context={
                     "source": "bot_service",
                     "actor_id": user_id,
+                    "actor_type": AuditActorType.TELEGRAM_USER,
                     "meta": meta,
                 },
             )

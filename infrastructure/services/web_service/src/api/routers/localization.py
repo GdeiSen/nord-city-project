@@ -5,9 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from api.dependencies import get_audit_context, get_current_user
 from api.schemas.localization import LocalizationDocument
-from shared.clients.audit_client import audit_client
 from shared.clients.bot_client import bot_client
 from shared.constants import AuditRetentionClass, Roles
+from shared.utils.audit_events import append_business_audit_event
 
 router = APIRouter(prefix="/localization", tags=["Localization"])
 logger = logging.getLogger(__name__)
@@ -109,17 +109,15 @@ async def update_localization(
         old_changes, new_changes, changed_paths = _build_localization_diff(previous_data, payload)
         if changed_paths:
             audit_context = get_audit_context(request, current_user)
-            audit_response = await audit_client.append_event(
+            audit_response = await append_business_audit_event(
                 entity_type="BotConfig",
                 entity_id=1,
                 event_type="CONFIG_CHANGE",
+                event_name="bot_config.localization_updated",
                 action="update",
-                actor_id=audit_context.get("actor_id"),
-                actor_type=audit_context.get("actor_type", "USER"),
-                source_service=audit_context.get("source", "web_service"),
+                source_service="web_service",
+                audit_context=audit_context,
                 retention_class=AuditRetentionClass.CRITICAL,
-                request_id=audit_context.get("request_id"),
-                correlation_id=audit_context.get("correlation_id"),
                 reason="bot_localization_updated",
                 old_data=old_changes,
                 new_data=new_changes,

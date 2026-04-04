@@ -1,8 +1,12 @@
+import logging
 from typing import Dict, List, TYPE_CHECKING
 from .base_manager import BaseManager
 
 if TYPE_CHECKING:
     from bot import Bot
+
+
+logger = logging.getLogger(__name__)
 
 
 class ManagerRegistry:
@@ -51,9 +55,9 @@ class ManagerRegistry:
         for name, manager in self._managers.items():
             try:
                 await manager.initialize()
-                print(f"Manager '{name}' initialized successfully")
+                logger.info("Manager '%s' initialized successfully", name)
             except Exception as e:
-                print(f"Error initializing manager '{name}': {e}")
+                logger.exception("Error initializing manager '%s': %s", name, e)
     
     def __getattr__(self, name: str) -> BaseManager:
         """Позволяет обращаться к менеджерам через точечную нотацию"""

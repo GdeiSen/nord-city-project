@@ -12,6 +12,7 @@
     python infrastructure/scripts/add_dynamic_dialog_bindings.py
 """
 
+import logging
 import os
 import sys
 from pathlib import Path
@@ -37,7 +38,7 @@ if env_path.exists():
 required = ["DB_HOST", "DB_NAME", "DB_USER", "DB_PASSWORD"]
 missing = [v for v in required if not os.getenv(v)]
 if missing:
-    print(f"Ошибка: не заданы переменные окружения: {', '.join(missing)}")
+    logger.error("Не заданы переменные окружения: %s", ", ".join(missing))
     sys.exit(1)
 
 db_src = INFRASTRUCTURE_ROOT / "services" / "database_service" / "src"
@@ -46,6 +47,9 @@ if str(db_src) not in sys.path:
 
 from models.dynamic_dialog_binding import DynamicDialogBinding
 from shared.utils.ddid_utils import normalize_ddid, parse_ddid
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
 DDID_TABLES = ("feedbacks", "poll_answers", "service_tickets")
 PLACEHOLDER_DDID = "0000-0000-0000"
@@ -202,13 +206,13 @@ async def run_migration():
                 constraint_name="fk_service_tickets_ddid_dynamic_dialog_bindings",
             )
 
-        print("Таблица dynamic_dialog_bindings создана или уже существовала.")
-        print(
-            "Нормализация ddid: "
-            + ", ".join(f"{table}={count}" for table, count in normalized_tables.items())
+        logger.info("Таблица dynamic_dialog_bindings создана или уже существовала")
+        logger.info(
+            "Нормализация ddid: %s",
+            ", ".join(f"{table}={count}" for table, count in normalized_tables.items()),
         )
-        print(f"Добавлено записей в реестр DDID: {inserted}")
-        print("Внешние ключи для feedbacks, poll_answers и service_tickets настроены.")
+        logger.info("Добавлено записей в реестр DDID: %s", inserted)
+        logger.info("Внешние ключи для feedbacks, poll_answers и service_tickets настроены")
     finally:
         await engine.dispose()
 
@@ -219,7 +223,7 @@ def main():
     try:
         asyncio.run(run_migration())
     except Exception as e:
-        print(f"Ошибка миграции: {e}")
+        logger.exception("Ошибка миграции add_dynamic_dialog_bindings: %s", e)
         sys.exit(1)
 
 

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, TYPE_CHECKING
 from telegram import InlineKeyboardMarkup, Message
@@ -19,6 +20,9 @@ if TYPE_CHECKING:
     from bot import Bot
 
 
+logger = logging.getLogger(__name__)
+
+
 @dataclass(slots=True)
 class MessageOperationResult:
     success: bool
@@ -37,7 +41,7 @@ class MessageManager(BaseManager):
     
     async def initialize(self) -> None:
         """Инициализация менеджера сообщений"""
-        print("MessageManager initialized")
+        logger.info("MessageManager initialized")
 
     def _append_to_buffer(
         self,
@@ -386,7 +390,7 @@ class MessageManager(BaseManager):
 
                 return None
             else:
-                print("Unable to reply: no message to reply to")
+                logger.warning("Unable to reply: no message to reply to")
                 return None
         except Exception as e:
             await self.bot.handle_error(1004, f"Error replying to message: {str(e)}")

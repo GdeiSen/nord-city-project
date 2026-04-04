@@ -95,13 +95,15 @@ from shared.entities.dialog import Dialog
 
 # Logging setup (remains the same)
 logging.basicConfig(
-    level=logging.WARNING,
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
         logging.FileHandler('bot.log')
     ]
 )
+
+logger = logging.getLogger(__name__)
 
 # Utils and DynDialogHandlersManager classes (remain the same)
 class Utils:
@@ -188,7 +190,7 @@ class Bot:
 
     async def handle_error(self, code: int, message: str):
         """Simple error handler"""
-        print(f"Error {code}: {message}")
+        logger.error("Bot operation error code=%s: %s", code, message)
 
     def get_user_id(self, update: Update) -> int | None:
         if update.message and update.message.from_user:
@@ -296,6 +298,7 @@ class Bot:
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
         
         # Initialize and start the application
+        logger.info("Initializing Telegram application")
         await self.application.initialize()
         
         # Initialize managers and services immediately after application initialization
@@ -303,14 +306,17 @@ class Bot:
         
         await self.application.start()
         await self.application.updater.start_polling()
+        logger.info("Telegram bot polling started")
         
         # Keep running indefinitely
         try:
             while True:
                 await asyncio.sleep(1)
         except (KeyboardInterrupt, asyncio.CancelledError):
+            logger.info("Stopping Telegram bot polling")
             await self.application.stop()
             await self.application.shutdown()
+            logger.info("Telegram bot shutdown completed")
         
     def start(self):
         """Legacy sync method for backward compatibility."""
@@ -397,7 +403,12 @@ class Bot:
                     context.user_data['callback_params'] = params
                 await self.managers.navigator.execute(action_id, update, context)
         except Exception as e:
-            print(f"Error handling callback: {e}")
+            logger.exception(
+                "Error handling callback user_id=%s callback_data=%s: %s",
+                self.get_user_id(update),
+                getattr(getattr(update, "callback_query", None), "data", None),
+                e,
+            )
             await self.send_message(update, context, self.get_text("error_processing_request"))
             await self.managers.navigator.execute(Dialogs.MENU, update, context)
             raise e
@@ -425,9 +436,14 @@ class Bot:
             if chat_id and await self.services.notification.is_admin_chat(chat_id) and update.message.reply_to_message:
                 try:
                     await self.services.notification.handle_admin_reply(update, context)
-                except Exception:
-                    import traceback
-                    traceback.print_exc()
+                except Exception as exc:
+                    logger.exception(
+                        "Error handling admin reply chat_id=%s user_id=%s message_id=%s: %s",
+                        chat_id,
+                        user_id,
+                        getattr(update.message, "message_id", None),
+                        exc,
+                    )
 
     async def handle_my_chat_member(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self.services.chat_routing.observe_chat_member_update(update)
@@ -473,7 +489,12 @@ class Bot:
                 self.managers.navigator.set_entry_point(context, dialog_id)
                 await self.managers.navigator.execute(dialog_id, update, context)
         except Exception as e:
-            print(f"Error handling command: {e}")
+            logger.exception(
+                "Error handling command user_id=%s text=%s: %s",
+                self.get_user_id(update),
+                getattr(getattr(update, "message", None), "text", None),
+                e,
+            )
             await self.managers.navigator.execute(Dialogs.MENU, update, context)
 
     def register_input_handler(self, user_id: int, dialog_type: int, handler: Callable[..., Coroutine[Any, Any, Any]]) -> None:
@@ -485,18 +506,16 @@ class Bot:
         """
         # --- Refactoring Change: New initialization order ---
         try:
-            print("Initializing bot managers...")
+            logger.info("Initializing bot managers")
             await self.managers.initialize_all()
-            print("All managers initialized successfully.")
+            logger.info("All bot managers initialized successfully")
 
-            print("Initializing bot services...")
+            logger.info("Initializing bot services")
             await self.services.initialize_all()
-            print("All services initialized successfully.")
+            logger.info("All bot services initialized successfully")
             
         except Exception as e:
-            print(f"FATAL: Error during post-initialization: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.exception("Fatal error during bot post-initialization: %s", e)
             # In a real scenario, you might want to stop the bot if initialization fails
             # For now, we'll just log the error.
             raise

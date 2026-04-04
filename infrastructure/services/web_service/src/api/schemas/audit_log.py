@@ -13,14 +13,20 @@ class AuditLogEntryResponse(BaseModel):
     entity_type: str
     entity_id: int
     event_type: str = "ENTITY_CHANGE"
+    event_category: str = "DATA_CHANGE"
+    event_name: Optional[str] = None
     action: str
     actor_id: Optional[int] = None
+    actor_external_id: Optional[str] = None
     actor_type: str = "SYSTEM"
+    actor_origin: Optional[str] = None
     actor_display: Optional[str] = None
     source_service: Optional[str] = None
     retention_class: Optional[str] = None
     request_id: Optional[str] = None
     correlation_id: Optional[str] = None
+    operation_id: Optional[str] = None
+    causation_id: Optional[str] = None
     reason: Optional[str] = None
     old_data: Optional[Dict[str, Any]] = None
     new_data: Optional[Dict[str, Any]] = None

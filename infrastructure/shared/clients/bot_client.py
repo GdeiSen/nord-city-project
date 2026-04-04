@@ -46,37 +46,37 @@ class _TelegramAuthProxy(_BotServiceProxy):
 class _NotificationProxy(_BotServiceProxy):
     """Proxy for the NotificationService in bot_service."""
 
-    async def notify_new_ticket(self, *, ticket_id: int) -> Dict[str, Any]:
+    async def notify_new_ticket(self, *, ticket_id: int, _audit_context: dict | None = None) -> Dict[str, Any]:
         """Notify admin chat about a new service ticket."""
-        return await self._call("notify_new_ticket", ticket_id=ticket_id)
+        return await self._call("notify_new_ticket", ticket_id=ticket_id, _audit_context=_audit_context)
 
-    async def edit_ticket_message(self, *, ticket_id: int) -> Dict[str, Any]:
+    async def edit_ticket_message(self, *, ticket_id: int, _audit_context: dict | None = None) -> Dict[str, Any]:
         """Edit the ticket message in admin chat with current data. Call when ticket is edited via website."""
-        return await self._call("edit_ticket_message", ticket_id=ticket_id)
+        return await self._call("edit_ticket_message", ticket_id=ticket_id, _audit_context=_audit_context)
 
-    async def delete_ticket_messages(self, *, ticket_id: int) -> Dict[str, Any]:
+    async def delete_ticket_messages(self, *, ticket_id: int, _audit_context: dict | None = None) -> Dict[str, Any]:
         """Delete ticket message and all replies from admin chat. Call before deleting ticket from DB."""
-        return await self._call("delete_ticket_messages", ticket_id=ticket_id)
+        return await self._call("delete_ticket_messages", ticket_id=ticket_id, _audit_context=_audit_context)
 
-    async def notify_ticket_completion(self, *, ticket_id: int) -> Dict[str, Any]:
+    async def notify_ticket_completion(self, *, ticket_id: int, _audit_context: dict | None = None) -> Dict[str, Any]:
         """Notify user about ticket completion. Bot sends message and deletes reply messages in admin chat."""
-        return await self._call("notify_ticket_completion", ticket_id=ticket_id)
+        return await self._call("notify_ticket_completion", ticket_id=ticket_id, _audit_context=_audit_context)
 
-    async def notify_new_guest_parking(self, *, req_id: int) -> Dict[str, Any]:
+    async def notify_new_guest_parking(self, *, req_id: int, _audit_context: dict | None = None) -> Dict[str, Any]:
         """Отправить заявку на гостевую парковку в чат администраторов (при создании с сайта)."""
-        return await self._call("notify_new_guest_parking", req_id=req_id)
+        return await self._call("notify_new_guest_parking", req_id=req_id, _audit_context=_audit_context)
 
-    async def edit_guest_parking_message(self, *, req_id: int) -> Dict[str, Any]:
+    async def edit_guest_parking_message(self, *, req_id: int, _audit_context: dict | None = None) -> Dict[str, Any]:
         """Отредактировать сообщение заявки в чате администраторов (при изменении с сайта)."""
-        return await self._call("edit_guest_parking_message", req_id=req_id)
+        return await self._call("edit_guest_parking_message", req_id=req_id, _audit_context=_audit_context)
 
-    async def delete_guest_parking_messages(self, *, req_id: int) -> Dict[str, Any]:
+    async def delete_guest_parking_messages(self, *, req_id: int, _audit_context: dict | None = None) -> Dict[str, Any]:
         """Удалить сообщение заявки из чата администраторов (перед удалением из БД)."""
-        return await self._call("delete_guest_parking_messages", req_id=req_id)
+        return await self._call("delete_guest_parking_messages", req_id=req_id, _audit_context=_audit_context)
 
-    async def resync_object_routes(self, *, object_id: int) -> Dict[str, Any]:
+    async def resync_object_routes(self, *, object_id: int, _audit_context: dict | None = None) -> Dict[str, Any]:
         """Re-sync active object-bound messages after object chat binding changes."""
-        return await self._call("resync_object_routes", object_id=object_id)
+        return await self._call("resync_object_routes", object_id=object_id, _audit_context=_audit_context)
 
     async def send_bulk_notification(
         self,
@@ -85,6 +85,7 @@ class _NotificationProxy(_BotServiceProxy):
         title: str,
         message: str,
         attachment_urls: list[str] | None = None,
+        _audit_context: dict | None = None,
     ) -> Dict[str, Any]:
         """Send a notification to multiple bot users by their Telegram IDs."""
         return await self._call(
@@ -93,6 +94,7 @@ class _NotificationProxy(_BotServiceProxy):
             title=title,
             message=message,
             attachment_urls=attachment_urls or [],
+            _audit_context=_audit_context,
         )
 
     async def notify_user_deleted(
@@ -142,9 +144,9 @@ class _BotSettingsProxy(_BotServiceProxy):
 class _StatsProxy(_BotServiceProxy):
     """Proxy for statistics message sync in bot_service."""
 
-    async def sync_stats_message(self) -> Dict[str, Any]:
+    async def sync_stats_message(self, *, _audit_context: dict | None = None) -> Dict[str, Any]:
         """Recalculate service ticket stats and sync the canonical stats message if needed."""
-        return await self._call("sync_stats_message")
+        return await self._call("sync_stats_message", _audit_context=_audit_context)
 
 
 # ---------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+import logging
 from typing import TYPE_CHECKING
 from shared.constants import Dialogs, Variables, CallbackResult
 import json
@@ -15,6 +16,9 @@ if TYPE_CHECKING:
     from telegram.ext import ContextTypes
     from shared.entities.dialog import Dialog
     from bot import Bot
+
+
+logger = logging.getLogger(__name__)
 
 async def service_callback(
     bot: "Bot",
@@ -148,7 +152,7 @@ async def service_callback(
                                         })
                     
                 except (ValueError, IndexError):
-                    print(f"Failed to process trace item: {raw_item}")
+                    logger.warning("Failed to process trace item: %s", raw_item)
                     continue
             
             formatted_trace = []
@@ -243,5 +247,4 @@ async def service_callback(
         bot.managers.storage.set(context, Variables.USER_SERVICE_TICKET, service_ticket)
 
     return CallbackResult.continue_()
-
 

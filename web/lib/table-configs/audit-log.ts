@@ -17,7 +17,7 @@ const AUDIT_ENTITY_TYPES = [
 
 const AUDIT_ACTIONS = [
   { value: "create", label: "Создание" },
-  { value: "update", label: "Изменение" },
+  { value: "update,edit", label: "Изменение" },
   { value: "delete", label: "Удаление" },
 ]
 

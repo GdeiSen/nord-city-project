@@ -25,6 +25,7 @@ import {
 const ACTION_LABELS: Record<string, string> = {
   create: "Создание",
   update: "Изменение",
+  edit: "Изменение",
   delete: "Удаление",
 }
 

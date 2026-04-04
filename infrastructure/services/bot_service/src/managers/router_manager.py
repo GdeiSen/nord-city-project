@@ -9,6 +9,9 @@ if TYPE_CHECKING:
     from bot import Bot
 
 
+logger = logging.getLogger(__name__)
+
+
 class RouterManager(BaseManager):
     """Менеджер для управления маршрутизацией диалогов"""
     
@@ -20,18 +23,18 @@ class RouterManager(BaseManager):
 
     async def initialize(self) -> None:
         """Инициализация менеджера маршрутизации"""
-        print("RouterManager initialized")
+        logger.info("RouterManager initialized")
 
     async def execute_previous(self, update: "Update", context: "ContextTypes.DEFAULT_TYPE") -> int | str:
         """Выполнение предыдущего элемента в трассировке"""
         current_trace = self.get_current_trace(context)
         if not current_trace or len(current_trace) < 2:
-            print("execute_previous: current_trace is empty or too short")
+            logger.warning("execute_previous: current_trace is empty or too short")
             await self.execute(Dialogs.MENU, update, context)
         self.pop_previous_trace_item(context)
         previous_item = self.get_current_trace_item(context)
         if previous_item is None:
-            print("execute_previous: previous_item is None")
+            logger.warning("execute_previous: previous_item is None")
             await self.execute(Dialogs.MENU, update, context)
         return await self.execute(previous_item, update, context)
 
@@ -48,13 +51,13 @@ class RouterManager(BaseManager):
                 try:
                     key = int(key)
                 except ValueError:
-                    print(f"Invalid key: {key}")
+                    logger.warning("Invalid navigation key: %s", key)
             if key in self.dialogs:
                 return await self.dialogs[key](update, context, self.bot)
             elif key in self.handlers:
                 return await self.handlers[key](update, context, self.bot)
             else:
-                print(f"Unknown key: {key}")
+                logger.warning("Unknown navigation key: %s", key)
                 await self.execute(Dialogs.MENU, update, context)
         except Exception as e:
             raise e
@@ -68,7 +71,7 @@ class RouterManager(BaseManager):
     def _set_current_trace(self, context: "ContextTypes.DEFAULT_TYPE", current_trace: list[int | str]):
         """Установка текущей трассировки"""
         self.bot.managers.storage.set(context, Variables.ACTIVE_DIALOG_TRACE, current_trace)
-        logging.info(f"set_current_trace: {current_trace}")
+        logger.info("set_current_trace: %s", current_trace)
 
     def add_trace_item(self, context: "ContextTypes.DEFAULT_TYPE", item: int | str):
         """Добавление элемента в трассировку"""
@@ -80,17 +83,17 @@ class RouterManager(BaseManager):
             index = current_trace.index(item)
             # Обрезаем трассировку до этого индекса
             current_trace = current_trace[:index]
-            logging.info(f"add_trace_item: обнаружено зацикливание, удаляем элементы после {item}")
+            logger.info("add_trace_item: detected loop, trimming trace after %s", item)
         
         # Добавляем элемент в трассировку
         current_trace.append(item)
         self._set_current_trace(context, current_trace)
-        logging.info(f"add_trace_item: {current_trace}")
+        logger.info("add_trace_item: %s", current_trace)
 
     def set_entry_point_item(self, context: "ContextTypes.DEFAULT_TYPE", item: int):
         """Установка точки входа"""
         self._set_current_trace(context, [item])
-        logging.info(f"set_entry_point_item: {item}")
+        logger.info("set_entry_point_item: %s", item)
 
     async def execute_entry_point_item(self, update: "Update", context: "ContextTypes.DEFAULT_TYPE"):
         """Выполнение точки входа"""
@@ -108,14 +111,14 @@ class RouterManager(BaseManager):
     def pop_previous_trace_item(self, context: "ContextTypes.DEFAULT_TYPE") -> int | str | None:
         """Удаление предыдущего элемента из трассировки"""
         current_trace = self.get_current_trace(context)
-        logging.info(f"pop_previous_trace_item: current_trace before pop: {current_trace}")
+        logger.info("pop_previous_trace_item: current_trace before pop: %s", current_trace)
         if not current_trace:
-            logging.info("pop_previous_trace_item: current_trace is empty")
+            logger.info("pop_previous_trace_item: current_trace is empty")
             return None
         prev_trace_item = current_trace.pop()
-        logging.info(f"pop_previous_trace_item: removing {prev_trace_item} from {current_trace}")
+        logger.info("pop_previous_trace_item: removing %s from %s", prev_trace_item, current_trace)
         self._set_current_trace(context, current_trace)
-        logging.info(f"pop_previous_trace_item: current_trace after set: {self.get_current_trace(context)}")
+        logger.info("pop_previous_trace_item: current_trace after set: %s", self.get_current_trace(context))
         return prev_trace_item
 
     def get_entry_point_item(self, context: "ContextTypes.DEFAULT_TYPE") -> int | str | None:
@@ -139,7 +142,7 @@ class RouterManager(BaseManager):
         if current_trace:
             current_trace[-1] = item
             self._set_current_trace(context, current_trace)
-            logging.info(f"edit_current_trace_item: {current_trace}")
+            logger.info("edit_current_trace_item: %s", current_trace)
 
     async def restore_dialog_state(self, user_id: int, context: "ContextTypes.DEFAULT_TYPE") -> int | None:
         """Восстановление состояния диалога"""

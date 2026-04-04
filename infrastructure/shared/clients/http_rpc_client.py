@@ -76,6 +76,9 @@ class HttpRpcClient:
             if not isinstance(data, dict) or "success" not in data:
                 return {"success": False, "data": None, "error": "Malformed response from service"}
             return data
+        except httpx.ConnectError as e:
+            logger.warning(f"RPC connection error for {service}.{method}: {e}")
+            return {"success": False, "data": None, "error": f"RPC connection error for {service}.{method}: {e}"}
         except httpx.TimeoutException:
             logger.error(f"RPC timeout for {service}.{method}")
             return {"success": False, "data": None, "error": f"RPC timeout for {service}.{method}"}

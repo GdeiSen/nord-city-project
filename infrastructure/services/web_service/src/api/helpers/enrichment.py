@@ -226,7 +226,15 @@ async def enrich_audit_log_with_assignees(items: List[Any]) -> List[AuditLogEntr
     """Enrich audit log entries with actor display name. Returns list of AuditLogEntryResponse."""
     if not items:
         return []
-    actor_ids = [a.actor_id for a in items if getattr(a, "actor_id", None) is not None and a.actor_id > 1]
+    actor_ids = [
+        a.actor_id
+        for a in items
+        if (
+            getattr(a, "actor_id", None) is not None
+            and a.actor_id > 1
+            and (getattr(a, "actor_type", "") or "").upper() == "USER"
+        )
+    ]
     user_map = await batch_fetch_users(actor_ids)
     result: List[AuditLogEntryResponse] = []
     for a in items:
@@ -235,6 +243,9 @@ async def enrich_audit_log_with_assignees(items: List[Any]) -> List[AuditLogEntr
         actor_type = (a.actor_type or "").upper()
         if actor_type == "SERVICE":
             d["actor_display"] = a.source_service or "Сервис"
+        elif actor_type == "TELEGRAM_USER":
+            external_id = getattr(a, "actor_external_id", None) or actor_id
+            d["actor_display"] = f"Telegram #{external_id}" if external_id is not None else "Telegram"
         elif actor_id is None or actor_id <= 1:
             d["actor_display"] = "Система"
         elif actor_id in user_map:

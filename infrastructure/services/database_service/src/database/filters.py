@@ -94,6 +94,69 @@ class CompositeTextFilter(FilterHandler):
 
 
 # ---------------------------------------------------------------------------
+# Audit action aliases
+# ---------------------------------------------------------------------------
+
+
+class AuditActionFilter(FilterHandler):
+    """Filter audit actions with support for legacy and grouped action names."""
+
+    _ALIASES = {
+        "create": ["create"],
+        "update": ["update", "edit"],
+        "edit": ["update", "edit"],
+        "delete": ["delete"],
+        "send": ["send"],
+        "sync": ["sync"],
+        "reroute": ["reroute"],
+        "pin": ["pin"],
+    }
+
+    def apply(
+        self,
+        query: Any,
+        model: Any,
+        op: str,
+        val: Any,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+    ) -> Any:
+        if not hasattr(model, "action"):
+            return query.where(false())
+
+        col = getattr(model, "action")
+
+        if op == "isEmpty":
+            return query.where(col.is_(None))
+        if op == "isNotEmpty":
+            return query.where(col.isnot(None))
+        if val is None or not str(val).strip():
+            return query.where(false())
+
+        raw_values = [item.strip().lower() for item in str(val).split(",") if item.strip()]
+        if not raw_values:
+            return query.where(false())
+
+        expanded_values: list[str] = []
+        for raw in raw_values:
+            expanded_values.extend(self._ALIASES.get(raw, [raw]))
+        unique_values = list(dict.fromkeys(expanded_values))
+
+        if op == "equals":
+            return query.where(col.in_(unique_values))
+        if op == "notEquals":
+            return query.where(~col.in_(unique_values))
+        if op == "contains":
+            clauses = [cast(col, String).ilike(f"%{value}%") for value in unique_values]
+            return query.where(or_(*clauses))
+
+        return query
+
+    def get_search_columns(self) -> List[str]:
+        return ["action"]
+
+
+# ---------------------------------------------------------------------------
 # Custom function handler (for joins, complex logic)
 # ---------------------------------------------------------------------------
 
@@ -136,6 +199,7 @@ class FilterRegistry:
         self.register("User", "contacts", CompositeTextFilter(
             ["email", "phone_number"]
         ))
+        self.register("AuditLog", "action", AuditActionFilter())
 
     def register(self, model_name: str, column_id: str, handler: FilterHandler) -> None:
         """Register a handler for (model_name, column_id)."""

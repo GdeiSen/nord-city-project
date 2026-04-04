@@ -16,6 +16,7 @@
     python infrastructure/scripts/add_chat_routing_support.py
 """
 
+import logging
 import os
 import sys
 from pathlib import Path
@@ -41,7 +42,7 @@ if env_path.exists():
 required = ["DB_HOST", "DB_NAME", "DB_USER", "DB_PASSWORD"]
 missing = [v for v in required if not os.getenv(v)]
 if missing:
-    print(f"Ошибка: не заданы переменные окружения: {', '.join(missing)}")
+    logger.error("Не заданы переменные окружения: %s", ", ".join(missing))
     sys.exit(1)
 
 db_src = INFRASTRUCTURE_ROOT / "services" / "database_service" / "src"
@@ -49,6 +50,9 @@ if str(db_src) not in sys.path:
     sys.path.insert(0, str(db_src))
 
 from models.telegram_chat import TelegramChat
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
 
 def get_db_url() -> str:
@@ -250,10 +254,10 @@ async def run_migration():
                     },
                 )
 
-        print("Таблица telegram_chats создана или уже существует.")
-        print("Колонки objects.admin_chat_id и guest_parking_requests.object_id готовы.")
-        print("Связь bot_message_refs.chat_id -> telegram_chats.chat_id подготовлена.")
-        print("Backfill service_tickets.object_id и guest_parking_requests.object_id выполнен.")
+        logger.info("Таблица telegram_chats создана или уже существует")
+        logger.info("Колонки objects.admin_chat_id и guest_parking_requests.object_id готовы")
+        logger.info("Связь bot_message_refs.chat_id -> telegram_chats.chat_id подготовлена")
+        logger.info("Backfill service_tickets.object_id и guest_parking_requests.object_id выполнен")
     finally:
         await engine.dispose()
 
@@ -264,7 +268,7 @@ def main():
     try:
         asyncio.run(run_migration())
     except Exception as e:
-        print(f"Ошибка миграции: {e}")
+        logger.exception("Ошибка миграции add_chat_routing_support: %s", e)
         sys.exit(1)
 
 

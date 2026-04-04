@@ -1,3 +1,4 @@
+import logging
 from typing import TYPE_CHECKING
 from shared.constants import Dialogs, Actions
 from telegram.constants import ParseMode
@@ -6,6 +7,9 @@ if TYPE_CHECKING:
     from telegram import Update
     from telegram.ext import ContextTypes
     from bot import Bot
+
+
+logger = logging.getLogger(__name__)
 
 
 async def start_test_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYPE", bot: "Bot") -> int:
@@ -80,7 +84,7 @@ async def start_test_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYP
                     
             except Exception as e:
                 info_text += f"❌ <b>Ошибка получения участников:</b> {str(e)}\n"
-                print(f"Error getting chat members: {e}")
+                logger.exception("Error getting chat members for chat_id=%s: %s", chat_id, e)
                 
         elif chat_type == 'private':
             # Для приватного чата показываем информацию о пользователе
@@ -117,5 +121,5 @@ async def start_test_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYP
             parse_mode=ParseMode.HTML,
             reply_to_message_id=update.message.message_id
         )
-        print(f"Error in start_test_dialog: {e}")
-        return Actions.END 
+        logger.exception("Error in start_test_dialog for chat_id=%s: %s", getattr(update.effective_chat, "id", None), e)
+        return Actions.END
