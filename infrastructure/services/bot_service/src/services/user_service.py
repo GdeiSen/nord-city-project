@@ -15,8 +15,17 @@ class UserService(BaseService):
     async def initialize(self) -> None:
         pass
 
-    async def create_user(self, user: UserSchema) -> Optional[UserSchema]:
-        result = await self.bot.managers.database.user.create(model_instance=user, model_class=UserSchema)
+    async def create_user(
+        self,
+        user: UserSchema,
+        *,
+        _audit_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[UserSchema]:
+        result = await self.bot.managers.database.user.create(
+            model_instance=user,
+            model_class=UserSchema,
+            _audit_context=_audit_context,
+        )
         if result["success"]:
             return result["data"]
         return None
@@ -33,16 +42,33 @@ class UserService(BaseService):
             return result["data"] or []
         return []
 
-    async def update_user(self, user_id: int, update_data: Dict[str, Any]) -> Optional[UserSchema]:
+    async def update_user(
+        self,
+        user_id: int,
+        update_data: Dict[str, Any],
+        *,
+        _audit_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[UserSchema]:
         result = await self.bot.managers.database.user.update(
-            entity_id=user_id, update_data=update_data, model_class=UserSchema
+            entity_id=user_id,
+            update_data=update_data,
+            model_class=UserSchema,
+            _audit_context=_audit_context,
         )
         if result["success"]:
             return result["data"]
         return None
 
-    async def delete_user(self, user_id: int) -> bool:
-        result = await self.bot.managers.database.user.delete(entity_id=user_id)
+    async def delete_user(
+        self,
+        user_id: int,
+        *,
+        _audit_context: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        result = await self.bot.managers.database.user.delete(
+            entity_id=user_id,
+            _audit_context=_audit_context,
+        )
         if result["success"]:
             return result["data"]
         return False

@@ -115,6 +115,9 @@ class _CRUDProxy:
     async def get_all(self, *, model_class: Any = None) -> Dict[str, Any]:
         return await self._call("get_all", _model_class=model_class)
 
+    async def get_by_ids(self, *, ids: List[int], model_class: Any = None) -> Dict[str, Any]:
+        return await self._call("get_by_ids", _model_class=model_class, ids=ids if ids else [])
+
     async def get_paginated(
         self,
         *,
@@ -223,6 +226,46 @@ class _ServiceTicketProxy(_CRUDProxy):
 
     async def get_stats_grouped_by_object(self, *, model_class: Any = None) -> Dict[str, Any]:
         return await self._call("get_stats_grouped_by_object", _model_class=model_class)
+
+
+class _FeedbackProxy(_CRUDProxy):
+    """Feedback proxy with service-ticket helpers."""
+
+    async def upsert_service_ticket_feedback(
+        self,
+        *,
+        service_ticket_id: int,
+        user_id: int,
+        ddid: str,
+        answer: str,
+        text: str | None = None,
+        feedback_type: str | None = None,
+        model_class: Any = None,
+        _audit_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "upsert_service_ticket_feedback",
+            _model_class=model_class,
+            service_ticket_id=service_ticket_id,
+            user_id=user_id,
+            ddid=ddid,
+            answer=answer,
+            text=text,
+            feedback_type=feedback_type,
+            _audit_context=_audit_context,
+        )
+
+    async def get_by_service_ticket_id(
+        self,
+        *,
+        service_ticket_id: int,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "get_by_service_ticket_id",
+            _model_class=model_class,
+            service_ticket_id=service_ticket_id,
+        )
 
 
 class _AuditLogProxy(_CRUDProxy):
@@ -340,6 +383,7 @@ class _BotMessageRefProxy(_CRUDProxy):
         kind: str = "PRIMARY",
         meta: Optional[Dict[str, Any]] = None,
         model_class: Any = None,
+        _audit_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         return await self._call(
             "upsert_message",
@@ -350,6 +394,7 @@ class _BotMessageRefProxy(_CRUDProxy):
             message_id=message_id,
             kind=kind,
             meta=meta or {},
+            _audit_context=_audit_context,
         )
 
     async def list_by_entity(
@@ -433,6 +478,7 @@ class _TelegramChatProxy(_CRUDProxy):
         last_seen_at: str | None = None,
         meta: Optional[Dict[str, Any]] = None,
         model_class: Any = None,
+        _audit_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         return await self._call(
             "upsert_chat",
@@ -444,6 +490,7 @@ class _TelegramChatProxy(_CRUDProxy):
             bot_status=bot_status,
             last_seen_at=last_seen_at,
             meta=meta or {},
+            _audit_context=_audit_context,
         )
 
     async def get_known_chats(
@@ -463,6 +510,58 @@ class _TelegramChatProxy(_CRUDProxy):
             "get_by_chat_ids",
             _model_class=model_class,
             chat_ids=chat_ids if chat_ids else [],
+        )
+
+
+class _ServiceTicketFeedbackRefProxy(_CRUDProxy):
+    """Service ticket feedback link proxy."""
+
+    async def get_by_service_ticket_id(
+        self,
+        *,
+        service_ticket_id: int,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "get_by_service_ticket_id",
+            _model_class=model_class,
+            service_ticket_id=service_ticket_id,
+        )
+
+    async def get_by_feedback_id(
+        self,
+        *,
+        feedback_id: int,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "get_by_feedback_id",
+            _model_class=model_class,
+            feedback_id=feedback_id,
+        )
+
+    async def get_by_service_ticket_ids(
+        self,
+        *,
+        service_ticket_ids: List[int],
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "get_by_service_ticket_ids",
+            _model_class=model_class,
+            service_ticket_ids=service_ticket_ids if service_ticket_ids else [],
+        )
+
+    async def get_by_feedback_ids(
+        self,
+        *,
+        feedback_ids: List[int],
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "get_by_feedback_ids",
+            _model_class=model_class,
+            feedback_ids=feedback_ids if feedback_ids else [],
         )
 
 
@@ -544,6 +643,7 @@ class _StorageFileProxy(_CRUDProxy):
         category: str = "DEFAULT",
         meta: Optional[Dict[str, Any]] = None,
         model_class: Any = None,
+        _audit_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         return await self._call(
             "register_upload",
@@ -557,6 +657,7 @@ class _StorageFileProxy(_CRUDProxy):
             kind=kind,
             category=category,
             meta=meta or {},
+            _audit_context=_audit_context,
         )
 
     async def bind_files(
@@ -568,6 +669,7 @@ class _StorageFileProxy(_CRUDProxy):
         category: str = "DEFAULT",
         meta: Optional[Dict[str, Any]] = None,
         model_class: Any = None,
+        _audit_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         return await self._call(
             "bind_files",
@@ -577,6 +679,7 @@ class _StorageFileProxy(_CRUDProxy):
             urls=urls or [],
             category=category,
             meta=meta or {},
+            _audit_context=_audit_context,
         )
 
     async def find_by_entity(
@@ -611,12 +714,14 @@ class _StorageFileProxy(_CRUDProxy):
         storage_path: str,
         meta_updates: Optional[Dict[str, Any]] = None,
         model_class: Any = None,
+        _audit_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         return await self._call(
             "merge_meta_by_path",
             _model_class=model_class,
             storage_path=storage_path,
             meta_updates=meta_updates or {},
+            _audit_context=_audit_context,
         )
 
     async def delete_file(
@@ -672,7 +777,7 @@ class DatabaseClient:
         self.user = _UserProxy(self._http, "user")
         self.auth = _CRUDProxy(self._http, "auth")
         self.dynamic_dialog_binding = _DynamicDialogBindingProxy(self._http, "dynamic_dialog_binding")
-        self.feedback = _CRUDProxy(self._http, "feedback")
+        self.feedback = _FeedbackProxy(self._http, "feedback")
         self.object = _ObjectProxy(self._http, "object")
         self.poll = _CRUDProxy(self._http, "poll")
         self.service_ticket = _ServiceTicketProxy(self._http, "service_ticket")
@@ -682,6 +787,10 @@ class DatabaseClient:
         self.audit_log = _AuditLogProxy(self._http, "audit_log")
         self.bot_message_ref = _BotMessageRefProxy(self._http, "bot_message_ref")
         self.telegram_chat = _TelegramChatProxy(self._http, "telegram_chat")
+        self.service_ticket_feedback_ref = _ServiceTicketFeedbackRefProxy(
+            self._http,
+            "service_ticket_feedback_ref",
+        )
         self.space = _SpaceProxy(self._http, "space")
         self.space_view = _CRUDProxy(self._http, "space_view")
         self.otp = _OtpProxy(self._http, "otp")

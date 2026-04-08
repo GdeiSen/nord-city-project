@@ -10,7 +10,7 @@ from shared.constants import AuditRetentionClass, Roles
 from shared.clients.database_client import db_client
 from shared.schemas.poll_answer import PollAnswerSchema
 from shared.utils.audit_events import append_business_audit_event
-from api.dependencies import get_audit_context, get_current_user, get_optional_current_user
+from api.dependencies import get_audit_context, get_current_user
 from api.schemas.common import MessageResponse
 from api.schemas.polls import (
     CreatePollRequest,
@@ -92,11 +92,15 @@ async def _get_localization_payload() -> dict[str, Any]:
 
 
 @router.post("/", response_model=PollAnswerResponse, status_code=status.HTTP_201_CREATED)
-async def create_poll(body: CreatePollRequest, request: Request):
+async def create_poll(
+    body: CreatePollRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
     response = await db_client.poll.create(
         model_data=body.model_dump(),
         model_class=PollAnswerSchema,
-        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+        _audit_context=get_audit_context(request, current_user),
     )
     if not response.get("success"):
         error = response.get("error", "Failed to create poll answer")
@@ -234,14 +238,19 @@ async def get_poll_by_id(entity_id: int):
 
 
 @router.put("/{entity_id}", response_model=MessageResponse)
-async def update_poll(entity_id: int, body: UpdatePollBody, request: Request):
+async def update_poll(
+    entity_id: int,
+    body: UpdatePollBody,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
     update_data = body.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
     response = await db_client.poll.update(
         entity_id=entity_id,
         update_data=update_data,
-        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+        _audit_context=get_audit_context(request, current_user),
     )
     if not response.get("success"):
         error = response.get("error", "Failed to update poll answer")
@@ -251,10 +260,14 @@ async def update_poll(entity_id: int, body: UpdatePollBody, request: Request):
 
 
 @router.delete("/{entity_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_poll(entity_id: int, request: Request):
+async def delete_poll(
+    entity_id: int,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
     response = await db_client.poll.delete(
         entity_id=entity_id,
-        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+        _audit_context=get_audit_context(request, current_user),
     )
     if not response.get("success"):
         error = response.get("error", "Failed to delete poll answer")

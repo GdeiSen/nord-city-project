@@ -301,6 +301,11 @@ class BaseService:
         return await self.repository.get_all(session=session)
 
     @db_session_manager
+    async def get_by_ids(self, *, session, ids: List[Any]) -> List[ModelType]:
+        """Batch-fetch entities by primary key."""
+        return await self.repository.get_by_ids(session=session, ids=ids or [])
+
+    @db_session_manager
     async def get_paginated(
         self,
         *,

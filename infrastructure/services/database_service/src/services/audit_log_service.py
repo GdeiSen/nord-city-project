@@ -7,12 +7,13 @@ database_service and remote writes from the dedicated audit_service.
 
 import re
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import delete, select
 
 from database.database_manager import DatabaseManager
 from models.audit_log import AuditLog
+from models.user import User
 from shared.constants import (
     AUDIT_FIND_BY_ENTITY_DEFAULT_LIMIT,
     AUDIT_RETENTION_DAYS,
@@ -32,6 +33,104 @@ class AuditLogService(BaseService):
 
     def __init__(self, db_manager: DatabaseManager):
         super().__init__(db_manager)
+
+    @staticmethod
+    def _build_user_label(user: User | None, *, fallback_id: int | None = None) -> str:
+        if user is not None:
+            full_name = " ".join(
+                part for part in [user.last_name, user.first_name, user.middle_name] if part
+            ).strip()
+            if full_name:
+                return full_name
+            username = str(user.username or "").strip()
+            if username:
+                return f"@{username}"
+            if getattr(user, "id", None):
+                return f"#{int(user.id)}"
+        return f"#{fallback_id}" if fallback_id is not None else "Пользователь"
+
+    async def _build_actor_snapshot(
+        self,
+        *,
+        session,
+        actor_id: Optional[int],
+        actor_external_id: Optional[str],
+        actor_type: str,
+        actor_origin: Optional[str],
+        source_service: str,
+        meta: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        existing_snapshot = meta.get("actor_snapshot")
+        if isinstance(existing_snapshot, dict) and str(existing_snapshot.get("label") or "").strip():
+            return existing_snapshot
+
+        normalized_actor_type = str(actor_type or AuditActorType.SYSTEM).upper()
+        fallback_external_id = (
+            str(actor_external_id).strip()
+            if actor_external_id is not None and str(actor_external_id).strip()
+            else None
+        )
+        user: User | None = None
+        if actor_id is not None and int(actor_id) > 0:
+            try:
+                user = await session.get(User, int(actor_id))
+            except Exception:
+                user = None
+
+        if normalized_actor_type in {AuditActorType.USER, AuditActorType.TELEGRAM_USER} and actor_id is not None and int(actor_id) > 0:
+            label = self._build_user_label(user, fallback_id=int(actor_id))
+            snapshot_kind = "user" if user is not None else "telegram_user" if normalized_actor_type == AuditActorType.TELEGRAM_USER else "unknown"
+            return {
+                "kind": snapshot_kind,
+                "label": label,
+                "href": f"/users/{int(actor_id)}",
+                "user_id": int(actor_id),
+                "external_id": fallback_external_id,
+                "actor_type": normalized_actor_type,
+                "actor_origin": actor_origin,
+                "source_service": source_service,
+            }
+
+        if normalized_actor_type == AuditActorType.SERVICE:
+            return {
+                "kind": "service",
+                "label": source_service or "Сервис",
+                "actor_type": normalized_actor_type,
+                "actor_origin": actor_origin,
+                "source_service": source_service,
+            }
+
+        if normalized_actor_type == AuditActorType.TELEGRAM_USER:
+            external_id = fallback_external_id or (str(actor_id) if actor_id is not None else None)
+            return {
+                "kind": "telegram_user",
+                "label": f"Telegram #{external_id}" if external_id is not None else "Telegram",
+                "user_id": int(actor_id) if actor_id is not None else None,
+                "external_id": external_id,
+                "actor_type": normalized_actor_type,
+                "actor_origin": actor_origin,
+                "source_service": source_service,
+            }
+
+        if actor_id is None or int(actor_id) <= 1:
+            return {
+                "kind": "system",
+                "label": "Система",
+                "actor_type": normalized_actor_type or AuditActorType.SYSTEM,
+                "actor_origin": actor_origin,
+                "source_service": source_service,
+            }
+
+        return {
+            "kind": "unknown",
+            "label": f"#{int(actor_id)}",
+            "href": f"/users/{int(actor_id)}",
+            "user_id": int(actor_id),
+            "external_id": fallback_external_id,
+            "actor_type": normalized_actor_type or None,
+            "actor_origin": actor_origin,
+            "source_service": source_service,
+        }
 
     @staticmethod
     def _to_snake_case(value: str) -> str:
@@ -65,7 +164,7 @@ class AuditLogService(BaseService):
         meta: Optional[dict] = None,
         audit_type: str = "fast",
     ) -> Optional[AuditLog]:
-        meta_safe = meta if isinstance(meta, dict) else {}
+        meta_safe = dict(meta) if isinstance(meta, dict) else {}
         normalized_actor_origin = str(actor_origin or meta_safe.get("actor_origin") or "").strip()
         if not normalized_actor_origin:
             if actor_type == AuditActorType.TELEGRAM_USER:
@@ -88,6 +187,17 @@ class AuditLogService(BaseService):
         normalized_event_name = (
             event_name
             or f"{self._to_snake_case(entity_type)}.{str(event_type or 'event').lower()}"
+        )
+        meta_safe["actor_snapshot"] = await self._build_actor_snapshot(
+            session=session,
+            actor_id=actor_id,
+            actor_external_id=(
+                str(normalized_actor_external_id) if normalized_actor_external_id is not None else None
+            ),
+            actor_type=actor_type,
+            actor_origin=normalized_actor_origin,
+            source_service=source_service or "database_service",
+            meta=meta_safe,
         )
         entry = AuditLog(
             entity_type=entity_type,

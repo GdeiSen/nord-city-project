@@ -38,9 +38,14 @@ class _BotServiceProxy:
 class _TelegramAuthProxy(_BotServiceProxy):
     """Proxy for the TelegramAuthService in bot_service."""
 
-    async def send_otp_code(self, *, user_id: int) -> Dict[str, Any]:
+    async def send_otp_code(
+        self,
+        *,
+        user_id: int,
+        _audit_context: dict | None = None,
+    ) -> Dict[str, Any]:
         """Request the bot to send an OTP code to the specified user."""
-        return await self._call("send_otp_code", user_id=user_id)
+        return await self._call("send_otp_code", user_id=user_id, _audit_context=_audit_context)
 
 
 class _NotificationProxy(_BotServiceProxy):

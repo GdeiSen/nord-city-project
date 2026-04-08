@@ -63,11 +63,26 @@ async def poll_callback(
                 update_data = {
                     'answer': answer_value
                 }
-                await bot.services.poll.update_poll(answer_id, update_data)
+                await bot.services.poll.update_poll(
+                    answer_id,
+                    update_data,
+                    _audit_context=bot.services.poll.build_telegram_actor_audit_context(
+                        telegram_user_id=user_id,
+                        reason="poll_answer_updated_via_dialog",
+                        meta_updates={"ddid": ddid},
+                    ),
+                )
             else:
                 from shared.schemas import PollAnswerSchema
                 answer_obj = PollAnswerSchema(user_id=user_id, ddid=ddid, answer=answer_value)
-                await bot.services.poll.create_poll(answer_obj)
+                await bot.services.poll.create_poll(
+                    answer_obj,
+                    _audit_context=bot.services.poll.build_telegram_actor_audit_context(
+                        telegram_user_id=user_id,
+                        reason="poll_answer_created_via_dialog",
+                        meta_updates={"ddid": ddid},
+                    ),
+                )
             
     if state == 1:
         await bot.send_message(update, context, "poll_completed", dynamic=False)

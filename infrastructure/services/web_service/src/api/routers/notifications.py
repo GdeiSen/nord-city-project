@@ -74,7 +74,11 @@ def _normalize_attachment_urls(attachment_urls: list[str]) -> tuple[list[str], l
     return normalized_urls, normalized_paths
 
 
-async def _cleanup_temp_notification_attachments(storage_paths: list[str]) -> None:
+async def _cleanup_temp_notification_attachments(
+    storage_paths: list[str],
+    *,
+    audit_context: dict | None = None,
+) -> None:
     """
     Remove only TEMP files created for notification delivery.
     Bound files and non-TEMP categories are left untouched.
@@ -104,6 +108,7 @@ async def _cleanup_temp_notification_attachments(storage_paths: list[str]) -> No
             delete_response = await db_client.storage_file.delete_file(
                 storage_path=path,
                 remove_reference=False,
+                _audit_context=audit_context,
             )
             if not delete_response.get("success"):
                 logger.warning(
@@ -131,7 +136,7 @@ def _extract_user_id(user: UserSchema | dict) -> int | None:
 async def broadcast_notification(
     body: NotificationBroadcastRequest,
     request: Request,
-    _: dict = Depends(_require_admin),
+    current_user: dict = Depends(_require_admin),
 ):
     attachment_urls, attachment_paths = _normalize_attachment_urls(body.attachment_urls or body.image_urls)
 
@@ -160,12 +165,13 @@ async def broadcast_notification(
             detail="По выбранным фильтрам не найдено ни одного получателя.",
         )
 
+    audit_context = get_audit_context(request, current_user)
     bot_response = await bot_client.notification.send_bulk_notification(
         user_ids=recipient_ids,
         title=body.title,
         message=body.message,
         attachment_urls=attachment_urls,
-        _audit_context=get_audit_context(request, _),
+        _audit_context=audit_context,
     )
     if not bot_response.get("success"):
         error = bot_response.get("error", "Не удалось отправить уведомление.")
@@ -177,7 +183,10 @@ async def broadcast_notification(
         raise HTTPException(status_code=status_code, detail=error)
 
     if attachment_paths:
-        await _cleanup_temp_notification_attachments(attachment_paths)
+        await _cleanup_temp_notification_attachments(
+            attachment_paths,
+            audit_context=audit_context,
+        )
 
     delivery_data = bot_response.get("data") or {}
     failed_deliveries = delivery_data.get("failed_deliveries") or []

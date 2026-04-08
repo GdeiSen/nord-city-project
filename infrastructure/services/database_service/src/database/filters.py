@@ -99,18 +99,7 @@ class CompositeTextFilter(FilterHandler):
 
 
 class AuditActionFilter(FilterHandler):
-    """Filter audit actions with support for legacy and grouped action names."""
-
-    _ALIASES = {
-        "create": ["create"],
-        "update": ["update", "edit"],
-        "edit": ["update", "edit"],
-        "delete": ["delete"],
-        "send": ["send"],
-        "sync": ["sync"],
-        "reroute": ["reroute"],
-        "pin": ["pin"],
-    }
+    """Filter audit actions by their raw stored values."""
 
     def apply(
         self,
@@ -136,11 +125,7 @@ class AuditActionFilter(FilterHandler):
         raw_values = [item.strip().lower() for item in str(val).split(",") if item.strip()]
         if not raw_values:
             return query.where(false())
-
-        expanded_values: list[str] = []
-        for raw in raw_values:
-            expanded_values.extend(self._ALIASES.get(raw, [raw]))
-        unique_values = list(dict.fromkeys(expanded_values))
+        unique_values = list(dict.fromkeys(raw_values))
 
         if op == "equals":
             return query.where(col.in_(unique_values))

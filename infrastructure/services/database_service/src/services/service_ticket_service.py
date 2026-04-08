@@ -57,7 +57,13 @@ class ServiceTicketService(BaseService):
                     urls.append(candidate)
         return urls
 
-    async def _sync_ticket_files(self, *, session, ticket: ServiceTicket | None) -> None:
+    async def _sync_ticket_files(
+        self,
+        *,
+        session,
+        ticket: ServiceTicket | None,
+        audit_context: dict | None = None,
+    ) -> None:
         if ticket is None or getattr(ticket, "id", None) is None:
             return
         storage_svc = self.db_manager.services.get("storage_file")
@@ -70,6 +76,7 @@ class ServiceTicketService(BaseService):
             urls=self._extract_attachment_urls(ticket),
             category=StorageFileCategory.DEFAULT,
             meta={"source": "service_ticket"},
+            audit_context=audit_context,
         )
 
     # You can add custom business logic methods here.
@@ -81,18 +88,26 @@ class ServiceTicketService(BaseService):
 
     @db_session_manager
     async def create(self, *, session, model_instance, **kwargs):
-        created = await super().create(session=session, model_instance=model_instance, **kwargs)
-        await self._sync_ticket_files(session=session, ticket=created)
+        audit_context = self._get_audit_context(kwargs)
+        created = await super().create(
+            session=session,
+            model_instance=model_instance,
+            _audit_context=audit_context,
+            **kwargs,
+        )
+        await self._sync_ticket_files(session=session, ticket=created, audit_context=audit_context)
         return created
 
     @db_session_manager
     async def update(self, *, session, entity_id, update_data, **kwargs):
+        audit_context = self._get_audit_context(kwargs)
         existing = await self.repository.get_by_id(session=session, entity_id=entity_id)
         old_urls = self._extract_attachment_urls(existing) if existing is not None else []
         updated = await super().update(
             session=session,
             entity_id=entity_id,
             update_data=update_data,
+            _audit_context=audit_context,
             **kwargs,
         )
         storage_svc = self.db_manager.services.get("storage_file")
@@ -104,12 +119,14 @@ class ServiceTicketService(BaseService):
                     remove_reference=False,
                     expected_entity_type="ServiceTicket",
                     expected_entity_id=int(entity_id),
+                    _audit_context=audit_context,
                 )
-        await self._sync_ticket_files(session=session, ticket=updated)
+        await self._sync_ticket_files(session=session, ticket=updated, audit_context=audit_context)
         return updated
 
     @db_session_manager
     async def delete(self, *, session, entity_id, **kwargs):
+        audit_context = self._get_audit_context(kwargs)
         existing = await self.repository.get_by_id(session=session, entity_id=entity_id)
         storage_svc = self.db_manager.services.get("storage_file")
         if storage_svc is not None and existing is not None:
@@ -120,8 +137,14 @@ class ServiceTicketService(BaseService):
                     remove_reference=False,
                     expected_entity_type="ServiceTicket",
                     expected_entity_id=int(entity_id),
+                    _audit_context=audit_context,
                 )
-        return await super().delete(session=session, entity_id=entity_id, **kwargs)
+        return await super().delete(
+            session=session,
+            entity_id=entity_id,
+            _audit_context=audit_context,
+            **kwargs,
+        )
 
     @db_session_manager
     async def get_stats(self, *, session, object_id: int | None = None):

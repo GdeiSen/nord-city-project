@@ -2,7 +2,8 @@ from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from datetime import datetime
 
-from api.schemas.enrichment import UserSummary
+from shared.constants import FeedbackTypes
+from api.schemas.enrichment import ServiceTicketSummary, UserSummary
 
 
 class FeedbackResponse(BaseModel):
@@ -11,8 +12,11 @@ class FeedbackResponse(BaseModel):
     user_id: int
     user: Optional[UserSummary] = None  # Enriched from user_id
     ddid: str
+    feedback_type: str = FeedbackTypes.GENERAL
     answer: str
     text: Optional[str] = None
+    service_ticket_id: Optional[int] = None
+    service_ticket: Optional[ServiceTicketSummary] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -23,6 +27,7 @@ class CreateFeedbackRequest(BaseModel):
 
     user_id: int
     ddid: str
+    feedback_type: str = FeedbackTypes.GENERAL
     answer: str
     text: Optional[str] = None
 
@@ -33,5 +38,6 @@ class UpdateFeedbackBody(BaseModel):
 
     user_id: Optional[int] = None
     ddid: Optional[str] = None
+    feedback_type: Optional[str] = None
     answer: Optional[str] = None
     text: Optional[str] = None

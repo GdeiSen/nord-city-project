@@ -81,6 +81,18 @@ export const TICKET_PRIORITY_LABELS_RU: Record<TicketPriority, string> = {
   [TICKET_PRIORITY.CRITICAL]: 'Критический',
 } as const
 
+export const FEEDBACK_TYPES = {
+  GENERAL: "GENERAL",
+  SERVICE_TICKET: "SERVICE_TICKET",
+} as const
+
+export type FeedbackType = typeof FEEDBACK_TYPES[keyof typeof FEEDBACK_TYPES]
+
+export const FEEDBACK_TYPE_LABELS_RU: Record<FeedbackType, string> = {
+  [FEEDBACK_TYPES.GENERAL]: "Общий отзыв",
+  [FEEDBACK_TYPES.SERVICE_TICKET]: "Отзыв на заявку",
+} as const
+
 export const STORAGE_FILE_KIND = {
   IMAGE: "IMAGE",
   VIDEO: "VIDEO",
@@ -162,6 +174,9 @@ export interface RentalObject extends BaseEntity {
   /** Linked Telegram admin chat */
   admin_chat_id?: number;
   admin_chat?: TelegramChat;
+  /** Explicit recipient for completion feedback on service tickets */
+  service_feedback_recipient_user_id?: number;
+  service_feedback_recipient_user?: User;
   /** Associated spaces/offices */
   spaces?: RentalSpace[];
   /** Users associated with this object */
@@ -296,6 +311,13 @@ export interface ServiceTicket extends BaseEntity {
   audit_logs?: AuditLogEntry[];
 }
 
+export interface ServiceTicketSummary {
+  id: number;
+  status: string;
+  description?: string;
+  object?: { id: number; name: string };
+}
+
 /**
  * Universal audit log entry for tracking data changes across all entities
  *
@@ -314,13 +336,30 @@ export interface AuditLogEntry {
   action: string;
   /** Actor/user/service that caused the change */
   actor_id?: number;
-  actor_type?: "USER" | "SYSTEM" | "SERVICE";
+  actor_type?: "USER" | "TELEGRAM_USER" | "SYSTEM" | "SERVICE";
+  actor_external_id?: string;
+  actor_origin?: string;
   actor_display?: string;
+  actor?: {
+    kind: "user" | "telegram_user" | "system" | "service" | "unknown";
+    label: string;
+    href?: string;
+    user_id?: number;
+    user?: Pick<User, "id" | "first_name" | "last_name" | "middle_name" | "username" | "object_id">;
+    external_id?: string;
+    actor_type?: string;
+    actor_origin?: string;
+    source_service?: string;
+  };
   source_service?: string;
   retention_class?: "CRITICAL" | "OPERATIONAL" | "TECHNICAL";
   audit_type?: "fast" | "smart" | "heavy" | string;
   request_id?: string;
   correlation_id?: string;
+  operation_id?: string;
+  causation_id?: string;
+  event_category?: string;
+  event_name?: string;
   reason?: string;
   /** Previous state (for update/delete) */
   old_data?: Record<string, unknown>;
@@ -341,10 +380,15 @@ export interface Feedback extends BaseEntity {
   user_id: number;
   /** Dialog ID format: 0000-0000-0000 */
   ddid: string;
+  /** Feedback source type */
+  feedback_type: FeedbackType;
   /** Feedback answer/response */
   answer: string;
   /** Additional feedback text */
   text?: string;
+  /** Linked service ticket for SERVICE_TICKET feedback */
+  service_ticket_id?: number;
+  service_ticket?: ServiceTicketSummary;
   /** Associated user */
   user?: User;
 }

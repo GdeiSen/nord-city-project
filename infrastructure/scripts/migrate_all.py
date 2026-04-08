@@ -15,6 +15,7 @@
   10. Перенос legacy service_tickets.msid в bot_message_refs и удаление колонки
   11. Создание реестра DDID и связывание feedbacks / poll_answers / service_tickets
   12. Поддержка объектной маршрутизации Telegram-чатов
+  13. Поддержка получателя сервисных отзывов и связи service_ticket <-> feedback
 
 Использование:
     Из корня проекта:
@@ -61,6 +62,7 @@ from models.storage_file import StorageFile
 from models.bot_message_ref import BotMessageRef
 from models.dynamic_dialog_binding import DynamicDialogBinding
 from models.telegram_chat import TelegramChat
+from models.service_ticket_feedback_ref import ServiceTicketFeedbackRef
 from shared.utils.ddid_utils import normalize_ddid, parse_ddid
 
 DDID_TABLES = ("feedbacks", "poll_answers", "service_tickets")
@@ -200,6 +202,8 @@ TIMESTAMPTZ_COLUMNS = [
     ("objects", "updated_at"),
     ("user_auth", "created_at"),
     ("user_auth", "updated_at"),
+    ("service_ticket_feedback_refs", "created_at"),
+    ("service_ticket_feedback_refs", "updated_at"),
 ]
 
 
@@ -804,47 +808,175 @@ async def step12_add_chat_routing_support(engine):
     print("  [OK] Chat registry и объектные связи для Telegram-чатов настроены")
 
 
+async def step13_add_service_ticket_feedback_support(engine):
+    """Добавление маршрутизации сервисных отзывов и ref-таблицы feedback <-> ticket."""
+    async with engine.begin() as conn:
+        await conn.run_sync(
+            lambda c: ServiceTicketFeedbackRef.__table__.create(c, checkfirst=True)
+        )
+        await conn.execute(
+            text("CREATE SEQUENCE IF NOT EXISTS service_ticket_feedback_refs_id_seq")
+        )
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE service_ticket_feedback_refs
+                ALTER COLUMN id
+                SET DEFAULT nextval('service_ticket_feedback_refs_id_seq'::regclass)
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                SELECT setval(
+                    'service_ticket_feedback_refs_id_seq',
+                    COALESCE((SELECT MAX(id) FROM service_ticket_feedback_refs), 1),
+                    EXISTS (SELECT 1 FROM service_ticket_feedback_refs)
+                )
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE objects
+                ADD COLUMN IF NOT EXISTS service_feedback_recipient_user_id BIGINT
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.table_constraints
+                        WHERE table_name = 'objects'
+                          AND constraint_name = 'fk_objects_service_feedback_recipient_user_id_users'
+                    ) THEN
+                        ALTER TABLE objects
+                        ADD CONSTRAINT fk_objects_service_feedback_recipient_user_id_users
+                        FOREIGN KEY (service_feedback_recipient_user_id) REFERENCES users(id)
+                        ON DELETE SET NULL;
+                    END IF;
+                END $$;
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE feedbacks
+                ADD COLUMN IF NOT EXISTS feedback_type VARCHAR(50)
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE feedbacks
+                ADD COLUMN IF NOT EXISTS text TEXT
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                UPDATE feedbacks
+                SET feedback_type = 'GENERAL'
+                WHERE feedback_type IS NULL OR feedback_type = ''
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE feedbacks
+                ALTER COLUMN feedback_type SET DEFAULT 'GENERAL'
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_feedbacks_feedback_type
+                ON feedbacks (feedback_type)
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_objects_service_feedback_recipient_user_id
+                ON objects (service_feedback_recipient_user_id)
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_service_ticket_feedback_refs_service_ticket_id
+                ON service_ticket_feedback_refs (service_ticket_id)
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_service_ticket_feedback_refs_feedback_id
+                ON service_ticket_feedback_refs (feedback_id)
+                """
+            )
+        )
+    print("  [OK] Поддержка получателя сервисных отзывов и ref-таблицы настроена")
+
+
 async def run_all():
     url = get_db_url()
     engine = create_async_engine(url, echo=False)
 
     print("\n=== Миграция Nord City: старая → новая версия ===\n")
 
-    print("Шаг 1/12: Создание таблицы guest_parking_requests...")
+    print("Шаг 1/13: Создание таблицы guest_parking_requests...")
     await step1_create_guest_parking(engine)
 
-    print("\nШаг 2/12: Миграция TIMESTAMP → TIMESTAMPTZ...")
+    print("\nШаг 2/13: Миграция TIMESTAMP → TIMESTAMPTZ...")
     await step2_migrate_timestamptz(engine)
 
-    print("\nШаг 3/12: Добавление колонки msid...")
+    print("\nШаг 3/13: Добавление колонки msid...")
     await step3_add_msid(engine)
 
-    print("\nШаг 4/12: Удаление колонки reminder_sent...")
+    print("\nШаг 4/13: Удаление колонки reminder_sent...")
     await step4_drop_reminder_sent(engine)
 
-    print("\nШаг 5/12: Удаление колонки reminder_sent_at (логика в кэше)...")
+    print("\nШаг 5/13: Удаление колонки reminder_sent_at (логика в кэше)...")
     await step5_drop_reminder_sent_at(engine)
 
-    print("\nШаг 6/12: Удаление колонки driver_phone...")
+    print("\nШаг 6/13: Удаление колонки driver_phone...")
     await step6_drop_driver_phone(engine)
 
-    print("\nШаг 7/12: Создание таблицы guest_parking_settings...")
+    print("\nШаг 7/13: Создание таблицы guest_parking_settings...")
     await step7_create_guest_parking_settings(engine)
 
-    print("\nШаг 8/12: Создание таблицы storage_files...")
+    print("\nШаг 8/13: Создание таблицы storage_files...")
     await step8_create_storage_files(engine)
 
-    print("\nШаг 9/12: Рефакторинг аудита...")
+    print("\nШаг 9/13: Рефакторинг аудита...")
     await step9_migrate_audit(engine)
 
-    print("\nШаг 10/12: Удаление legacy service_tickets.msid...")
+    print("\nШаг 10/13: Удаление legacy service_tickets.msid...")
     await step10_drop_service_ticket_msid(engine)
 
-    print("\nШаг 11/12: Создание DDID-реестра...")
+    print("\nШаг 11/13: Создание DDID-реестра...")
     await step11_add_dynamic_dialog_bindings(engine)
 
-    print("\nШаг 12/12: Поддержка объектной маршрутизации Telegram-чатов...")
+    print("\nШаг 12/13: Поддержка объектной маршрутизации Telegram-чатов...")
     await step12_add_chat_routing_support(engine)
+
+    print("\nШаг 13/13: Поддержка сервисных отзывов по заявкам...")
+    await step13_add_service_ticket_feedback_support(engine)
 
     await engine.dispose()
     print("\n=== Миграция успешно завершена ===\n")

@@ -62,8 +62,8 @@ class StorageServiceConfig:
             or "true"
         ).strip().lower()
         region = (os.getenv("STORAGE_S3_REGION") or "").strip() or None
-        parsed_endpoint = urlsplit(endpoint)
-        if parsed_endpoint.scheme:
+        parsed_endpoint = urlsplit(endpoint) if "://" in endpoint else None
+        if parsed_endpoint and parsed_endpoint.scheme:
             endpoint = parsed_endpoint.netloc or parsed_endpoint.path
             if os.getenv("STORAGE_S3_SECURE") is None:
                 secure_raw = "true" if parsed_endpoint.scheme.lower() == "https" else "false"
@@ -71,8 +71,8 @@ class StorageServiceConfig:
             os.getenv("STORAGE_S3_PUBLIC_SECURE")
             or secure_raw
         ).strip().lower()
-        parsed_public_endpoint = urlsplit(public_endpoint)
-        if parsed_public_endpoint.scheme:
+        parsed_public_endpoint = urlsplit(public_endpoint) if "://" in public_endpoint else None
+        if parsed_public_endpoint and parsed_public_endpoint.scheme:
             public_endpoint = parsed_public_endpoint.netloc or parsed_public_endpoint.path
             if os.getenv("STORAGE_S3_PUBLIC_SECURE") is None:
                 public_secure_raw = "true" if parsed_public_endpoint.scheme.lower() == "https" else "false"

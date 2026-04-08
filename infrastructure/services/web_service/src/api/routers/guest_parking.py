@@ -5,13 +5,13 @@ API для заявок на гостевую парковку.
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from shared.clients.database_client import db_client
 from shared.clients.bot_client import bot_client
 from shared.schemas.guest_parking import GuestParkingSchema
 from shared.schemas.user import UserSchema
-from api.dependencies import get_audit_context, get_optional_current_user
+from api.dependencies import get_audit_context, get_current_user
 from api.schemas.common import MessageResponse, PaginatedResponse
 from api.helpers.paginated_list import create_paginated_list_handler
 from api.helpers.enrichment import enrich_guest_parking_with_users
@@ -26,9 +26,13 @@ router = APIRouter(prefix="/guest-parking", tags=["Guest Parking"])
 
 
 @router.post("/", response_model=GuestParkingResponse, status_code=status.HTTP_201_CREATED)
-async def create_guest_parking(body: CreateGuestParkingBody, request: Request):
+async def create_guest_parking(
+    body: CreateGuestParkingBody,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
     """Создать заявку на гостевую парковку. Синхронизирует с чатом администраторов."""
-    audit_ctx = get_audit_context(request, get_optional_current_user(request))
+    audit_ctx = get_audit_context(request, current_user)
     data = body.model_dump()
     if data.get("user_id") is not None:
         user_response = await db_client.user.get_by_id(
@@ -95,9 +99,14 @@ async def get_guest_parking_by_id(entity_id: int):
 
 
 @router.put("/{entity_id}", response_model=MessageResponse)
-async def update_guest_parking(entity_id: int, body: UpdateGuestParkingBody, request: Request):
+async def update_guest_parking(
+    entity_id: int,
+    body: UpdateGuestParkingBody,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
     """Обновить заявку. Синхронизирует сообщение в чате администраторов."""
-    audit_ctx = get_audit_context(request, get_optional_current_user(request))
+    audit_ctx = get_audit_context(request, current_user)
     update_data = body.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
@@ -130,9 +139,13 @@ async def update_guest_parking(entity_id: int, body: UpdateGuestParkingBody, req
 
 
 @router.delete("/{entity_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_guest_parking(entity_id: int, request: Request):
+async def delete_guest_parking(
+    entity_id: int,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
     """Удалить заявку. Сначала удаляет сообщение из чата администраторов."""
-    audit_ctx = get_audit_context(request, get_optional_current_user(request))
+    audit_ctx = get_audit_context(request, current_user)
     try:
         resp = await bot_client.notification.delete_guest_parking_messages(req_id=entity_id, _audit_context=audit_ctx)
         if resp and not resp.get("success", True):

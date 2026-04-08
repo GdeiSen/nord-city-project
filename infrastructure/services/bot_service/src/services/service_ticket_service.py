@@ -14,11 +14,18 @@ class ServiceTicketService(BaseService):
     async def initialize(self) -> None:
         pass
 
-    async def create_service_ticket(self, service_ticket: ServiceTicketSchema) -> Optional[ServiceTicketSchema]:
+    async def create_service_ticket(
+        self,
+        service_ticket: ServiceTicketSchema,
+        *,
+        _audit_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[ServiceTicketSchema]:
+        ctx = dict(_audit_context or {})
+        ctx.setdefault("source", "bot_service")
         result = await self.bot.managers.database.service_ticket.create(
             model_instance=service_ticket,
             model_class=ServiceTicketSchema,
-            _audit_context={"source": "bot_service"},
+            _audit_context=ctx,
         )
         if result["success"]:
             created_ticket = result["data"]
@@ -73,6 +80,7 @@ class ServiceTicketService(BaseService):
             meta: Dict[str, Any] = {"reply_message_id": reply_message_id, "user_id": user_id}
             if assignee:
                 meta["assignee"] = assignee
+                meta["assignee_display"] = assignee
             result = await self.bot.managers.database.service_ticket.update(
                 entity_id=service_ticket_id,
                 update_data={"status": status},
@@ -92,10 +100,17 @@ class ServiceTicketService(BaseService):
         except Exception:
             return None
 
-    async def delete_service_ticket(self, service_ticket_id: int) -> bool:
+    async def delete_service_ticket(
+        self,
+        service_ticket_id: int,
+        *,
+        _audit_context: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        ctx = dict(_audit_context or {})
+        ctx.setdefault("source", "bot_service")
         result = await self.bot.managers.database.service_ticket.delete(
             entity_id=service_ticket_id,
-            _audit_context={"source": "bot_service"},
+            _audit_context=ctx,
         )
         if result["success"]:
             await self.bot.managers.event.emit("service_ticket_deleted", {"id": service_ticket_id})

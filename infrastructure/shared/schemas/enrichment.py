@@ -28,3 +28,12 @@ class UserSummary(BaseModel):
     middle_name: str = ""
     username: str = ""
     object_id: Optional[int] = None
+
+
+class ServiceTicketSummary(BaseModel):
+    """Minimal service ticket info for embedding in API responses."""
+
+    id: int
+    status: str = "NEW"
+    description: str = ""
+    object: Optional[ObjectSummary] = None

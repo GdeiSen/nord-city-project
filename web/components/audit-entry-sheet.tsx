@@ -22,13 +22,6 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 
-const ACTION_LABELS: Record<string, string> = {
-  create: "Создание",
-  update: "Изменение",
-  edit: "Изменение",
-  delete: "Удаление",
-}
-
 const MODE_LABELS: Record<string, string> = {
   fast: "Light",
   smart: "Smart",
@@ -41,7 +34,7 @@ const RETENTION_LABELS: Record<string, string> = {
   TECHNICAL: "Technical",
 }
 
-function getEntityDetailUrl(entityType: string, entityId: number): string | null {
+export function getAuditEntityDetailUrl(entityType: string, entityId: number): string | null {
   switch (entityType) {
     case "ServiceTicket":
       return `/service-tickets/${entityId}`
@@ -144,12 +137,27 @@ function DetailRow({
   )
 }
 
+function renderActor(entry: AuditLogEntry): ReactNode {
+  const actor = entry.actor
+  const label = actor?.label ?? entry.actor_display ?? entry.source_service ?? "Система"
+  if (actor?.href) {
+    return (
+      <Link href={actor.href} className="text-primary hover:underline">
+        {label}
+      </Link>
+    )
+  }
+  return <span>{label}</span>
+}
+
 function AuditEntryPanel({
   entry,
   detailUrl,
+  emptyMessage = "Выберите запись в таблице, чтобы посмотреть детали.",
 }: {
   entry: AuditLogEntry | null
   detailUrl: string | null
+  emptyMessage?: string
 }) {
   const oldStatus = getStatusValue(entry?.old_data)
   const newStatus = getStatusValue(entry?.new_data)
@@ -161,7 +169,7 @@ function AuditEntryPanel({
           <div className="space-y-2.5">
             <DetailRow
               label="Действие"
-              value={ACTION_LABELS[entry.action] ?? entry.action}
+              value={entry.action}
             />
             <DetailRow label="Событие" value={entry.event_type} />
             <DetailRow
@@ -198,7 +206,7 @@ function AuditEntryPanel({
             />
             <DetailRow
               label="Инициатор"
-              value={entry.actor_display ?? entry.source_service ?? "Система"}
+              value={renderActor(entry)}
             />
             <DetailRow
               label="Тип инициатора"
@@ -239,11 +247,23 @@ function AuditEntryPanel({
         </div>
       ) : (
         <div className="p-4 text-sm text-muted-foreground">
-          Выберите запись в таблице, чтобы посмотреть детали.
+          {emptyMessage}
         </div>
       )}
     </div>
   )
+}
+
+export function AuditEntryDetailsPanel({
+  entry,
+  emptyMessage,
+}: {
+  entry: AuditLogEntry | null
+  emptyMessage?: string
+}) {
+  const detailUrl =
+    entry != null ? getAuditEntityDetailUrl(entry.entity_type, entry.entity_id) : null
+  return <AuditEntryPanel entry={entry} detailUrl={detailUrl} emptyMessage={emptyMessage} />
 }
 
 export function AuditEntrySheet({
@@ -257,7 +277,7 @@ export function AuditEntrySheet({
 }) {
   const isMobile = useIsMobile()
   const detailUrl =
-    entry != null ? getEntityDetailUrl(entry.entity_type, entry.entity_id) : null
+    entry != null ? getAuditEntityDetailUrl(entry.entity_type, entry.entity_id) : null
 
   const title = entry ? `Запись аудита #${entry.id}` : "Запись аудита"
   const description = entry

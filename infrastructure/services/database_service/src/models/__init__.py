@@ -3,6 +3,7 @@ from .user import User
 from .user_auth import UserAuth
 from .service_ticket import ServiceTicket
 from .feedback import Feedback
+from .service_ticket_feedback_ref import ServiceTicketFeedbackRef
 from .poll_answer import PollAnswer
 from .object import Object
 from .space import Space

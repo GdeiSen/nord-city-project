@@ -43,6 +43,7 @@ SORT_COLUMN_MAP: Dict[Tuple[str, str], str] = {
     ("Feedback", "created"): "created_at",
     ("Feedback", "date"): "created_at",
     ("Feedback", "user"): "user_id",
+    ("Feedback", "type"): "feedback_type",
     ("Feedback", "feedback"): "answer",
     # AuditLog
     ("AuditLog", "created"): "created_at",

@@ -131,6 +131,11 @@ class ServiceTicketStatus:
     IN_PROGRESS = "IN_PROGRESS"
 
 
+class FeedbackTypes:
+    GENERAL = "GENERAL"
+    SERVICE_TICKET = "SERVICE_TICKET"
+
+
 class StorageFileKind:
     IMAGE = "IMAGE"
     VIDEO = "VIDEO"
@@ -176,6 +181,7 @@ AUDITED_ENTITY_TYPES = frozenset(
         "GuestParkingRequest",
         "GuestParkingSettings",
         "StorageFile",
+        "TelegramChat",
     }
 )
 
@@ -205,6 +211,7 @@ AUDIT_ENTITY_MODES: dict[str, str] = {
     "GuestParkingRequest": AUDIT_MODE_SMART,
     "GuestParkingSettings": AUDIT_MODE_SMART,
     "StorageFile": AUDIT_MODE_FAST,
+    "TelegramChat": AUDIT_MODE_SMART,
 }
 
 # Retention policy by entity type.
@@ -213,6 +220,7 @@ AUDIT_ENTITY_RETENTION_CLASS: dict[str, str] = {
     "Object": AuditRetentionClass.CRITICAL,
     "Space": AuditRetentionClass.CRITICAL,
     "GuestParkingSettings": AuditRetentionClass.CRITICAL,
+    "TelegramChat": AuditRetentionClass.CRITICAL,
     "ServiceTicket": AuditRetentionClass.OPERATIONAL,
     "GuestParkingRequest": AuditRetentionClass.OPERATIONAL,
     "Feedback": AuditRetentionClass.OPERATIONAL,

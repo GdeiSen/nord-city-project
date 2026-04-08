@@ -1,12 +1,12 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
 from shared.clients.bot_client import bot_client
 from shared.clients.database_client import db_client
 from shared.schemas.object import ObjectSchema
-from api.dependencies import get_audit_context, get_optional_current_user
+from api.dependencies import get_audit_context, get_current_user
 from api.helpers.enrichment import enrich_objects_with_chats
 from api.schemas.common import MessageResponse, PaginatedResponse, parse_sort_param
 from api.schemas.rental_objects import ObjectResponse, CreateObjectRequest, UpdateObjectBody
@@ -16,8 +16,12 @@ router = APIRouter(prefix="/rental-objects", tags=["Rental Objects"])
 
 
 @router.post("/", response_model=ObjectResponse, status_code=status.HTTP_201_CREATED)
-async def create_object(body: CreateObjectRequest, request: Request):
-    audit_ctx = get_audit_context(request, get_optional_current_user(request))
+async def create_object(
+    body: CreateObjectRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    audit_ctx = get_audit_context(request, current_user)
     response = await db_client.object.create(
         model_data=body.model_dump(),
         model_class=ObjectSchema,
@@ -74,7 +78,12 @@ async def get_object_by_id(entity_id: int):
 
 
 @router.put("/{entity_id}", response_model=MessageResponse)
-async def update_object(entity_id: int, body: UpdateObjectBody, request: Request):
+async def update_object(
+    entity_id: int,
+    body: UpdateObjectBody,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
     update_data = body.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
@@ -86,7 +95,7 @@ async def update_object(entity_id: int, body: UpdateObjectBody, request: Request
         )
         existing_object = existing_response.get("data") if existing_response.get("success") else None
         previous_admin_chat_id = getattr(existing_object, "admin_chat_id", None) if existing_object is not None else None
-    audit_ctx = get_audit_context(request, get_optional_current_user(request))
+    audit_ctx = get_audit_context(request, current_user)
     response = await db_client.object.update(
         entity_id=entity_id,
         update_data=update_data,
@@ -109,8 +118,12 @@ async def update_object(entity_id: int, body: UpdateObjectBody, request: Request
 
 
 @router.delete("/{entity_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_object(entity_id: int, request: Request):
-    audit_ctx = get_audit_context(request, get_optional_current_user(request))
+async def delete_object(
+    entity_id: int,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    audit_ctx = get_audit_context(request, current_user)
     response = await db_client.object.delete(
         entity_id=entity_id,
         _audit_context=audit_ctx,

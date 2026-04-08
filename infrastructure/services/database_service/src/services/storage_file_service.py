@@ -100,7 +100,87 @@ class StorageFileService(BaseService):
                 cleaned.append(candidate)
         return cleaned
 
-    async def _detach_bound_reference(self, *, session, item: StorageFile) -> None:
+    async def _persist_storage_item_with_audit(
+        self,
+        *,
+        session,
+        item: StorageFile,
+        old_data: Optional[dict],
+        audit_context: Optional[dict],
+    ) -> StorageFile:
+        updated = await self.repository.update(session=session, obj_in=item)
+        current = updated or item
+        new_data = Converter.to_dict(current)
+        if (
+            old_data is not None
+            and new_data != old_data
+            and getattr(current, "id", None) is not None
+        ):
+            await self._write_audit(
+                session,
+                int(current.id),
+                "update",
+                old_data=old_data,
+                new_data=new_data,
+                audit_context=audit_context,
+            )
+        return current
+
+    async def _create_storage_item_with_audit(
+        self,
+        *,
+        session,
+        item: StorageFile,
+        audit_context: Optional[dict],
+    ) -> StorageFile:
+        created = await self.repository.create(session=session, obj_in=item)
+        if getattr(created, "id", None) is not None:
+            await self._write_audit(
+                session,
+                int(created.id),
+                "create",
+                old_data=None,
+                new_data=Converter.to_dict(created),
+                audit_context=audit_context,
+            )
+        return created
+
+    async def _persist_bound_entity_update(
+        self,
+        *,
+        session,
+        entity,
+        service_name: str,
+        old_data: Optional[dict],
+        audit_context: Optional[dict],
+    ) -> None:
+        repo = self.db_manager.repositories.get(type(entity))
+        service = self.db_manager.services.get(service_name)
+        updated = await repo.update(session=session, obj_in=entity)
+        current = updated or entity
+        new_data = Converter.to_dict(current)
+        if (
+            service is None
+            or getattr(current, "id", None) is None
+            or old_data == new_data
+        ):
+            return
+        await service._write_audit(
+            session,
+            int(current.id),
+            "update",
+            old_data=old_data,
+            new_data=new_data,
+            audit_context=audit_context,
+        )
+
+    async def _detach_bound_reference(
+        self,
+        *,
+        session,
+        item: StorageFile,
+        audit_context: Optional[dict] = None,
+    ) -> None:
         entity_type = str(item.entity_type or "").strip()
         entity_id = item.entity_id
         if not entity_type or entity_id is None:
@@ -110,30 +190,52 @@ class StorageFileService(BaseService):
             entity = await session.get(Object, int(entity_id))
             if entity is None:
                 return
+            old_data = Converter.to_dict(entity)
             entity.photos = self._remove_url_from_list(list(entity.photos or []), item.storage_path)
-            await self.db_manager.repositories.get(Object).update(session=session, obj_in=entity)
+            await self._persist_bound_entity_update(
+                session=session,
+                entity=entity,
+                service_name="object",
+                old_data=old_data,
+                audit_context=audit_context,
+            )
             return
 
         if entity_type == "Space":
             entity = await session.get(Space, int(entity_id))
             if entity is None:
                 return
+            old_data = Converter.to_dict(entity)
             entity.photos = self._remove_url_from_list(list(entity.photos or []), item.storage_path)
-            await self.db_manager.repositories.get(Space).update(session=session, obj_in=entity)
+            await self._persist_bound_entity_update(
+                session=session,
+                entity=entity,
+                service_name="space",
+                old_data=old_data,
+                audit_context=audit_context,
+            )
             return
 
         if entity_type == "GuestParkingSettings":
             entity = await session.get(GuestParkingSettings, int(entity_id))
             if entity is None:
                 return
+            old_data = Converter.to_dict(entity)
             entity.route_images = self._remove_url_from_list(list(entity.route_images or []), item.storage_path)
-            await self.db_manager.repositories.get(GuestParkingSettings).update(session=session, obj_in=entity)
+            await self._persist_bound_entity_update(
+                session=session,
+                entity=entity,
+                service_name="guest_parking_settings",
+                old_data=old_data,
+                audit_context=audit_context,
+            )
             return
 
         if entity_type == "ServiceTicket":
             entity = await session.get(ServiceTicket, int(entity_id))
             if entity is None:
                 return
+            old_data = Converter.to_dict(entity)
 
             next_image = str(entity.image or "").strip() or None
             if next_image and self._normalize_path(next_image) == item.storage_path:
@@ -162,7 +264,13 @@ class StorageFileService(BaseService):
 
             entity.image = next_image
             entity.meta = json.dumps(meta_dict, ensure_ascii=False) if meta_dict else None
-            await self.db_manager.repositories.get(ServiceTicket).update(session=session, obj_in=entity)
+            await self._persist_bound_entity_update(
+                session=session,
+                entity=entity,
+                service_name="service_ticket",
+                old_data=old_data,
+                audit_context=audit_context,
+            )
             return
 
         raise ValueError(
@@ -183,6 +291,7 @@ class StorageFileService(BaseService):
         kind: str,
         category: str,
         meta: Optional[dict] = None,
+        audit_context: Optional[dict] = None,
     ) -> StorageFile:
         existing = await session.scalar(
             select(StorageFile).where(StorageFile.storage_path == storage_path)
@@ -190,6 +299,7 @@ class StorageFileService(BaseService):
         encoded_meta = self._normalize_meta(meta)
 
         if existing:
+            old_data = Converter.to_dict(existing)
             existing.public_url = public_url
             existing.original_name = original_name
             existing.content_type = content_type
@@ -199,8 +309,12 @@ class StorageFileService(BaseService):
             existing.category = category
             if encoded_meta is not None:
                 existing.meta = self._merge_meta(existing.meta, encoded_meta)
-            updated = await self.repository.update(session=session, obj_in=existing)
-            return updated
+            return await self._persist_storage_item_with_audit(
+                session=session,
+                item=existing,
+                old_data=old_data,
+                audit_context=audit_context,
+            )
 
         model = StorageFile(
             storage_path=storage_path,
@@ -213,8 +327,11 @@ class StorageFileService(BaseService):
             category=category or StorageFileCategory.DEFAULT,
             meta=encoded_meta,
         )
-        created = await self.repository.create(session=session, obj_in=model)
-        return created
+        return await self._create_storage_item_with_audit(
+            session=session,
+            item=model,
+            audit_context=audit_context,
+        )
 
     async def _bind_files(
         self,
@@ -225,6 +342,7 @@ class StorageFileService(BaseService):
         urls: list[str],
         category: str = StorageFileCategory.DEFAULT,
         meta: Optional[dict] = None,
+        audit_context: Optional[dict] = None,
     ) -> list[StorageFile]:
         url_map: dict[str, str] = {}
         for url in urls or []:
@@ -246,9 +364,15 @@ class StorageFileService(BaseService):
 
         for item in existing_bound:
             if item.storage_path not in desired_paths:
+                old_data = Converter.to_dict(item)
                 item.entity_type = None
                 item.entity_id = None
-                await self.repository.update(session=session, obj_in=item)
+                await self._persist_storage_item_with_audit(
+                    session=session,
+                    item=item,
+                    old_data=old_data,
+                    audit_context=audit_context,
+                )
 
         if not desired_paths:
             return []
@@ -276,17 +400,31 @@ class StorageFileService(BaseService):
                     kind=self._infer_kind(original_name, guessed_content_type),
                     category=category,
                     meta=self._merge_meta(None, meta),
+                    entity_type=entity_type,
+                    entity_id=int(entity_id),
                 )
-                item = await self.repository.create(session=session, obj_in=item)
+                item = await self._create_storage_item_with_audit(
+                    session=session,
+                    item=item,
+                    audit_context=audit_context,
+                )
                 item_map[path] = item
+                bound_items.append(item)
+                continue
 
+            old_data = Converter.to_dict(item)
             item.public_url = url_map[path]
             item.entity_type = entity_type
             item.entity_id = int(entity_id)
             item.category = category
             if meta:
                 item.meta = self._merge_meta(item.meta, meta)
-            updated = await self.repository.update(session=session, obj_in=item)
+            updated = await self._persist_storage_item_with_audit(
+                session=session,
+                item=item,
+                old_data=old_data,
+                audit_context=audit_context,
+            )
             bound_items.append(updated)
 
         return bound_items
@@ -305,7 +443,9 @@ class StorageFileService(BaseService):
         kind: str | None = None,
         category: str = StorageFileCategory.DEFAULT,
         meta: Optional[dict] = None,
+        **kwargs,
     ) -> Optional[StorageFile]:
+        audit_context = self._get_audit_context(kwargs)
         path = self._normalize_path(storage_path)
         if not path:
             return None
@@ -322,6 +462,7 @@ class StorageFileService(BaseService):
             kind=detected_kind,
             category=category,
             meta=meta,
+            audit_context=audit_context,
         )
 
     @db_session_manager
@@ -334,7 +475,9 @@ class StorageFileService(BaseService):
         urls: list[str],
         category: str = StorageFileCategory.DEFAULT,
         meta: Optional[dict] = None,
+        **kwargs,
     ) -> list[StorageFile]:
+        audit_context = self._get_audit_context(kwargs)
         if not entity_type or entity_id is None:
             return []
         return await self._bind_files(
@@ -344,6 +487,7 @@ class StorageFileService(BaseService):
             urls=urls or [],
             category=category,
             meta=meta,
+            audit_context=audit_context,
         )
 
     @db_session_manager
@@ -390,7 +534,9 @@ class StorageFileService(BaseService):
         storage_path: str,
         meta_updates: Optional[dict] = None,
         model_class=None,
+        **kwargs,
     ) -> Optional[StorageFile]:
+        audit_context = self._get_audit_context(kwargs)
         path = self._normalize_path(storage_path)
         if not path:
             return None
@@ -406,8 +552,14 @@ class StorageFileService(BaseService):
         if merged_meta == normalized_current:
             return item
 
+        old_data = Converter.to_dict(item)
         item.meta = merged_meta
-        return await self.repository.update(session=session, obj_in=item)
+        return await self._persist_storage_item_with_audit(
+            session=session,
+            item=item,
+            old_data=old_data,
+            audit_context=audit_context,
+        )
 
     @db_session_manager
     async def delete_file(
@@ -446,7 +598,11 @@ class StorageFileService(BaseService):
 
         if item.entity_type and item.entity_id is not None:
             if remove_reference:
-                await self._detach_bound_reference(session=session, item=item)
+                await self._detach_bound_reference(
+                    session=session,
+                    item=item,
+                    audit_context=audit_context,
+                )
             elif not is_expected_binding:
                 raise ValueError(
                     f"Storage file {path} is still bound to "

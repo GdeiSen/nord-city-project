@@ -186,7 +186,14 @@ async def guest_parking_callback(
         user_id = bot.get_user_id(update)
         user = await bot.services.user.get_user_by_id(user_id) if user_id else None
         if user and (not user.phone_number or not user.phone_number.strip()):
-            await bot.services.user.update_user(user_id, {"phone_number": data["tenant_phone"]})
+            await bot.services.user.update_user(
+                user_id,
+                {"phone_number": data["tenant_phone"]},
+                _audit_context=bot.services.user.build_telegram_actor_audit_context(
+                    telegram_user_id=user_id,
+                    reason="profile_phone_updated_from_guest_parking_dialog",
+                ),
+            )
             await bot.send_message(
                 update, context, "profile_phone_saved", dynamic=False
             )
@@ -235,6 +242,10 @@ async def _finalize_and_show_summary(
     arrival_dt_save = arrival_dt if arrival_dt.tzinfo else arrival_dt.replace(tzinfo=SYSTEM_TIMEZONE)
 
     from shared.schemas import GuestParkingSchema
+    audit_context = bot.services.notification.build_telegram_actor_audit_context(
+        telegram_user_id=user_id,
+        reason="guest_parking_created_via_dialog",
+    )
     result = await bot.managers.database.guest_parking.create(
         model_data={
             "user_id": user_id,
@@ -244,6 +255,7 @@ async def _finalize_and_show_summary(
             "tenant_phone": data.get("tenant_phone"),
         },
         model_class=GuestParkingSchema,
+        _audit_context=audit_context,
     )
     if not result.get("success"):
         await bot.send_message(
@@ -254,10 +266,9 @@ async def _finalize_and_show_summary(
     saved = result.get("data")
     req_id = saved.id if saved else None
 
-    await bot.services.notification.notify_guest_parking_request(
+    await bot.services.notification.notify_new_guest_parking(
         req_id=req_id,
-        data=data,
-        user_id=user_id,
+        _audit_context=audit_context,
     )
     await bot.services.notification.schedule_guest_parking_reminder(
         req_id=req_id,

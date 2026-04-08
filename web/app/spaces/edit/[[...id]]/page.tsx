@@ -20,8 +20,8 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { RentalObject, TelegramChat } from "@/types"
-import { rentalObjectApi, telegramChatApi } from "@/lib/api"
+import { RentalObject, TelegramChat, User, USER_ROLES } from "@/types"
+import { rentalObjectApi, telegramChatApi, userApi } from "@/lib/api"
 import { StorageUploader } from "@/components/storage-uploader"
 import {
   AlertDialog,
@@ -44,15 +44,25 @@ export default function RentalObjectEditPage() {
 
   const { loading, withLoading } = useLoading(true)
   const [availableChats, setAvailableChats] = useState<TelegramChat[]>([])
+  const [availableUsers, setAvailableUsers] = useState<User[]>([])
   const [formData, setFormData] = useState<Partial<RentalObject>>({ status: "ACTIVE", photos: [] })
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     withLoading(async () => {
-      const chats = await telegramChatApi.getAll()
+      const [chats, users] = await Promise.all([
+        telegramChatApi.getAll(),
+        userApi.getAll(),
+      ])
       setAvailableChats(chats)
+      setAvailableUsers(users)
       if (!isEdit) {
-        setFormData({ status: "ACTIVE", photos: [], admin_chat_id: undefined })
+        setFormData({
+          status: "ACTIVE",
+          photos: [],
+          admin_chat_id: undefined,
+          service_feedback_recipient_user_id: undefined,
+        })
         return
       }
       const data = await rentalObjectApi.getById(Number(objectId!))
@@ -81,6 +91,13 @@ export default function RentalObjectEditPage() {
     }))
   }
 
+  const handleFeedbackRecipientChange = (value: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      service_feedback_recipient_user_id: value === "__none__" ? undefined : Number(value),
+    }))
+  }
+
   const handlePhotosChange = (links: string[]) => {
     setFormData((prev) => ({ ...prev, photos: links }))
   }
@@ -104,6 +121,7 @@ export default function RentalObjectEditPage() {
         status: formData.status ?? "ACTIVE",
         photos: (formData.photos ?? []).map((u) => u.trim()).filter(Boolean),
         admin_chat_id: formData.admin_chat_id ?? null,
+        service_feedback_recipient_user_id: formData.service_feedback_recipient_user_id ?? null,
       }
 
       if (isEdit) {
@@ -139,6 +157,24 @@ export default function RentalObjectEditPage() {
       value: String(chat.chat_id),
       label: `${chat.title || `Chat ${chat.chat_id}`} (${chat.chat_type}, ${chat.chat_id})`,
     })),
+  ]
+
+  const feedbackRecipientUsers = availableUsers.filter((user) =>
+    [USER_ROLES.MANAGER, USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN].includes((user.role ?? -1) as any)
+  )
+
+  const feedbackRecipientOptions: EntityPickerOption[] = [
+    { value: "__none__", label: "Не привязан" },
+    ...feedbackRecipientUsers.map((user) => {
+      const name = [user.last_name, user.first_name, user.middle_name].filter(Boolean).join(" ").trim()
+      const username = user.username ? `@${user.username}` : ""
+      const suffix = [username, user.object?.name].filter(Boolean).join(" · ")
+      const labelBase = name || username || `#${user.id}`
+      return {
+        value: String(user.id),
+        label: suffix ? `${labelBase} (${suffix})` : labelBase,
+      }
+    }),
   ]
 
   return (
@@ -233,6 +269,24 @@ export default function RentalObjectEditPage() {
                       {availableChats.length > 0
                         ? "В списке только групповые чаты, которые бот уже видел."
                         : "Бот еще не обнаружил ни одного доступного группового чата."}
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="service_feedback_recipient_user_id">Получатель отзывов по заявкам</Label>
+                    <EntityPicker
+                      className="w-full"
+                      placeholder="Пользователь не выбран"
+                      emptyMessage="Доступные пользователи не найдены"
+                      value={
+                        formData.service_feedback_recipient_user_id != null
+                          ? String(formData.service_feedback_recipient_user_id)
+                          : "__none__"
+                      }
+                      options={feedbackRecipientOptions}
+                      onSelect={handleFeedbackRecipientChange}
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      В списке только внутренние пользователи, которым можно маршрутизировать отзыв клиента по заявке.
                     </p>
                   </div>
                   <StorageUploader

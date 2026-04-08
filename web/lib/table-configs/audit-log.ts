@@ -16,9 +16,14 @@ const AUDIT_ENTITY_TYPES = [
 ]
 
 const AUDIT_ACTIONS = [
-  { value: "create", label: "Создание" },
-  { value: "update,edit", label: "Изменение" },
-  { value: "delete", label: "Удаление" },
+  { value: "create", label: "create" },
+  { value: "update", label: "update" },
+  { value: "edit", label: "edit" },
+  { value: "delete", label: "delete" },
+  { value: "send", label: "send" },
+  { value: "sync", label: "sync" },
+  { value: "reroute", label: "reroute" },
+  { value: "pin", label: "pin" },
 ]
 
 export const auditLogColumns: TableColumnConfig[] = [

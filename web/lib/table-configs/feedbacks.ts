@@ -5,6 +5,17 @@ import { configToMeta } from "./types"
 export const feedbackColumns: TableColumnConfig[] = [
   { id: "id", label: "ID", type: "number", searchDbColumns: ["id"] },
   {
+    id: "type",
+    label: "Тип",
+    filterDbColumn: "feedback_type",
+    searchDbColumns: ["feedback_type"],
+  },
+  {
+    id: "ticket",
+    label: "Заявка",
+    searchDbColumns: [],
+  },
+  {
     id: "user",
     label: "Пользователь",
     filterDbColumn: "user_id",
@@ -16,7 +27,7 @@ export const feedbackColumns: TableColumnConfig[] = [
     label: "Отзыв",
     type: "string",
     filterDbColumn: "answer",
-    searchDbColumns: ["answer", "ddid"],
+    searchDbColumns: ["answer", "text", "ddid"],
   },
   {
     id: "date",

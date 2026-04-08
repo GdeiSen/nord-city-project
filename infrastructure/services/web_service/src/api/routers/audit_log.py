@@ -14,7 +14,7 @@ from shared.schemas.audit_log import AuditLogSchema
 from api.schemas.audit_log import AuditLogEntryResponse
 from api.schemas.common import PaginatedResponse
 from api.helpers.paginated_list import create_paginated_list_handler
-from api.helpers.enrichment import enrich_audit_log_with_assignees
+from api.helpers.enrichment import enrich_audit_logs_with_actor
 from api.dependencies import get_current_user
 
 router = APIRouter(prefix="/audit-log", tags=["Audit Log"])
@@ -49,13 +49,33 @@ async def get_audit_log_by_entity(
             detail=response.get("error", "Failed to fetch audit log"),
         )
     items = response.get("data", [])
-    return await enrich_audit_log_with_assignees(items)
+    return await enrich_audit_logs_with_actor(items)
+
+
+@router.get("/entries/{entry_id}", response_model=AuditLogEntryResponse)
+async def get_audit_log_entry(
+    entry_id: int,
+    _: dict = Depends(_require_admin),
+):
+    response = await audit_client.get_by_id(entity_id=entry_id, model_class=AuditLogSchema)
+    if not response.get("success"):
+        raise HTTPException(
+            status_code=404,
+            detail=response.get("error", "Audit entry not found"),
+        )
+    item = response.get("data")
+    if item is None:
+        raise HTTPException(status_code=404, detail="Audit entry not found")
+    enriched = await enrich_audit_logs_with_actor([item])
+    if not enriched:
+        raise HTTPException(status_code=404, detail="Audit entry not found")
+    return enriched[0]
 
 
 get_audit_log_list = create_paginated_list_handler(
     audit_client,
     model_class=AuditLogSchema,
-    enricher=enrich_audit_log_with_assignees,
+    enricher=enrich_audit_logs_with_actor,
     entity_label="audit log",
 )
 router.get("/list", response_model=PaginatedResponse[AuditLogEntryResponse], dependencies=[Depends(_require_admin)])(get_audit_log_list)

@@ -8,6 +8,7 @@ from .base import Base
 
 if TYPE_CHECKING:
     from .dynamic_dialog_binding import DynamicDialogBinding
+    from .service_ticket_feedback_ref import ServiceTicketFeedbackRef
     from .user import User
 
 
@@ -30,3 +31,8 @@ class ServiceTicket(Base):
 
     user: Mapped["User"] = relationship(back_populates="service_tickets")
     ddid_binding: Mapped["DynamicDialogBinding"] = relationship(back_populates="service_tickets")
+    feedback_ref: Mapped[Optional["ServiceTicketFeedbackRef"]] = relationship(
+        back_populates="service_ticket",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )

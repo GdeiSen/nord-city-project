@@ -14,8 +14,17 @@ class RentalSpaceService(BaseService):
     async def initialize(self) -> None:
         pass
 
-    async def create_space(self, space: SpaceSchema) -> Optional[SpaceSchema]:
-        result = await self.bot.managers.database.space.create(model_instance=space, model_class=SpaceSchema)
+    async def create_space(
+        self,
+        space: SpaceSchema,
+        *,
+        _audit_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[SpaceSchema]:
+        result = await self.bot.managers.database.space.create(
+            model_instance=space,
+            model_class=SpaceSchema,
+            _audit_context=_audit_context,
+        )
         if result["success"]:
             return result["data"]
         return None
@@ -44,14 +53,33 @@ class RentalSpaceService(BaseService):
             return result["data"]
         return []
 
-    async def update_space(self, space_id: int, update_data: Dict[str, Any]) -> Optional[SpaceSchema]:
-        result = await self.bot.managers.database.space.update(entity_id=space_id, update_data=update_data, model_class=SpaceSchema)
+    async def update_space(
+        self,
+        space_id: int,
+        update_data: Dict[str, Any],
+        *,
+        _audit_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[SpaceSchema]:
+        result = await self.bot.managers.database.space.update(
+            entity_id=space_id,
+            update_data=update_data,
+            model_class=SpaceSchema,
+            _audit_context=_audit_context,
+        )
         if result["success"]:
             return result["data"]
         return None
 
-    async def delete_space(self, space_id: int) -> bool:
-        result = await self.bot.managers.database.space.delete(entity_id=space_id)
+    async def delete_space(
+        self,
+        space_id: int,
+        *,
+        _audit_context: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        result = await self.bot.managers.database.space.delete(
+            entity_id=space_id,
+            _audit_context=_audit_context,
+        )
         if result["success"]:
             return result["data"]
         return False

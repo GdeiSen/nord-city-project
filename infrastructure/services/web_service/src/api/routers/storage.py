@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
-from api.dependencies import get_audit_context, get_current_user, get_optional_current_user
+from api.dependencies import get_audit_context, get_current_user
 from shared.clients.database_client import db_client
 from shared.clients.storage_client import storage_client
 from shared.constants import Roles, StorageFileCategory
@@ -103,7 +103,7 @@ async def serve_storage(file_path: str):
 async def delete_storage_file(
     file_path: str,
     request: Request,
-    _: dict = Depends(_require_admin),
+    current_user: dict = Depends(_require_admin),
 ):
     if not file_path or ".." in file_path:
         raise HTTPException(status_code=400, detail="Invalid path")
@@ -116,7 +116,7 @@ async def delete_storage_file(
 
     response = await db_client.storage_file.delete_file(
         storage_path=path,
-        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+        _audit_context=get_audit_context(request, current_user),
     )
     if not response.get("success"):
         raise HTTPException(
@@ -159,6 +159,7 @@ async def _create_presigned_upload(
 async def _complete_presigned_upload(
     *,
     payload: StorageUploadCompleteRequest,
+    audit_context: dict | None = None,
 ) -> dict:
     try:
         result = await storage_client.complete_upload(
@@ -190,6 +191,7 @@ async def _complete_presigned_upload(
             kind=result.get("kind"),
             category=payload.category or StorageFileCategory.DEFAULT,
             model_class=StorageFileSchema,
+            _audit_context=audit_context,
         )
         if not reg_resp.get("success"):
             raise RuntimeError(reg_resp.get("error", "registry_failed"))
@@ -218,6 +220,10 @@ async def init_storage_upload(
 @router.post("/storage/uploads/complete")
 async def complete_storage_upload(
     payload: StorageUploadCompleteRequest,
-    _: dict = Depends(_require_admin),
+    request: Request,
+    current_user: dict = Depends(_require_admin),
 ):
-    return await _complete_presigned_upload(payload=payload)
+    return await _complete_presigned_upload(
+        payload=payload,
+        audit_context=get_audit_context(request, current_user),
+    )

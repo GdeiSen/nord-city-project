@@ -215,6 +215,23 @@ export default function RentalObjectSpacesPage() {
                 <div className="text-sm font-medium">{rentalObject?.address ?? "—"}</div>
               </div>
               <div className="space-y-1">
+                <div className="text-xs text-muted-foreground">Чат заявок</div>
+                <div className="text-sm font-medium">
+                  {rentalObject?.admin_chat?.title || (rentalObject?.admin_chat_id ? `Chat ${rentalObject.admin_chat_id}` : "—")}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-xs text-muted-foreground">Получатель отзывов</div>
+                <div className="text-sm font-medium">
+                  {rentalObject?.service_feedback_recipient_user
+                    ? [rentalObject.service_feedback_recipient_user.last_name, rentalObject.service_feedback_recipient_user.first_name]
+                        .filter(Boolean)
+                        .join(" ")
+                        .trim() || rentalObject.service_feedback_recipient_user.username || `#${rentalObject.service_feedback_recipient_user.id}`
+                    : "—"}
+                </div>
+              </div>
+              <div className="space-y-1">
                 <div className="text-xs text-muted-foreground">Всего помещений</div>
                 <div className="text-xl font-semibold">{spaceStats.total}</div>
               </div>
@@ -260,4 +277,3 @@ export default function RentalObjectSpacesPage() {
     </>
   )
 }
-

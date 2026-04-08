@@ -1,7 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AuditEntrySheet } from "@/components/audit-entry-sheet"
 import { SiteHeader } from "@/components/site-header"
@@ -30,13 +31,6 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
   StorageFile: "Файл",
 }
 
-const ACTION_LABELS: Record<string, string> = {
-  create: "Создание",
-  update: "Изменение",
-  edit: "Изменение",
-  delete: "Удаление",
-}
-
 /** URL списка (таблицы) сущностей по типу */
 function getEntityListUrl(entityType: string): string | null {
   switch (entityType) {
@@ -61,6 +55,23 @@ function getEntityListUrl(entityType: string): string | null {
   }
 }
 
+function renderActor(entry: AuditLogEntry, stopPropagation: boolean = true) {
+  const actor = entry.actor
+  const label = actor?.label ?? entry.actor_display ?? entry.source_service ?? "—"
+  if (actor?.href) {
+    return (
+      <Link
+        href={actor.href}
+        className="text-primary hover:underline"
+        onClick={stopPropagation ? (e) => e.stopPropagation() : undefined}
+      >
+        {label}
+      </Link>
+    )
+  }
+  return <span className="text-sm text-muted-foreground">{label}</span>
+}
+
 function getEntityDetailUrl(entityType: string, entityId: number): string | null {
   switch (entityType) {
     case "ServiceTicket":
@@ -81,6 +92,7 @@ function getEntityDetailUrl(entityType: string, entityId: number): string | null
 }
 
 export default function AuditLogPage() {
+  const searchParams = useSearchParams()
   const filterPickerData = useFilterPickerData({})
   const {
     data: entries,
@@ -95,6 +107,20 @@ export default function AuditLogPage() {
   })
   const [selectedEntry, setSelectedEntry] = useState<AuditLogEntry | null>(null)
   const [isEntrySheetOpen, setIsEntrySheetOpen] = useState(false)
+
+  useEffect(() => {
+    const rawEntryId = searchParams.get("entryId")
+    if (!rawEntryId) return
+    const entryId = Number(rawEntryId)
+    if (!Number.isFinite(entryId)) return
+
+    auditLogApi.getById(entryId)
+      .then((entry) => {
+        setSelectedEntry(entry)
+        setIsEntrySheetOpen(true)
+      })
+      .catch(() => {})
+  }, [searchParams])
 
   const columns: ColumnDef<AuditLogEntry>[] = [
     createSelectColumn<AuditLogEntry>(),
@@ -159,7 +185,7 @@ export default function AuditLogPage() {
               : "secondary"
         return (
           <Badge variant={variant}>
-            {ACTION_LABELS[action] ?? action}
+            {action}
           </Badge>
         )
       },
@@ -168,11 +194,7 @@ export default function AuditLogPage() {
       accessorKey: "actor_display",
       header: "Кто изменил",
       meta: auditLogColumnMeta.actor_display,
-      cell: ({ row }) => (
-        <span className="text-sm text-muted-foreground">
-          {row.original.actor_display ?? row.original.source_service ?? "—"}
-        </span>
-      ),
+      cell: ({ row }) => renderActor(row.original),
     },
     {
       accessorKey: "source_service",
@@ -220,7 +242,7 @@ export default function AuditLogPage() {
             }}
             contextMenuActions={{
               getCopyText: (row) =>
-                `#${row.original.id} ${row.original.entity_type} #${row.original.entity_id} ${row.original.action} ${row.original.actor_display ?? ""} ${row.original.created_at ?? ""}`,
+                `#${row.original.id} ${row.original.entity_type} #${row.original.entity_id} ${row.original.action} ${row.original.actor?.label ?? row.original.actor_display ?? ""} ${row.original.created_at ?? ""}`,
             }}
             serverPagination
             totalRowCount={total}

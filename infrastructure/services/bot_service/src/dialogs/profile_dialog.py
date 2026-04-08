@@ -22,12 +22,6 @@ def build_profile_dialog(base_dialog, objects):
     if root_sequence is None or object_item is None:
         return dialog
 
-    # Временно отключено: не спрашиваем телефон в профиле,
-    # но оставляем исходную структуру диалога и item в assets.
-    root_sequence.items_ids = [
-        item_id for item_id in root_sequence.items_ids if item_id != PROFILE_PHONE_ITEM_ID
-    ]
-
     option_ids: list[int] = []
     sorted_objects = sorted(
         [obj for obj in objects if getattr(obj, "id", None) is not None],

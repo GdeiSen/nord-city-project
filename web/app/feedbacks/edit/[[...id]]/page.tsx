@@ -17,7 +17,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { Feedback, User } from "@/types"
+import { Feedback, User, FEEDBACK_TYPES, FEEDBACK_TYPE_LABELS_RU } from "@/types"
 import { feedbackApi, userApi } from "@/lib/api"
 import { EntityPicker } from "@/components/entity-picker"
 import {
@@ -54,11 +54,13 @@ export default function FeedbackEditPage() {
       if (!isEdit) return {}
       return feedbackApi.getById(entityId!)
     },
-    defaultValues: {},
+    defaultValues: { feedback_type: FEEDBACK_TYPES.GENERAL },
     preparePayload: (data) => {
       const payload = { ...data }
       delete (payload as Record<string, unknown>).id
       delete (payload as Record<string, unknown>).user
+      delete (payload as Record<string, unknown>).service_ticket
+      delete (payload as Record<string, unknown>).service_ticket_id
       delete (payload as Record<string, unknown>).created_at
       delete (payload as Record<string, unknown>).updated_at
       return payload as Record<string, unknown>
@@ -89,6 +91,8 @@ export default function FeedbackEditPage() {
   useEffect(() => {
     userApi.getAll().then(setUsers).catch(() => {})
   }, [])
+
+  const isServiceTicketFeedback = formData.feedback_type === FEEDBACK_TYPES.SERVICE_TICKET
 
   return (
     <>
@@ -121,6 +125,38 @@ export default function FeedbackEditPage() {
                 {loading ? (
                   <div className="flex items-center justify-center py-12">
                     <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                  </div>
+                ) : isServiceTicketFeedback ? (
+                  <div className="space-y-6">
+                    <div className="rounded-lg border bg-muted/20 p-4">
+                      <div className="text-sm font-medium">Системный отзыв</div>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Отзывы по выполненным заявкам создаются ботом автоматически и не редактируются вручную.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Тип</Label>
+                      <Input value={FEEDBACK_TYPE_LABELS_RU[FEEDBACK_TYPES.SERVICE_TICKET]} readOnly />
+                    </div>
+                    {formData.service_ticket_id && (
+                      <div className="space-y-2">
+                        <Label>Заявка</Label>
+                        <Link
+                          href={`/service-tickets/${formData.service_ticket_id}`}
+                          className="text-sm font-medium text-primary hover:underline"
+                        >
+                          #{formData.service_ticket_id}
+                        </Link>
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      <Label htmlFor="answer">Ответ</Label>
+                      <Input id="answer" name="answer" value={formData.answer ?? ""} readOnly />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="text">Текст</Label>
+                      <Textarea id="text" name="text" value={formData.text ?? ""} readOnly rows={4} />
+                    </div>
                   </div>
                 ) : (
                   <div className="grid gap-6">
@@ -213,6 +249,10 @@ export default function FeedbackEditPage() {
                       placeholder="0000-0000-0000"
                       maxLength={14}
                     />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="feedback_type">Тип</Label>
+                    <Input id="feedback_type" value={FEEDBACK_TYPE_LABELS_RU[FEEDBACK_TYPES.GENERAL]} readOnly />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="answer">Ответ</Label>

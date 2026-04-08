@@ -1,11 +1,11 @@
 import logging
 from typing import List
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from shared.clients.database_client import db_client
 from shared.schemas.space_view import SpaceViewSchema
-from api.dependencies import get_audit_context, get_optional_current_user
+from api.dependencies import get_audit_context, get_current_user
 from api.schemas.common import MessageResponse
 from api.schemas.space_views import SpaceViewResponse, CreateSpaceViewRequest, UpdateSpaceViewBody
 
@@ -14,11 +14,15 @@ router = APIRouter(prefix="/space-views", tags=["Space Views"])
 
 
 @router.post("/", response_model=SpaceViewResponse, status_code=status.HTTP_201_CREATED)
-async def create_space_view(body: CreateSpaceViewRequest, request: Request):
+async def create_space_view(
+    body: CreateSpaceViewRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
     response = await db_client.space_view.create(
         model_data=body.model_dump(),
         model_class=SpaceViewSchema,
-        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+        _audit_context=get_audit_context(request, current_user),
     )
     if not response.get("success"):
         error = response.get("error", "Failed to create space view")
@@ -51,14 +55,19 @@ async def get_space_view_by_id(entity_id: int):
 
 
 @router.put("/{entity_id}", response_model=MessageResponse)
-async def update_space_view(entity_id: int, body: UpdateSpaceViewBody, request: Request):
+async def update_space_view(
+    entity_id: int,
+    body: UpdateSpaceViewBody,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
     update_data = body.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
     response = await db_client.space_view.update(
         entity_id=entity_id,
         update_data=update_data,
-        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+        _audit_context=get_audit_context(request, current_user),
     )
     if not response.get("success"):
         error = response.get("error", "Failed to update space view")
@@ -68,10 +77,14 @@ async def update_space_view(entity_id: int, body: UpdateSpaceViewBody, request: 
 
 
 @router.delete("/{entity_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_space_view(entity_id: int, request: Request):
+async def delete_space_view(
+    entity_id: int,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
     response = await db_client.space_view.delete(
         entity_id=entity_id,
-        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+        _audit_context=get_audit_context(request, current_user),
     )
     if not response.get("success"):
         error = response.get("error", "Failed to delete space view")

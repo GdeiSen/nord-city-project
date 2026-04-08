@@ -514,6 +514,10 @@ export const auditLogApi = {
     const res = await apiFetch<PaginatedResponse<any>>(`/audit-log/list?${q}`)
     return { items: res?.items ?? [], total: res?.total ?? 0 }
   },
+
+  async getById(entryId: number): Promise<any> {
+    return apiFetch<any>(`/audit-log/entries/${entryId}`)
+  },
 }
 const guestParkingBase = createCrudApi<any>("/guest-parking")
 export const guestParkingApi = { ...guestParkingBase }
@@ -535,6 +539,9 @@ const feedbackBase = createCrudApi<any>("/feedbacks")
 export const feedbackApi = {
   ...feedbackBase,
   ...createExportApi("/feedbacks"),
+  async getByServiceTicket(serviceTicketId: number): Promise<any | null> {
+    return apiFetch<any | null>(`/feedbacks/service-ticket/${serviceTicketId}`)
+  },
 }
 const pollBase = createCrudApi<any>("/polls")
 export const pollApi = {

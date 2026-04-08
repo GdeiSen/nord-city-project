@@ -10,11 +10,10 @@ if TYPE_CHECKING:
 
 from dialogs.profile_dialog import PROFILE_OBJECT_ITEM_ID, PROFILE_OBJECT_OPTION_OFFSET
 from utils.dyn_dialog_utils import set_dialog_position
-# Временно отключено для профиля: логика ввода/валидации телефона.
-# from dyn_dialogs_callbacks.guest_parking_callback import (
-#     is_valid_belarus_phone,
-#     _normalize_phone,
-# )
+from dyn_dialogs_callbacks.guest_parking_callback import (
+    is_valid_belarus_phone,
+    _normalize_phone,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,26 +97,30 @@ async def profile_callback(
                     return CallbackResult.retry_current(sequence_id, idx)
 
                 update_data = {"object_id": object_id}
-            # Временно отключено: редактирование телефона в профиле.
-            # elif item_id == 4:
-            #     if option_id == 4000:
-            #         update_data = {"phone_number": None}
-            #     elif not is_valid_belarus_phone(answer or ""):
-            #         idx = _current_item_index(dialog, sequence_id, item_id)
-            #         set_dialog_position(bot, context, sequence_id, idx)
-            #         await bot.send_message(
-            #             update,
-            #             context,
-            #             "profile_phone_validation_error",
-            #             dynamic=False
-            #         )
-            #         return CallbackResult.retry_current(sequence_id, idx)
-            #
-            #     else:
-            #         update_data = {"phone_number": _normalize_phone(answer or "")}
+            elif item_id == 4:
+                if not is_valid_belarus_phone(answer or ""):
+                    idx = _current_item_index(dialog, sequence_id, item_id)
+                    set_dialog_position(bot, context, sequence_id, idx)
+                    await bot.send_message(
+                        update,
+                        context,
+                        "profile_phone_validation_error",
+                        dynamic=False
+                    )
+                    return CallbackResult.retry_current(sequence_id, idx)
+                else:
+                    update_data = {"phone_number": _normalize_phone(answer or "")}
 
             if update_data is not None:
-                await bot.services.user.update_user(user_id, update_data)
+                await bot.services.user.update_user(
+                    user_id,
+                    update_data,
+                    _audit_context=bot.services.user.build_telegram_actor_audit_context(
+                        telegram_user_id=user_id,
+                        reason="profile_dialog_updated",
+                        meta_updates={"profile_item_id": item_id},
+                    ),
+                )
                 updated_user = await bot.services.user.get_user_by_id(user_id)
                 if updated_user is None:
                     logger.warning(

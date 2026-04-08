@@ -2,13 +2,14 @@ import logging
 import json
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
 from shared.clients.database_client import db_client
 from shared.clients.bot_client import bot_client
 from shared.constants import ServiceTicketStatus
 from shared.schemas.service_ticket import ServiceTicketSchema
-from api.dependencies import get_audit_context, get_optional_current_user
+from shared.schemas.user import UserSchema
+from api.dependencies import get_audit_context, get_current_user
 from api.schemas.common import MessageResponse, PaginatedResponse, parse_sort_param
 from api.schemas.list_params import parse_list_params_from_query
 from api.helpers.paginated_list import create_paginated_list_handler
@@ -109,10 +110,14 @@ def _get_ticket_export_value(col_id: str):
 
 
 @router.post("/", response_model=ServiceTicketResponse, status_code=status.HTTP_201_CREATED)
-async def create_service_ticket(body: CreateServiceTicketRequest, request: Request):
+async def create_service_ticket(
+    body: CreateServiceTicketRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
     data = _inject_attachment_meta(body.model_dump())
     data["status"] = ServiceTicketStatus.NEW  # Always NEW for new tickets
-    audit_ctx = get_audit_context(request, get_optional_current_user(request))
+    audit_ctx = get_audit_context(request, current_user)
     response = await db_client.service_ticket.create(
         model_data=data,
         model_class=ServiceTicketSchema,
@@ -226,7 +231,12 @@ async def get_service_ticket_by_id(entity_id: int):
 
 
 @router.put("/{entity_id}", response_model=MessageResponse)
-async def update_service_ticket(entity_id: int, body: UpdateServiceTicketBody, request: Request):
+async def update_service_ticket(
+    entity_id: int,
+    body: UpdateServiceTicketBody,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
     update_data = _inject_attachment_meta(body.model_dump(exclude_unset=True))
     assignee_id_for_meta = update_data.pop("assignee_id", None)
     if not update_data:
@@ -245,12 +255,32 @@ async def update_service_ticket(entity_id: int, body: UpdateServiceTicketBody, r
         and old_ticket_schema is not None
         and old_status != ServiceTicketStatus.COMPLETED
     )
-    audit_ctx = get_audit_context(request, get_optional_current_user(request))
+    audit_ctx = get_audit_context(request, current_user)
     if update_data.get("status") == ServiceTicketStatus.ASSIGNED and assignee_id_for_meta is not None:
         audit_ctx["meta"] = audit_ctx.get("meta") or {}
         if isinstance(audit_ctx["meta"], dict):
             audit_ctx["meta"] = dict(audit_ctx["meta"])
         audit_ctx["meta"]["assignee_id"] = assignee_id_for_meta
+        assignee_response = await db_client.user.get_by_id(
+            entity_id=int(assignee_id_for_meta),
+            model_class=UserSchema,
+        )
+        assignee = assignee_response.get("data") if assignee_response.get("success") else None
+        if assignee is not None:
+            full_name = " ".join(
+                part
+                for part in [
+                    getattr(assignee, "last_name", None),
+                    getattr(assignee, "first_name", None),
+                    getattr(assignee, "middle_name", None),
+                ]
+                if part
+            ).strip()
+            audit_ctx["meta"]["assignee_display"] = (
+                full_name
+                or (f"@{assignee.username}" if getattr(assignee, "username", None) else None)
+                or f"#{int(assignee_id_for_meta)}"
+            )
     response = await db_client.service_ticket.update(
         entity_id=entity_id,
         update_data=update_data,
@@ -278,8 +308,12 @@ async def update_service_ticket(entity_id: int, body: UpdateServiceTicketBody, r
 
 
 @router.delete("/{entity_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_service_ticket(entity_id: int, request: Request):
-    audit_ctx = get_audit_context(request, get_optional_current_user(request))
+async def delete_service_ticket(
+    entity_id: int,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    audit_ctx = get_audit_context(request, current_user)
     try:
         await bot_client.notification.delete_ticket_messages(ticket_id=entity_id, _audit_context=audit_ctx)
     except Exception as e:

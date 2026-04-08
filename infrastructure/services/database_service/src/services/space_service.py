@@ -23,13 +23,14 @@ class SpaceService(BaseService):
     def __init__(self, db_manager: DatabaseManager):
         super().__init__(db_manager)
 
-    async def _sync_space_files(
+    async def _sync_space_files_with_audit(
         self,
         *,
         session,
         entity_id: int,
         object_id: int | None,
         urls: list[str],
+        audit_context: dict | None,
     ) -> None:
         storage_svc = self.db_manager.services.get("storage_file")
         if storage_svc is None:
@@ -44,17 +45,25 @@ class SpaceService(BaseService):
                 "source": "space_photos",
                 "object_id": int(object_id) if object_id is not None else None,
             },
+            audit_context=audit_context,
         )
 
     @db_session_manager
     async def create(self, *, session, model_instance, **kwargs):
-        created = await super().create(session=session, model_instance=model_instance, **kwargs)
+        audit_context = self._get_audit_context(kwargs)
+        created = await super().create(
+            session=session,
+            model_instance=model_instance,
+            _audit_context=audit_context,
+            **kwargs,
+        )
         if created is not None:
-            await self._sync_space_files(
+            await self._sync_space_files_with_audit(
                 session=session,
                 entity_id=int(created.id),
                 object_id=int(created.object_id) if getattr(created, "object_id", None) is not None else None,
                 urls=list(created.photos or []),
+                audit_context=audit_context,
             )
         return created
 
@@ -68,6 +77,7 @@ class SpaceService(BaseService):
     @db_session_manager
     async def update(self, *, session, entity_id, update_data, **kwargs):
         """Override to cleanup storage files that are no longer referenced."""
+        audit_context = self._get_audit_context(kwargs)
         if "photos" in update_data or "object_id" in update_data:
             existing = await self.repository.get_by_id(session=session, entity_id=entity_id)
             new_list = list(existing.photos) if existing and existing.photos else []
@@ -91,21 +101,30 @@ class SpaceService(BaseService):
                                 remove_reference=False,
                                 expected_entity_type="Space",
                                 expected_entity_id=int(entity_id),
+                                _audit_context=audit_context,
                             )
                             logger.info("Cleaned up orphaned storage file: %s", path)
                         except Exception as e:
                             logger.warning("Failed to cleanup storage file %s: %s", path, e)
-            await self._sync_space_files(
+            await self._sync_space_files_with_audit(
                 session=session,
                 entity_id=int(entity_id),
                 object_id=next_object_id,
                 urls=new_list,
+                audit_context=audit_context,
             )
-        return await super().update(session=session, entity_id=entity_id, update_data=update_data, **kwargs)
+        return await super().update(
+            session=session,
+            entity_id=entity_id,
+            update_data=update_data,
+            _audit_context=audit_context,
+            **kwargs,
+        )
 
     @db_session_manager
     async def delete(self, *, session, entity_id, **kwargs):
         """Override to cleanup storage files when space is deleted."""
+        audit_context = self._get_audit_context(kwargs)
         existing = await self.repository.get_by_id(session=session, entity_id=entity_id)
         storage_svc = self.db_manager.services.get("storage_file")
         if existing and existing.photos:
@@ -118,14 +137,21 @@ class SpaceService(BaseService):
                             remove_reference=False,
                             expected_entity_type="Space",
                             expected_entity_id=int(entity_id),
+                            _audit_context=audit_context,
                         )
                         logger.info("Cleaned up storage file on delete: %s", url)
                     except Exception as e:
                         logger.warning("Failed to cleanup storage file %s: %s", url, e)
-        await self._sync_space_files(
+        await self._sync_space_files_with_audit(
             session=session,
             entity_id=int(entity_id),
             object_id=int(existing.object_id) if existing and getattr(existing, "object_id", None) is not None else None,
             urls=[],
+            audit_context=audit_context,
         )
-        return await super().delete(session=session, entity_id=entity_id, **kwargs)
+        return await super().delete(
+            session=session,
+            entity_id=entity_id,
+            _audit_context=audit_context,
+            **kwargs,
+        )

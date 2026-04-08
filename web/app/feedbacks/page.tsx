@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
-import { Feedback } from "@/types"
+import { Badge } from "@/components/ui/badge"
+import { Feedback, FEEDBACK_TYPES, FEEDBACK_TYPE_LABELS_RU } from "@/types"
 import { feedbackApi } from "@/lib/api"
 import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
@@ -48,6 +49,38 @@ export default function FeedbacksPage() {
       header: "ID",
       meta: feedbackColumnMeta.id,
       cell: ({ row }) => <div className="font-medium">#{row.original.id}</div>,
+    },
+    {
+      accessorKey: "type",
+      header: "Тип",
+      meta: feedbackColumnMeta.type,
+      cell: ({ row }) => {
+        const type = row.original.feedback_type ?? FEEDBACK_TYPES.GENERAL
+        return (
+          <Badge variant={type === FEEDBACK_TYPES.SERVICE_TICKET ? "default" : "secondary"}>
+            {FEEDBACK_TYPE_LABELS_RU[type] ?? type}
+          </Badge>
+        )
+      },
+    },
+    {
+      accessorKey: "ticket",
+      header: "Заявка",
+      meta: feedbackColumnMeta.ticket,
+      cell: ({ row }) => {
+        if (!row.original.service_ticket_id) {
+          return <span className="text-muted-foreground">—</span>
+        }
+        return (
+          <Link
+            href={`/service-tickets/${row.original.service_ticket_id}`}
+            className="text-primary hover:underline"
+            onClick={(e) => e.stopPropagation()}
+          >
+            #{row.original.service_ticket_id}
+          </Link>
+        )
+      },
     },
     {
       accessorKey: "user",
@@ -141,7 +174,8 @@ export default function FeedbacksPage() {
                     }
                   }
                 : undefined,
-              getCopyText: (row) => `Отзыв #${row.original.id}\nОтвет: ${row.original.answer ?? ""}\nТекст: ${row.original.text ?? ""}`,
+              getCopyText: (row) =>
+                `Отзыв #${row.original.id}\nТип: ${FEEDBACK_TYPE_LABELS_RU[row.original.feedback_type ?? FEEDBACK_TYPES.GENERAL] ?? row.original.feedback_type}\nЗаявка: ${row.original.service_ticket_id ? `#${row.original.service_ticket_id}` : "—"}\nОтвет: ${row.original.answer ?? ""}\nТекст: ${row.original.text ?? ""}`,
               deleteTitle: "Удалить отзыв?",
               deleteDescription: "Это действие нельзя отменить.",
             }}

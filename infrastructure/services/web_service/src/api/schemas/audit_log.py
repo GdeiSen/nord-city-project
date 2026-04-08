@@ -4,6 +4,21 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, field_validator
+from api.schemas.enrichment import UserSummary
+
+
+class AuditActorResponse(BaseModel):
+    """Normalized initiator info for audit log entries."""
+
+    kind: str
+    label: str
+    href: Optional[str] = None
+    user_id: Optional[int] = None
+    user: Optional[UserSummary] = None
+    external_id: Optional[str] = None
+    actor_type: Optional[str] = None
+    actor_origin: Optional[str] = None
+    source_service: Optional[str] = None
 
 
 class AuditLogEntryResponse(BaseModel):
@@ -21,6 +36,7 @@ class AuditLogEntryResponse(BaseModel):
     actor_type: str = "SYSTEM"
     actor_origin: Optional[str] = None
     actor_display: Optional[str] = None
+    actor: Optional[AuditActorResponse] = None
     source_service: Optional[str] = None
     retention_class: Optional[str] = None
     request_id: Optional[str] = None

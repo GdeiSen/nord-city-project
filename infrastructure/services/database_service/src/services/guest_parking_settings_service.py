@@ -16,7 +16,13 @@ class GuestParkingSettingsService(BaseService):
     def __init__(self, db_manager: DatabaseManager):
         super().__init__(db_manager)
 
-    async def _sync_route_images(self, *, session, route_images: list[str]) -> None:
+    async def _sync_route_images(
+        self,
+        *,
+        session,
+        route_images: list[str],
+        audit_context: dict | None = None,
+    ) -> None:
         storage_svc = self.db_manager.services.get("storage_file")
         if storage_svc is None:
             return
@@ -27,6 +33,7 @@ class GuestParkingSettingsService(BaseService):
             urls=route_images or [],
             category=StorageFileCategory.SYSTEM,
             meta={"source": "guest_parking_route_images"},
+            audit_context=audit_context,
         )
 
     @db_session_manager
@@ -52,7 +59,11 @@ class GuestParkingSettingsService(BaseService):
         if existing is None:
             created = GuestParkingSettings(id=self.SETTINGS_ID, route_images=normalized_images)
             created = await self.repository.create(session=session, obj_in=created)
-            await self._sync_route_images(session=session, route_images=normalized_images)
+            await self._sync_route_images(
+                session=session,
+                route_images=normalized_images,
+                audit_context=audit_context,
+            )
             await self._write_audit(
                 session,
                 self.SETTINGS_ID,
@@ -72,10 +83,15 @@ class GuestParkingSettingsService(BaseService):
                     remove_reference=False,
                     expected_entity_type="GuestParkingSettings",
                     expected_entity_id=self.SETTINGS_ID,
+                    _audit_context=audit_context,
                 )
         existing.route_images = normalized_images
         updated = await self.repository.update(session=session, obj_in=existing)
-        await self._sync_route_images(session=session, route_images=normalized_images)
+        await self._sync_route_images(
+            session=session,
+            route_images=normalized_images,
+            audit_context=audit_context,
+        )
         await self._write_audit(
             session,
             self.SETTINGS_ID,

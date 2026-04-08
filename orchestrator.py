@@ -10,6 +10,8 @@ Usage
 -----
     python orchestrator.py                    # start ALL services, stream logs
     python orchestrator.py --services db,web  # start selected services
+    python orchestrator.py --services web --proxy-minio
+                                             # start web stack + MinIO preview proxy
     python orchestrator.py --services site    # site + dependencies (web, db, audit, bot, storage)
     python orchestrator.py --service db       # start a SINGLE service in foreground
     python orchestrator.py --background       # run in background, logs → logs/
@@ -41,6 +43,7 @@ import json
 import re
 import os
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -117,6 +120,9 @@ class ServiceInfo:
     port: Optional[int] = None
     health_url: Optional[str] = None
     depends_on: List[str] = field(default_factory=list)
+    listed: bool = True
+    include_in_default: bool = True
+    kill_orphans_by_port: bool = True
 
 
 @dataclass
@@ -170,6 +176,17 @@ SERVICES: Dict[str, ServiceInfo] = {
         command=[sys.executable, "main.py"],
         port=8004,
         health_url="http://127.0.0.1:{port}/health",
+    ),
+    "minio-proxy": ServiceInfo(
+        name="MinIO Preview Proxy",
+        alias="minio-proxy",
+        description="Workspace-local TCP proxy for preview ports 9000/9001",
+        working_dir=INFRASTRUCTURE_ROOT / "scripts",
+        command=[sys.executable, "proxy_ports.py", "--with-console"],
+        port=9000,
+        listed=False,
+        include_in_default=False,
+        kill_orphans_by_port=False,
     ),
     "web": ServiceInfo(
         name="Web Service",
@@ -258,6 +275,172 @@ def _update_ports_from_env():
                 SERVICES[key].health_url = f"http://127.0.0.1:{port_str}/health"
 
 
+def _extract_host(value: Optional[str]) -> Optional[str]:
+    """Extract hostname from raw env values like host, host:port, or URL."""
+    if not value:
+        return None
+
+    raw = value.strip()
+    if not raw:
+        return None
+
+    if "://" in raw:
+        from urllib.parse import urlsplit
+
+        parsed = urlsplit(raw)
+        return parsed.hostname
+
+    if raw.startswith("[") and "]" in raw:
+        return raw[1:raw.index("]")]
+
+    if raw.count(":") == 1:
+        return raw.split(":", 1)[0]
+
+    return raw
+
+
+def _host_resolves(host: str) -> bool:
+    try:
+        socket.getaddrinfo(host, None)
+        return True
+    except socket.gaierror:
+        return False
+
+
+def _discover_current_container_name() -> Optional[str]:
+    """Best-effort detection of the current Docker container name."""
+    hostname = socket.gethostname().strip()
+    if not hostname:
+        return None
+
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "ps",
+                "--format",
+                "{{.Names}}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        )
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return None
+
+    for name in [line.strip() for line in result.stdout.splitlines() if line.strip()]:
+        try:
+            inspect = subprocess.run(
+                [
+                    "docker",
+                    "inspect",
+                    "-f",
+                    "{{.Config.Hostname}}",
+                    name,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=True,
+            )
+        except subprocess.SubprocessError:
+            continue
+
+        if inspect.stdout.strip() == hostname or name == hostname:
+            return name
+
+    return None
+
+
+def _connect_workspace_to_infra_network(console: Console) -> None:
+    """
+    If the workspace container runs outside the `infra` network but `.env`
+    references docker-only hosts like infra-postgres/infra-minio, attach the
+    current container to that network so those names resolve as expected.
+    """
+    if not os.path.exists("/.dockerenv"):
+        return
+
+    candidate_hosts = [
+        _extract_host(os.getenv("DB_HOST")),
+        _extract_host(os.getenv("STORAGE_S3_ENDPOINT")),
+    ]
+    unresolved_hosts = [
+        host for host in candidate_hosts
+        if host and host.startswith("infra-") and not _host_resolves(host)
+    ]
+    if not unresolved_hosts:
+        return
+
+    container_name = _discover_current_container_name()
+    if not container_name:
+        console.print(
+            "[yellow]Preflight: unresolved docker hosts detected, but current container "
+            "could not be identified automatically.[/yellow]"
+        )
+        return
+
+    try:
+        inspect = subprocess.run(
+            [
+                "docker",
+                "inspect",
+                "-f",
+                "{{json .NetworkSettings.Networks}}",
+                container_name,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        )
+        networks = json.loads(inspect.stdout or "{}")
+    except (subprocess.SubprocessError, json.JSONDecodeError):
+        console.print(
+            "[yellow]Preflight: failed to inspect current container networks.[/yellow]"
+        )
+        return
+
+    if "infra" in networks:
+        return
+
+    try:
+        subprocess.run(
+            ["docker", "network", "connect", "infra", container_name],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
+        console.print(
+            "[yellow]Preflight: could not attach workspace container to docker network "
+            f"`infra`: {stderr or exc}[/yellow]"
+        )
+        return
+    except (FileNotFoundError, subprocess.SubprocessError) as exc:
+        console.print(
+            "[yellow]Preflight: docker network attach failed: "
+            f"{exc}[/yellow]"
+        )
+        return
+
+    still_unresolved = [host for host in unresolved_hosts if not _host_resolves(host)]
+    if still_unresolved:
+        console.print(
+            "[yellow]Preflight: workspace attached to `infra`, but some hosts are still "
+            f"unresolved: {', '.join(still_unresolved)}[/yellow]"
+        )
+        return
+
+    console.print(
+        "[cyan]Preflight: attached workspace container to docker network `infra` "
+        f"to resolve {', '.join(unresolved_hosts)}.[/cyan]"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
@@ -285,6 +468,7 @@ class Orchestrator:
         else:
             self.console.print(f"[yellow]Warning: .env not found at {env_file}[/yellow]")
 
+        _connect_workspace_to_infra_network(self.console)
         _update_ports_from_env()
 
         self.child_env = os.environ.copy()
@@ -492,6 +676,7 @@ FORCE_KILL_PATTERNS = [
     "nord-city-project",  # project path
     "orchestrator.py",
     "next start",
+    "proxy_ports.py",
 ]
 
 
@@ -708,6 +893,8 @@ def _kill_processes_on_ports(console: Console, env_file: Path) -> bool:
     pids_to_kill: set[int] = set()
 
     for alias, info in SERVICES.items():
+        if not info.kill_orphans_by_port:
+            continue
         if not info.port:
             continue
         port = info.port
@@ -733,6 +920,8 @@ def _kill_processes_on_ports(console: Console, env_file: Path) -> bool:
 
     # Last resort: fuser -k for any port still in use
     for alias, info in SERVICES.items():
+        if not info.kill_orphans_by_port:
+            continue
         if not info.port:
             continue
         if _get_pids_on_port(info.port):
@@ -846,6 +1035,7 @@ def run_single_service(alias: str, env_file: Optional[Path] = None):
     env_path = env_file or (PROJECT_ROOT / ".env")
     if env_path.exists():
         load_dotenv(env_path, override=True)
+    _connect_workspace_to_infra_network(console)
     _update_ports_from_env()
 
     info = SERVICES[alias]
@@ -887,6 +1077,7 @@ Services:
 Examples:
   python orchestrator.py                    # all services, stream logs
   python orchestrator.py --services db,web,site
+  python orchestrator.py --services web --proxy-minio
   python orchestrator.py --service db      # single service, foreground
   python orchestrator.py --background     # background, logs in logs/
   python orchestrator.py --kill           # safe: ports + state
@@ -918,6 +1109,11 @@ Examples:
         "--background", "-b",
         action="store_true",
         help="Run in background. Logs written to logs/.",
+    )
+    parser.add_argument(
+        "--proxy-minio",
+        action="store_true",
+        help="Also start a workspace-local TCP proxy for MinIO preview ports 9000/9001.",
     )
     parser.add_argument(
         "--kill", "-k",
@@ -979,6 +1175,8 @@ def main():
         table.add_column("Depends On", width=20)
 
         for info in SERVICES.values():
+            if not info.listed:
+                continue
             table.add_row(
                 info.alias,
                 info.name,
@@ -990,6 +1188,12 @@ def main():
         return
 
     if args.service:
+        if args.proxy_minio:
+            console.print(
+                "[red]--proxy-minio cannot be used with --service. "
+                "Use --services ... --proxy-minio instead.[/red]"
+            )
+            sys.exit(1)
         env_file = Path(args.env_file) if args.env_file else None
         run_single_service(args.service, env_file)
         return
@@ -1001,7 +1205,13 @@ def main():
                 console.print(f"[red]Unknown service: '{s}'. Use --list.[/red]")
                 sys.exit(1)
     else:
-        requested = list(SERVICES.keys())
+        requested = [
+            alias for alias, info in SERVICES.items()
+            if info.include_in_default
+        ]
+
+    if args.proxy_minio and "minio-proxy" not in requested:
+        requested.append("minio-proxy")
 
     env_file = Path(args.env_file) if args.env_file else (PROJECT_ROOT / ".env")
 

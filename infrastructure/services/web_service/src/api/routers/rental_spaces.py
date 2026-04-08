@@ -1,11 +1,11 @@
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
 from shared.clients.database_client import db_client
 from shared.schemas.space import SpaceSchema
-from api.dependencies import get_audit_context, get_optional_current_user
+from api.dependencies import get_audit_context, get_current_user
 from api.schemas.common import MessageResponse, PaginatedResponse, parse_sort_param
 from api.schemas.rental_spaces import SpaceResponse, CreateSpaceRequest, UpdateSpaceBody
 
@@ -14,11 +14,15 @@ router = APIRouter(prefix="/rental-spaces", tags=["Rental Spaces"])
 
 
 @router.post("/", response_model=SpaceResponse, status_code=status.HTTP_201_CREATED)
-async def create_space(body: CreateSpaceRequest, request: Request):
+async def create_space(
+    body: CreateSpaceRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
     response = await db_client.space.create(
         model_data=body.model_dump(),
         model_class=SpaceSchema,
-        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+        _audit_context=get_audit_context(request, current_user),
     )
     if not response.get("success"):
         error = response.get("error", "Failed to create rental space")
@@ -80,14 +84,19 @@ async def get_space_by_id(entity_id: int):
 
 
 @router.put("/{entity_id}", response_model=MessageResponse)
-async def update_space(entity_id: int, body: UpdateSpaceBody, request: Request):
+async def update_space(
+    entity_id: int,
+    body: UpdateSpaceBody,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
     update_data = body.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
     response = await db_client.space.update(
         entity_id=entity_id,
         update_data=update_data,
-        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+        _audit_context=get_audit_context(request, current_user),
     )
     if not response.get("success"):
         error = response.get("error", "Failed to update rental space")
@@ -97,10 +106,14 @@ async def update_space(entity_id: int, body: UpdateSpaceBody, request: Request):
 
 
 @router.delete("/{entity_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_space(entity_id: int, request: Request):
+async def delete_space(
+    entity_id: int,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
     response = await db_client.space.delete(
         entity_id=entity_id,
-        _audit_context=get_audit_context(request, get_optional_current_user(request)),
+        _audit_context=get_audit_context(request, current_user),
     )
     if not response.get("success"):
         error = response.get("error", "Failed to delete rental space")

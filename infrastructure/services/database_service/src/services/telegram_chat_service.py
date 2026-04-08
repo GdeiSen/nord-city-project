@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from database.database_manager import DatabaseManager
 from models.telegram_chat import TelegramChat
+from shared.utils.converter import Converter
 from .base_service import BaseService, db_session_manager
 
 
@@ -29,6 +30,11 @@ class TelegramChatService(BaseService):
                     pass
         return datetime.now(timezone.utc)
 
+    @staticmethod
+    def _changed_fields(old_data: dict[str, Any], new_data: dict[str, Any]) -> set[str]:
+        keys = set(old_data.keys()) | set(new_data.keys())
+        return {key for key in keys if old_data.get(key) != new_data.get(key)}
+
     @db_session_manager
     async def upsert_chat(
         self,
@@ -41,7 +47,9 @@ class TelegramChatService(BaseService):
         bot_status: Optional[str] = None,
         last_seen_at: Optional[datetime] = None,
         meta: Optional[dict[str, Any]] = None,
+        **kwargs,
     ) -> TelegramChat:
+        audit_context = self._get_audit_context(kwargs)
         existing = await self.repository.get_by_id(session=session, entity_id=chat_id)
         payload_meta = dict(meta or {})
         seen_at = self._normalize_seen_at(last_seen_at)
@@ -56,8 +64,18 @@ class TelegramChatService(BaseService):
                 last_seen_at=seen_at,
                 meta=payload_meta,
             )
-            return await self.repository.create(session=session, obj_in=created)
+            created = await self.repository.create(session=session, obj_in=created)
+            await self._write_audit(
+                session,
+                int(created.chat_id),
+                "create",
+                old_data=None,
+                new_data=Converter.to_dict(created),
+                audit_context=audit_context,
+            )
+            return created
 
+        old_data = Converter.to_dict(existing)
         existing.title = str(title or existing.title or "").strip()
         existing.chat_type = str(chat_type or existing.chat_type or "group").strip() or "group"
         existing.is_active = bool(is_active)
@@ -67,7 +85,19 @@ class TelegramChatService(BaseService):
         merged_meta.update(payload_meta)
         existing.meta = merged_meta
         updated = await self.repository.update(session=session, obj_in=existing)
-        return updated or existing
+        current = updated or existing
+        new_data = Converter.to_dict(current)
+        changed_fields = self._changed_fields(old_data, new_data)
+        if changed_fields - {"last_seen_at", "updated_at"}:
+            await self._write_audit(
+                session,
+                int(current.chat_id),
+                "update",
+                old_data=old_data,
+                new_data=new_data,
+                audit_context=audit_context,
+            )
+        return current
 
     @db_session_manager
     async def get_known_chats(

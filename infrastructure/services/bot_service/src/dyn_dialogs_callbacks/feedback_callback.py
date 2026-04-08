@@ -48,6 +48,13 @@ async def feedback_callback(
             # first for saving input, then for completion. Persist only once.
             ddid = f"{dialog.id:04d}-{sequence_id:04d}-{item_id:04d}"
             feedback = FeedbackSchema(user_id=user_id, ddid=ddid, answer=answer or "")
-            await bot.services.feedback.create_feedback(feedback)
+            await bot.services.feedback.create_feedback(
+                feedback,
+                _audit_context=bot.services.feedback.build_telegram_actor_audit_context(
+                    telegram_user_id=user_id,
+                    reason="general_feedback_created_via_dialog",
+                    meta_updates={"ddid": ddid},
+                ),
+            )
 
     return CallbackResult.continue_()

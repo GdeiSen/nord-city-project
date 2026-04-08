@@ -227,6 +227,18 @@ class AuditClient:
             order=order,
         )
 
+    async def get_by_id(
+        self,
+        *,
+        entity_id: int,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "get_by_id",
+            _model_class=model_class,
+            entity_id=entity_id,
+        )
+
     async def get_paginated(
         self,
         *,

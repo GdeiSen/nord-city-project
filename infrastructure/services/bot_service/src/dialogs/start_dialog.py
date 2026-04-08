@@ -64,6 +64,11 @@ async def _handle_consent_callback(
     handled_data = bot.managers.storage.get(context, Variables.HANDLED_DATA)
     bot.managers.storage.set(context, Variables.HANDLED_DATA, None)
     user = await bot.services.user.get_user_by_id(user_id)
+    audit_context = bot.services.user.build_telegram_actor_audit_context(
+        telegram_user_id=user_id,
+        reason="user_data_processing_consent_updated",
+        meta_updates={"handled_data": handled_data},
+    )
 
     if handled_data == CONSENT_AGREE_CALLBACK:
         start_role = _get_start_role_from_context(context)
@@ -80,9 +85,16 @@ async def _handle_consent_callback(
                 role=start_role or Roles.LPR,
                 data_processing_consent=True,
             )
-            user = await bot.services.user.create_user(new_user)
+            user = await bot.services.user.create_user(
+                new_user,
+                _audit_context=audit_context,
+            )
         elif not user.data_processing_consent:
-            user = await bot.services.user.update_user(user_id, {"data_processing_consent": True})
+            user = await bot.services.user.update_user(
+                user_id,
+                {"data_processing_consent": True},
+                _audit_context=audit_context,
+            )
 
         if user is None:
             await bot.send_message(update, context, "Не удалось сохранить согласие. Попробуйте снова командой /start.", dynamic=False)
@@ -94,7 +106,7 @@ async def _handle_consent_callback(
 
     if handled_data == CONSENT_EXIT_CALLBACK:
         if user is not None and not user.data_processing_consent:
-            await bot.services.user.delete_user(user_id)
+            await bot.services.user.delete_user(user_id, _audit_context=audit_context)
         bot.managers.navigator.clear(context)
         await bot.send_message(
             update,
@@ -157,7 +169,15 @@ async def start_app_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYPE
         bot.register_input_handler(user_id, Actions.CALLBACK, _build_consent_callback_handler(bot))
         return Actions.END
     elif start_role is not None and start_role != user.role and _can_apply_start_role(user.role):
-        updated_user = await bot.services.user.update_user(user_id, {"role": start_role})
+        updated_user = await bot.services.user.update_user(
+            user_id,
+            {"role": start_role},
+            _audit_context=bot.services.user.build_telegram_actor_audit_context(
+                telegram_user_id=user_id,
+                reason="user_role_updated_from_start_payload",
+                meta_updates={"start_role": start_role},
+            ),
+        )
         if updated_user is not None:
             user = updated_user
 

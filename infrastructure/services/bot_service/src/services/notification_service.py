@@ -415,6 +415,14 @@ class NotificationService(BaseService):
                 storage_path=storage_path,
                 meta_updates={"telegram_file_id": telegram_file_id},
                 model_class=StorageFileSchema,
+                _audit_context=self.derive_audit_context(
+                    source_service="bot_service",
+                    reason="storage_file_telegram_file_id_cached",
+                    meta_updates={
+                        "storage_meta_key": "telegram_file_id",
+                        "storage_path": storage_path,
+                    },
+                ),
             )
         except Exception:
             return
@@ -1196,13 +1204,29 @@ class NotificationService(BaseService):
             )
             return {"success": False, "error": str(e)}
 
-    async def send_feedback_to_managers(self, ticket_id: int, feedback_message: str):
-        """Sends service completion feedback to managers of the ticket's object."""
+    @staticmethod
+    def _compose_service_feedback_body(answer: str, text: str | None = None) -> str:
+        normalized_answer = str(answer or "").strip()
+        normalized_text = str(text or "").strip()
+        if normalized_answer and normalized_text:
+            return f"{normalized_answer}: {normalized_text}"
+        return normalized_answer or normalized_text
+
+    async def send_service_ticket_feedback(
+        self,
+        *,
+        ticket_id: int,
+        feedback_answer: str,
+        feedback_text: str | None = None,
+        feedback_id: int | None = None,
+        _audit_context: Optional[dict] = None,
+    ) -> Dict[str, Any]:
+        """Sends saved service completion feedback to the configured object recipient."""
         try:
             ticket = await self.bot.services.service_ticket.get_service_ticket_by_id(ticket_id)
             if not ticket:
                 logger.warning("Ticket not found for manager feedback ticket_id=%s", ticket_id)
-                return
+                return {"success": False, "error": "ticket_not_found"}
 
             user = await self.bot.services.user.get_user_by_id(ticket.user_id)
             user_name = self.bot.get_text('service_feedback_unknown_user')
@@ -1215,8 +1239,9 @@ class NotificationService(BaseService):
                 phone_number = meta_dict.get("phone_number", self.bot.get_text('service_feedback_phone_not_specified'))
 
             created_date = TimeUtils.format_time(ticket.created_at, "%d.%m.%Y %H:%M") if ticket.created_at else now().strftime("%d.%m.%Y %H:%M")
+            feedback_message = self._compose_service_feedback_body(feedback_answer, feedback_text)
 
-            message_text = self.bot.get_text('service_feedback_to_chief_engineer', [
+            message_text = self.bot.get_text('service_feedback_to_recipient', [
                 created_date,
                 ticket.description or self.bot.get_text("service_feedback_description_fallback"),
                 ticket.location or self.bot.get_text("service_feedback_location_fallback"),
@@ -1225,20 +1250,38 @@ class NotificationService(BaseService):
                 feedback_message
             ])
 
-            recipient_ids = await self.bot.services.chat_routing.resolve_feedback_recipient_user_ids(ticket=ticket)
-            if recipient_ids:
-                for recipient_id in recipient_ids:
-                    await self.bot.application.bot.send_message(
-                        chat_id=recipient_id,
-                        text=message_text,
-                        parse_mode=ParseMode.HTML,
-                    )
-                logger.info(
-                    "Delivered service feedback ticket_id=%s recipient_count=%s mode=direct_users",
-                    ticket_id,
-                    len(recipient_ids),
+            recipient_user_id = await self.bot.services.chat_routing.resolve_feedback_recipient_user_id(ticket=ticket)
+            if recipient_user_id is not None:
+                await self.bot.application.bot.send_message(
+                    chat_id=recipient_user_id,
+                    text=message_text,
+                    parse_mode=ParseMode.HTML,
                 )
-                return
+                await self._append_delivery_audit_event(
+                    entity_type="ServiceTicket",
+                    entity_id=int(ticket_id),
+                    event_type="DELIVERY_SUCCESS",
+                    action="send",
+                    reason="service_ticket_feedback_delivered_to_recipient_user",
+                    audit_context=self.derive_audit_context(
+                        _audit_context,
+                        source_service="bot_service",
+                        reason="service_ticket_feedback_delivered_to_recipient_user",
+                    ),
+                    meta={
+                        "delivery_channel": "telegram_user_dm",
+                        "delivery_status": "success",
+                        "target_user_id": int(recipient_user_id),
+                        "feedback_id": int(feedback_id) if feedback_id is not None else None,
+                    },
+                )
+                logger.info(
+                    "Delivered service feedback ticket_id=%s recipient_user_id=%s feedback_id=%s",
+                    ticket_id,
+                    recipient_user_id,
+                    feedback_id,
+                )
+                return {"success": True, "error": None}
 
             fallback_chat_id = self._coerce_chat_id(self._chief_engineer_chat_id)
             if fallback_chat_id is not None:
@@ -1247,17 +1290,81 @@ class NotificationService(BaseService):
                     text=message_text,
                     parse_mode=ParseMode.HTML
                 )
+                await self._append_delivery_audit_event(
+                    entity_type="ServiceTicket",
+                    entity_id=int(ticket_id),
+                    event_type="DELIVERY_SUCCESS",
+                    action="send",
+                    reason="service_ticket_feedback_delivered_to_fallback_chat",
+                    audit_context=self.derive_audit_context(
+                        _audit_context,
+                        source_service="bot_service",
+                        reason="service_ticket_feedback_delivered_to_fallback_chat",
+                    ),
+                    meta={
+                        "delivery_channel": "telegram_chat",
+                        "delivery_status": "success",
+                        "target_chat_id": int(fallback_chat_id),
+                        "feedback_id": int(feedback_id) if feedback_id is not None else None,
+                        "fallback_used": True,
+                    },
+                )
                 logger.info(
                     "Delivered service feedback ticket_id=%s fallback_chat_id=%s",
                     ticket_id,
                     fallback_chat_id,
                 )
+                return {"success": True, "error": None}
+            await self._append_delivery_audit_event(
+                entity_type="ServiceTicket",
+                entity_id=int(ticket_id),
+                event_type="DELIVERY_SKIPPED",
+                action="send",
+                reason="service_ticket_feedback_delivery_unresolved",
+                audit_context=self.derive_audit_context(
+                    _audit_context,
+                    source_service="bot_service",
+                    reason="service_ticket_feedback_delivery_unresolved",
+                ),
+                meta={
+                    "delivery_channel": "telegram_user_dm",
+                    "delivery_status": "skipped",
+                    "feedback_id": int(feedback_id) if feedback_id is not None else None,
+                },
+            )
+            return {"success": True, "error": None}
         except Exception as e:
+            await self._append_delivery_audit_event(
+                entity_type="ServiceTicket",
+                entity_id=int(ticket_id),
+                event_type="DELIVERY_FAILED",
+                action="send",
+                reason="service_ticket_feedback_delivery_failed",
+                audit_context=self.derive_audit_context(
+                    _audit_context,
+                    source_service="bot_service",
+                    reason="service_ticket_feedback_delivery_failed",
+                ),
+                meta={
+                    "delivery_channel": "telegram_user_dm",
+                    "delivery_status": "failed",
+                    "feedback_id": int(feedback_id) if feedback_id is not None else None,
+                    "error": str(e),
+                },
+            )
             logger.exception("Failed to deliver service feedback ticket_id=%s: %s", ticket_id, e)
+            return {"success": False, "error": str(e)}
+
+    async def send_feedback_to_managers(self, ticket_id: int, feedback_message: str):
+        """Backward-compatible wrapper for legacy callers."""
+        return await self.send_service_ticket_feedback(
+            ticket_id=ticket_id,
+            feedback_answer=feedback_message,
+        )
 
     async def send_feedback_to_chief_engineer(self, ticket_id: int, feedback_message: str):
         """Backward-compatible alias for service feedback delivery."""
-        await self.send_feedback_to_managers(ticket_id, feedback_message)
+        return await self.send_feedback_to_managers(ticket_id, feedback_message)
 
     async def _find_tickets_for_object(self, object_id: int) -> list[Any]:
         response = await self.bot.managers.database.service_ticket.find(

@@ -46,6 +46,15 @@ class ChatRoutingService(BaseService):
     ) -> None:
         if not self._is_registry_chat_type(chat_type):
             return
+        audit_context = self.derive_audit_context(
+            source_service="bot_service",
+            reason="telegram_chat_observed",
+            meta_updates={
+                "chat_registry_source": "telegram_observation",
+                "observed_chat_id": int(chat_id),
+                "observed_chat_type": str(chat_type or "").lower(),
+            },
+        )
         await self.bot.managers.database.telegram_chat.upsert_chat(
             chat_id=chat_id,
             title=title,
@@ -55,6 +64,7 @@ class ChatRoutingService(BaseService):
             last_seen_at=datetime.now(timezone.utc).isoformat(),
             meta=meta or {},
             model_class=TelegramChatSchema,
+            _audit_context=audit_context,
         )
 
     async def observe_chat(self, chat: "Chat | None", *, is_active: bool = True, bot_status: str | None = None) -> None:
@@ -206,15 +216,36 @@ class ChatRoutingService(BaseService):
         ticket: ServiceTicketSchema | None = None,
         ticket_id: int | None = None,
     ) -> list[int]:
+        recipient_user_id = await self.resolve_feedback_recipient_user_id(
+            ticket=ticket,
+            ticket_id=ticket_id,
+        )
+        return [recipient_user_id] if recipient_user_id is not None else []
+
+    async def resolve_feedback_recipient_user_id(
+        self,
+        *,
+        ticket: ServiceTicketSchema | None = None,
+        ticket_id: int | None = None,
+    ) -> Optional[int]:
         target_ticket = ticket
         if target_ticket is None and ticket_id is not None:
             target_ticket = await self.bot.services.service_ticket.get_service_ticket_by_id(ticket_id)
         object_id = await self._resolve_ticket_object_id(target_ticket)
-        managers = await self.get_manager_users_for_object(object_id)
-        user_ids: list[int] = []
-        for manager in managers:
-            try:
-                user_ids.append(int(manager.id))
-            except (TypeError, ValueError):
-                continue
-        return sorted(set(user_ids))
+        if object_id is None:
+            return None
+        object_response = await self.bot.managers.database.object.get_by_id(
+            entity_id=int(object_id),
+            model_class=ObjectSchema,
+        )
+        if not object_response.get("success") or object_response.get("data") is None:
+            return None
+        recipient_user_id = getattr(
+            object_response["data"],
+            "service_feedback_recipient_user_id",
+            None,
+        )
+        try:
+            return int(recipient_user_id) if recipient_user_id is not None else None
+        except (TypeError, ValueError):
+            return None
