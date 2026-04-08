@@ -422,7 +422,7 @@ export default function ServiceTicketDetailPage() {
                 order-2 lg:order-none mt-6 lg:mt-0
                 w-full lg:w-80 lg:shrink-0
                 min-h-[200px] lg:min-h-0
-                bg-white lg:border-l border-border/50
+                bg-background lg:border-l border-border/50
               `}
             >
               <div
