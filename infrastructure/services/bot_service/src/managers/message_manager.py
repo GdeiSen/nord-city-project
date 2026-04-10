@@ -4,9 +4,8 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, TYPE_CHECKING
 from telegram import InlineKeyboardMarkup, Message
 from telegram.constants import ParseMode
-from telegram.error import NetworkError, RetryAfter, TimedOut
+from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 from shared.constants import Variables
-from shared.utils.storage_utils import to_public_storage_url
 from .base_manager import BaseManager
 
 try:
@@ -59,6 +58,8 @@ class MessageManager(BaseManager):
         return ", ".join(parts) if parts else "no-context"
 
     def _is_retryable_exception(self, exc: Exception) -> bool:
+        if self._is_non_retryable_bad_request(exc):
+            return False
         if isinstance(exc, (TimedOut, NetworkError, RetryAfter)):
             return True
         if httpx is not None and isinstance(exc, (httpx.TimeoutException, httpx.NetworkError)):
@@ -76,6 +77,63 @@ class MessageManager(BaseManager):
             "network is unreachable",
         )
         return any(marker in error_text for marker in retryable_markers)
+
+    def _is_non_retryable_bad_request(self, exc: Exception) -> bool:
+        if not isinstance(exc, BadRequest):
+            return False
+        error_text = str(exc).lower()
+        non_retryable_markers = (
+            "wrong type of the web page content",
+            "failed to get http url content",
+            "message can't be deleted for everyone",
+            "query is too old",
+            "query id is invalid",
+        )
+        return any(marker in error_text for marker in non_retryable_markers)
+
+    async def _send_adaptive_photo(
+        self,
+        *,
+        context: "ContextTypes.DEFAULT_TYPE",
+        chat_id: int,
+        image_ref: dict[str, str | None],
+        caption: str,
+        reply_markup: InlineKeyboardMarkup | None,
+        parse_mode: ParseMode,
+    ) -> Message:
+        telegram_file_id = str(image_ref.get("telegram_file_id") or "").strip()
+        if telegram_file_id:
+            try:
+                return await context.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=telegram_file_id,
+                    caption=caption,
+                    reply_markup=reply_markup,
+                    parse_mode=parse_mode,
+                )
+            except Exception:
+                image_ref["telegram_file_id"] = None
+                await self.bot.services.media.persist_storage_file_telegram_file_id(
+                    storage_path=image_ref.get("storage_path"),
+                    telegram_file_id=None,
+                )
+        filename, file_content = await self.bot.services.media.download_photo_bytes(str(image_ref.get("url") or ""))
+        message = await context.bot.send_photo(
+            chat_id=chat_id,
+            photo=self.bot.services.media.as_input_file(filename, file_content),
+            caption=caption,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode,
+        )
+        photos = getattr(message, "photo", None) or []
+        uploaded_file_id = getattr(photos[-1], "file_id", None) if photos else None
+        if uploaded_file_id:
+            image_ref["telegram_file_id"] = str(uploaded_file_id)
+            await self.bot.services.media.persist_storage_file_telegram_file_id(
+                storage_path=image_ref.get("storage_path"),
+                telegram_file_id=str(uploaded_file_id),
+            )
+        return message
 
     def _is_message_not_found(self, exc: Exception) -> bool:
         error_text = str(exc).lower()
@@ -221,19 +279,20 @@ class MessageManager(BaseManager):
             if not editable_message:
                 # Если есть изображения, отправляем их (нормализуем URL для Telegram)
                 if images and len(images) > 0:
-                    images = [to_public_storage_url(img) or img for img in images]
-                    images = [img for img in images if img and (img.startswith("http://") or img.startswith("https://"))]
+                    images = [img for img in images if img]
                     if not images:
                         images = None
                 if images and len(images) > 0:
                     # Для одного изображения используем send_photo
                     if len(images) == 1:
                         log_context = self._build_log_context(chat_id=chat_id, image_count=1)
+                        image_ref = await self.bot.services.media.prepare_image_ref(images[0])
                         success, message, _ = await self._execute_with_retry(
                             operation_name="send photo",
-                            operation=lambda: context.bot.send_photo(
+                            operation=lambda: self._send_adaptive_photo(
+                                context=context,
                                 chat_id=chat_id,
-                                photo=images[0],
+                                image_ref=image_ref,
                                 caption=text[:1024],  # Telegram ограничивает подпись до 1024 символов
                                 reply_markup=reply_markup,
                                 parse_mode=parse_mode,
@@ -246,9 +305,21 @@ class MessageManager(BaseManager):
                     # Для нескольких изображений используем media group
                     else:
                         from telegram import InputMediaPhoto
-                        media = [InputMediaPhoto(media=img) for img in images[:-1]]
-                        # Последнее изображение с подписью
-                        media.append(InputMediaPhoto(media=images[-1], caption=text[:1024], parse_mode=parse_mode))
+                        image_refs = [await self.bot.services.media.prepare_image_ref(img) for img in images]
+                        media = []
+                        for index, image_ref in enumerate(image_refs):
+                            telegram_file_id = str(image_ref.get("telegram_file_id") or "").strip()
+                            if telegram_file_id:
+                                media_item = InputMediaPhoto(media=telegram_file_id)
+                            else:
+                                filename, file_content = await self.bot.services.media.download_photo_bytes(str(image_ref.get("url") or ""))
+                                media_item = InputMediaPhoto(
+                                    media=self.bot.services.media.as_input_file(filename, file_content)
+                                )
+                            if index == len(image_refs) - 1:
+                                media_item.caption = text[:1024]
+                                media_item.parse_mode = parse_mode
+                            media.append(media_item)
                         
                         # Отправляем группу медиа
                         log_context = self._build_log_context(chat_id=chat_id, image_count=len(images))
@@ -263,8 +334,15 @@ class MessageManager(BaseManager):
                         )
                         
                         # Сохраняем ID всех сообщений с медиа
-                        for msg in media_messages or []:
+                        for idx, msg in enumerate(media_messages or []):
                             new_messages.append({"chat_id": msg.chat_id, "message_id": msg.message_id})
+                            photos = getattr(msg, "photo", None) or []
+                            uploaded_file_id = getattr(photos[-1], "file_id", None) if photos else None
+                            if uploaded_file_id and idx < len(image_refs):
+                                await self.bot.services.media.persist_storage_file_telegram_file_id(
+                                    storage_path=image_refs[idx].get("storage_path"),
+                                    telegram_file_id=str(uploaded_file_id),
+                                )
                         
                         # Если нужна клавиатура, отправляем отдельным сообщением
                         if reply_markup:

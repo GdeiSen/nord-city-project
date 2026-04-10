@@ -71,10 +71,12 @@ from services.service_ticket_service import ServiceTicketService
 from services.telegram_auth_service import TelegramAuthService
 from services.bot_settings_service import BotSettingsService
 from services.localization_service import LocalizationService
+from services.media_service import MediaService
 
 # Telegram-related imports
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, Message
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -187,10 +189,18 @@ class Bot:
         self.services.register_service(TelegramAuthService(self))
         self.services.register_service(BotSettingsService(self))
         self.services.register_service(LocalizationService(self))
+        self.services.register_service(MediaService(self))
 
     async def handle_error(self, code: int, message: str):
         """Simple error handler"""
         logger.error("Bot operation error code=%s: %s", code, message)
+
+    async def handle_application_error(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        logger.exception(
+            "Application error update=%s exception=%s",
+            update,
+            context.error,
+        )
 
     def get_user_id(self, update: Update) -> int | None:
         if update.message and update.message.from_user:
@@ -296,6 +306,7 @@ class Bot:
         if ChatMemberHandler is not None:
             self.application.add_handler(ChatMemberHandler(self.handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+        self.application.add_error_handler(self.handle_application_error)
         
         # Initialize and start the application
         logger.info("Initializing Telegram application")
@@ -363,6 +374,7 @@ class Bot:
         if ChatMemberHandler is not None:
             self.application.add_handler(ChatMemberHandler(self.handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+        self.application.add_error_handler(self.handle_application_error)
         
         self.application.post_init = self._post_init_hook
         self.application.run_polling()
@@ -370,7 +382,12 @@ class Bot:
 
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
-            await update.callback_query.answer()
+            try:
+                await update.callback_query.answer()
+            except BadRequest as exc:
+                err = str(exc).lower()
+                if "query is too old" not in err and "query id is invalid" not in err:
+                    raise
             callback_data = update.callback_query.data
             user_id = self.get_user_id(update)
             handler, dialog_type = self.managers.event.get_input_handler(user_id)
@@ -534,6 +551,7 @@ class Agent:
                 read_timeout=30.0,
                 write_timeout=30.0,
                 pool_timeout=10.0,
+                connection_pool_size=100,
             )
             builder = builder.request(request)
         return builder.build()
