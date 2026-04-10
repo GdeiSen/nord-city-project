@@ -309,22 +309,16 @@ class MessageManager(BaseManager):
                         media = []
                         for index, image_ref in enumerate(image_refs):
                             telegram_file_id = str(image_ref.get("telegram_file_id") or "").strip()
-                            is_last = index == len(image_refs) - 1
-                            caption_value = text[:1024] if is_last else None
-                            parse_mode_value = parse_mode if is_last else None
                             if telegram_file_id:
-                                media_item = InputMediaPhoto(
-                                    media=telegram_file_id,
-                                    caption=caption_value,
-                                    parse_mode=parse_mode_value,
-                                )
+                                media_item = InputMediaPhoto(media=telegram_file_id)
                             else:
                                 filename, file_content = await self.bot.services.media.download_photo_bytes(str(image_ref.get("url") or ""))
                                 media_item = InputMediaPhoto(
-                                    media=self.bot.services.media.as_input_file(filename, file_content),
-                                    caption=caption_value,
-                                    parse_mode=parse_mode_value,
+                                    media=self.bot.services.media.as_input_file(filename, file_content)
                                 )
+                            if index == len(image_refs) - 1:
+                                media_item.caption = text[:1024]
+                                media_item.parse_mode = parse_mode
                             media.append(media_item)
                         
                         # Отправляем группу медиа
