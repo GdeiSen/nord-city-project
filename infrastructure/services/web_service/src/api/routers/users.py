@@ -1,7 +1,9 @@
 import logging
+import os
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from pydantic import BaseModel
 
 from shared.clients.database_client import db_client
 from shared.constants import Roles
@@ -31,9 +33,72 @@ ROLE_LABELS = {
     Roles.GUEST: "Гость",
     Roles.LPR: "User LPR",
     Roles.MA: "User MA",
+    Roles.MANAGER: "Менеджер",
     Roles.ADMIN: "Администратор",
     Roles.SUPER_ADMIN: "Super Admin",
 }
+
+
+class UserRoleLinkItem(BaseModel):
+    role_code: str
+    role_id: int
+    token: str
+    title: str
+    description: str
+    url: str
+
+
+class UserRoleLinksResponse(BaseModel):
+    bot_username: str
+    links: List[UserRoleLinkItem]
+
+
+def _get_env_required(name: str, default: str = "") -> str:
+    value = os.getenv(name, default).strip()
+    if not value:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Не задана переменная окружения {name}.",
+        )
+    return value
+
+
+def _normalize_bot_username(username: str) -> str:
+    return username.strip().lstrip("@")
+
+
+def _build_role_links_payload() -> UserRoleLinksResponse:
+    bot_username = _normalize_bot_username(_get_env_required("BOT_USERNAME"))
+    lpr_token = _get_env_required("BOT_DEEP_LINK_LPR_TOKEN", "lpr")
+    ma_token = _get_env_required("BOT_DEEP_LINK_MA_TOKEN", "ma")
+
+    return UserRoleLinksResponse(
+        bot_username=bot_username,
+        links=[
+            UserRoleLinkItem(
+                role_code="LPR",
+                role_id=Roles.LPR,
+                token=lpr_token,
+                title="Ссылка LPR",
+                description=(
+                    "Выдает роль LPR для арендаторов: полный пользовательский сценарий "
+                    "бота (заявки, опросы, обратная связь и профиль)."
+                ),
+                url=f"https://t.me/{bot_username}?start={lpr_token}",
+            ),
+            UserRoleLinkItem(
+                role_code="MA",
+                role_id=Roles.MA,
+                token=ma_token,
+                title="Ссылка MA",
+                description=(
+                    "Выдает роль MA с сокращенным пользовательским меню "
+                    "(профиль, обслуживание, гостевая парковка, свободные площади)."
+                ),
+                url=f"https://t.me/{bot_username}?start={ma_token}",
+            ),
+        ],
+    )
 
 
 def _get_user_export_value(col_id: str):
@@ -81,11 +146,10 @@ async def create_user(
         )
     create_data = body.model_dump()
     if create_data.get("role") == Roles.SUPER_ADMIN:
-        if current_user.get("role") != Roles.SUPER_ADMIN:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Только Super Admin может создавать пользователей с ролью Super Admin.",
-            )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Назначение роли Super Admin через сайт запрещено. Используйте базу данных.",
+        )
     response = await db_client.user.create(
         model_data=create_data,
         model_class=UserSchema,
@@ -155,6 +219,16 @@ async def export_users(
     )
 
 
+@router.get("/role-links", response_model=UserRoleLinksResponse)
+async def get_user_role_links(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != Roles.SUPER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Только Super Admin может просматривать ссылки ролей.",
+        )
+    return _build_role_links_payload()
+
+
 @router.get("/{entity_id}", response_model=UserResponse)
 async def get_user_by_id(entity_id: int):
     response = await db_client.user.get_by_id(entity_id=entity_id, model_class=UserSchema)
@@ -187,12 +261,22 @@ async def update_user(
     # Запрет менять свою роль (на случай прямых API-вызовов) — уже убрали выше
     if "role" in update_data:
         new_role = update_data["role"]
-        current_role = current_user.get("role")
-        # Администратор не может назначать роль Super Admin
-        if new_role == Roles.SUPER_ADMIN and current_role != Roles.SUPER_ADMIN:
+        target_user_response = await db_client.user.get_by_id(
+            entity_id=entity_id,
+            model_class=UserSchema,
+        )
+        if not target_user_response.get("success") or target_user_response.get("data") is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found",
+            )
+        target_user = target_user_response["data"]
+
+        # Роль Super Admin управляется только через БД: запрещаем назначения и снятие через web.
+        if new_role == Roles.SUPER_ADMIN or target_user.role == Roles.SUPER_ADMIN:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Только Super Admin может назначать роль Super Admin.",
+                detail="Управление ролью Super Admin через сайт запрещено. Используйте базу данных.",
             )
 
     response = await db_client.user.update(

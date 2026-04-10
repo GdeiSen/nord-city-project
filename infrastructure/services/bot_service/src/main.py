@@ -16,7 +16,7 @@ import threading
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-# Load project root .env first (single source of truth for ADMIN_CHAT_ID, BOT_TOKEN, etc.)
+# Load project root .env first (single source of truth for BOT_TOKEN, optional fallback chat IDs, etc.)
 # So env is correct whether we're started by orchestrator or run standalone (e.g. python main.py)
 _project_root = Path(__file__).resolve().parents[4]
 _env_path = _project_root / ".env"
@@ -207,14 +207,14 @@ class BotServiceManager:
         Initialize the bot agent with microservices configuration from environment.
         
         This method performs critical environment validation and bot agent creation:
-        - Validates required environment variables (BOT_TOKEN, ADMIN_CHAT_ID)
+        - Validates required environment variables (BOT_TOKEN)
         - Extracts database connection parameters
         - Creates and configures the main Agent instance
         - Prepares the bot for microservices communication
         
         Environment Variables Required:
             BOT_TOKEN (str): Telegram Bot API token for authentication
-            ADMIN_CHAT_ID (str): Primary administrator chat ID for notifications
+            ADMIN_CHAT_ID (str, optional): Legacy fallback administrator chat ID
             CHIEF_ENGINEER_CHAT_ID (str, optional): Secondary admin chat ID
             DATABASE_URL (str, optional): PostgreSQL connection string, defaults to Docker setup
         
@@ -237,10 +237,6 @@ class BotServiceManager:
                 logger.error("BOT_TOKEN environment variable is required")
                 return False
                 
-            if not admin_chat_id:
-                logger.error("ADMIN_CHAT_ID environment variable is required")
-                return False
-            
             # Import and initialize agent
             from bot import Agent
             
@@ -392,4 +388,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    asyncio.run(main())

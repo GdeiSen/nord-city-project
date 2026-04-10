@@ -1,6 +1,9 @@
-from pydantic import BaseModel, ConfigDict, field_validator
-from typing import Optional, List
 from datetime import datetime
+from typing import List, Optional
+
+from pydantic import BaseModel, ConfigDict, field_validator
+
+from api.schemas.enrichment import TelegramChatSummary, UserSummary
 
 
 class ObjectResponse(BaseModel):
@@ -11,6 +14,10 @@ class ObjectResponse(BaseModel):
     description: Optional[str] = None
     photos: List[str] = []
     status: str = "ACTIVE"
+    admin_chat_id: Optional[int] = None
+    admin_chat: Optional[TelegramChatSummary] = None
+    service_feedback_recipient_user_id: Optional[int] = None
+    service_feedback_recipient_user: Optional[UserSummary] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -41,6 +48,8 @@ class CreateObjectRequest(BaseModel):
     description: Optional[str] = None
     photos: List[str] = []
     status: str = "ACTIVE"
+    admin_chat_id: Optional[int] = None
+    service_feedback_recipient_user_id: Optional[int] = None
 
 
 class UpdateObjectBody(BaseModel):
@@ -52,3 +61,5 @@ class UpdateObjectBody(BaseModel):
     description: Optional[str] = None
     photos: Optional[List[str]] = None
     status: Optional[str] = None
+    admin_chat_id: Optional[int] = None
+    service_feedback_recipient_user_id: Optional[int] = None

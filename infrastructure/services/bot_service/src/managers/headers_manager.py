@@ -1,8 +1,12 @@
+import logging
 from typing import Dict, TYPE_CHECKING
 from .base_manager import BaseManager
 
 if TYPE_CHECKING:
     from bot import Bot
+
+
+logger = logging.getLogger(__name__)
 
 
 class HeadersManager(BaseManager):
@@ -14,7 +18,7 @@ class HeadersManager(BaseManager):
     
     async def initialize(self) -> None:
         """Инициализация менеджера заголовков"""
-        print("HeadersManager initialized")
+        logger.info("HeadersManager initialized")
     
     def set(self, key: str, value: str) -> None:
         """

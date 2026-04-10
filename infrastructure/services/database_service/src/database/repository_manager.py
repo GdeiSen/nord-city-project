@@ -43,10 +43,12 @@ SORT_COLUMN_MAP: Dict[Tuple[str, str], str] = {
     ("Feedback", "created"): "created_at",
     ("Feedback", "date"): "created_at",
     ("Feedback", "user"): "user_id",
+    ("Feedback", "type"): "feedback_type",
     ("Feedback", "feedback"): "answer",
     # AuditLog
     ("AuditLog", "created"): "created_at",
-    ("AuditLog", "assignee_display"): "assignee_id",
+    ("AuditLog", "actor_display"): "actor_id",
+    ("AuditLog", "assignee_display"): "actor_id",
     # GuestParkingRequest
     ("GuestParkingRequest", "arrival"): "arrival_date",
     ("GuestParkingRequest", "user"): "user_id",
@@ -71,13 +73,14 @@ class GenericRepository:
             model: The SQLAlchemy model class this repository will manage.
         """
         self.model = model
-        # The primary key column is determined dynamically for generic operations.
-        # This assumes a single-column primary key, commonly named 'id'.
-        self.pk_column = getattr(self.model, 'id', None)
+        # Resolve the actual single-column primary key instead of assuming `id`.
+        pk_columns = list(self.model.__table__.primary_key.columns)
+        self.pk_column = pk_columns[0] if len(pk_columns) == 1 else None
         if self.pk_column is None:
             logger.warning(
-                f"Model {self.model.__name__} does not have an 'id' attribute for PK. "
-                f"Operations like get_by_id may fail if not overridden."
+                "Model %s does not have a single-column primary key. "
+                "Generic PK-based operations may fail.",
+                self.model.__name__,
             )
 
     async def create(self, session, *, obj_in: ModelType) -> Optional[ModelType]:
@@ -93,11 +96,10 @@ class GenericRepository:
         """
         try:
             session.add(obj_in)
-            await session.commit()
+            await session.flush()
             await session.refresh(obj_in)
             return obj_in
         except Exception as e:
-            await session.rollback()
             logger.error(f"Error creating {self.model.__name__}: {e}", exc_info=True)
             raise
 
@@ -113,8 +115,11 @@ class GenericRepository:
             The model instance or None if not found.
         """
         if self.pk_column is None:
-            logger.error(f"Cannot get by ID: No primary key 'id' found on {self.model.__name__}.")
-            raise Exception(f"No primary key 'id' found on {self.model.__name__}.")
+            logger.error(
+                "Cannot get by ID: no single-column primary key found on %s.",
+                self.model.__name__,
+            )
+            raise Exception(f"No single-column primary key found on {self.model.__name__}.")
         try:
             return await session.get(self.model, entity_id)
         except Exception as e:
@@ -344,7 +349,7 @@ class GenericRepository:
         if not ids:
             return []
         if self.pk_column is None:
-            raise Exception(f"Cannot get_by_ids: No primary key 'id' on {self.model.__name__}")
+            raise Exception(f"Cannot get_by_ids: no single-column primary key on {self.model.__name__}")
         from sqlalchemy.future import select
         query = select(self.model).where(self.pk_column.in_(ids))
         result = await session.execute(query)
@@ -390,11 +395,10 @@ class GenericRepository:
         try:
             # Merge updates the object state and re-attaches it to the session.
             updated_obj = await session.merge(obj_in)
-            await session.commit()
-            await session.refresh(obj_in)
+            await session.flush()
+            await session.refresh(updated_obj)
             return updated_obj
         except Exception as e:
-            await session.rollback()
             logger.error(f"Error updating {self.model.__name__}: {e}", exc_info=True)
             raise
 
@@ -413,11 +417,10 @@ class GenericRepository:
             obj = await self.get_by_id(session, entity_id=entity_id)
             if obj:
                 await session.delete(obj)
-                await session.commit()
+                await session.flush()
                 return True
             return False
         except Exception as e:
-            await session.rollback()
             logger.error(f"Error deleting {self.model.__name__} with id {entity_id}: {e}", exc_info=True)
             raise
 

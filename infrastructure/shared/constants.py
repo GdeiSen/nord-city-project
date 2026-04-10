@@ -1,6 +1,7 @@
 class Roles:
     LPR = 10011
     MA = 20122
+    MANAGER = 10014
     ADMIN = 10012
     SUPER_ADMIN = 10013
     GUEST = 00000
@@ -130,9 +131,58 @@ class ServiceTicketStatus:
     IN_PROGRESS = "IN_PROGRESS"
 
 
+class FeedbackTypes:
+    GENERAL = "GENERAL"
+    SERVICE_TICKET = "SERVICE_TICKET"
+
+
+class StorageFileKind:
+    IMAGE = "IMAGE"
+    VIDEO = "VIDEO"
+    DOCUMENT = "DOCUMENT"
+    OTHER = "OTHER"
+
+
+class StorageFileCategory:
+    DEFAULT = "DEFAULT"
+    SYSTEM = "SYSTEM"
+    TEMP = "TEMP"
+
+
+class AuditActorType:
+    USER = "USER"
+    TELEGRAM_USER = "TELEGRAM_USER"
+    SYSTEM = "SYSTEM"
+    SERVICE = "SERVICE"
+
+
+class AuditEventCategory:
+    DATA_CHANGE = "DATA_CHANGE"
+    BUSINESS_EVENT = "BUSINESS_EVENT"
+    DELIVERY_EVENT = "DELIVERY_EVENT"
+
+
+class AuditRetentionClass:
+    CRITICAL = "CRITICAL"
+    OPERATIONAL = "OPERATIONAL"
+    TECHNICAL = "TECHNICAL"
+
+
 # Entity types (model __name__) that should be audited
 AUDITED_ENTITY_TYPES = frozenset(
-    {"User", "Feedback", "Object", "PollAnswer", "ServiceTicket", "Space", "SpaceView", "GuestParkingRequest"}
+    {
+        "User",
+        "Feedback",
+        "Object",
+        "PollAnswer",
+        "ServiceTicket",
+        "Space",
+        "SpaceView",
+        "GuestParkingRequest",
+        "GuestParkingSettings",
+        "StorageFile",
+        "TelegramChat",
+    }
 )
 
 # Audit modes: fast (no old/new), smart (diff only), heavy (full old/new)
@@ -141,7 +191,7 @@ AUDIT_MODE_SMART = "smart"
 AUDIT_MODE_HEAVY = "heavy"
 
 # Технические поля: update только этих полей от bot_service не пишется в аудит
-AUDIT_SKIP_UPDATE_FIELDS = frozenset({"msid"})
+AUDIT_SKIP_UPDATE_FIELDS = frozenset()
 
 # Дефолтный лимит для find_by_entity, чтобы избежать неограниченных выборок
 AUDIT_FIND_BY_ENTITY_DEFAULT_LIMIT = 500
@@ -151,14 +201,38 @@ AUDIT_HEAVY_MAX_JSON_BYTES = 100_000
 
 # Per-entity audit mode. Default: fast. ServiceTicket: smart.
 AUDIT_ENTITY_MODES: dict[str, str] = {
-    "User": AUDIT_MODE_FAST,
-    "Feedback": AUDIT_MODE_FAST,
-    "Object": AUDIT_MODE_FAST,
-    "PollAnswer": AUDIT_MODE_FAST,
+    "User": AUDIT_MODE_SMART,
+    "Feedback": AUDIT_MODE_SMART,
+    "Object": AUDIT_MODE_SMART,
+    "PollAnswer": AUDIT_MODE_SMART,
     "ServiceTicket": AUDIT_MODE_SMART,
-    "Space": AUDIT_MODE_FAST,
-    "SpaceView": AUDIT_MODE_FAST,
-    "GuestParkingRequest": AUDIT_MODE_FAST,
+    "Space": AUDIT_MODE_SMART,
+    "SpaceView": AUDIT_MODE_SMART,
+    "GuestParkingRequest": AUDIT_MODE_SMART,
+    "GuestParkingSettings": AUDIT_MODE_SMART,
+    "StorageFile": AUDIT_MODE_FAST,
+    "TelegramChat": AUDIT_MODE_SMART,
+}
+
+# Retention policy by entity type.
+AUDIT_ENTITY_RETENTION_CLASS: dict[str, str] = {
+    "User": AuditRetentionClass.CRITICAL,
+    "Object": AuditRetentionClass.CRITICAL,
+    "Space": AuditRetentionClass.CRITICAL,
+    "GuestParkingSettings": AuditRetentionClass.CRITICAL,
+    "TelegramChat": AuditRetentionClass.CRITICAL,
+    "ServiceTicket": AuditRetentionClass.OPERATIONAL,
+    "GuestParkingRequest": AuditRetentionClass.OPERATIONAL,
+    "Feedback": AuditRetentionClass.OPERATIONAL,
+    "PollAnswer": AuditRetentionClass.OPERATIONAL,
+    "SpaceView": AuditRetentionClass.TECHNICAL,
+    "StorageFile": AuditRetentionClass.TECHNICAL,
+}
+
+AUDIT_RETENTION_DAYS: dict[str, int] = {
+    AuditRetentionClass.CRITICAL: 365,
+    AuditRetentionClass.OPERATIONAL: 180,
+    AuditRetentionClass.TECHNICAL: 45,
 }
 
 ASSIGNEE_SYSTEM = 1

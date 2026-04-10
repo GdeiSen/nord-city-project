@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { isAuthenticated, getToken, logout } from "@/lib/auth"
+import { getToken, getUser, isAuthenticated, logout, setUser } from "@/lib/auth"
 import { authApi } from "@/lib/api"
 
-const DEFAULT_PUBLIC_ROUTES = ["/login"]
+const DEFAULT_PUBLIC_ROUTES = ["/login", "/access-restricted"]
 
 export interface UseAuthCheckOptions {
   pathname: string
@@ -33,25 +33,44 @@ export function useAuthCheck(options: UseAuthCheckOptions): UseAuthCheckReturn {
 
       if (!isAuthenticated()) {
         router.replace("/login")
+        setChecked(true)
         return
       }
 
       const token = getToken()
       if (!token) {
         router.replace("/login")
+        setChecked(true)
         return
       }
 
       try {
         const result = await authApi.validateToken(token)
         if (result.valid) {
+          const currentUser = getUser()
+          if (result.user_id != null) {
+            if (currentUser) {
+              if (currentUser.id !== result.user_id || currentUser.role !== result.role) {
+                setUser({ ...currentUser, id: result.user_id, role: result.role })
+              }
+            } else {
+              setUser({ id: result.user_id, role: result.role })
+            }
+          }
           setAuthorized(true)
+          setChecked(true)
+          return
         } else {
           logout()
-          router.replace("/login")
+          if (result.reason === "access_restricted") {
+            router.replace("/access-restricted")
+          } else {
+            router.replace("/login")
+          }
         }
       } catch {
-        setAuthorized(true)
+        logout()
+        router.replace("/login")
       }
 
       setChecked(true)

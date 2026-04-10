@@ -48,12 +48,28 @@ export function SiteHeader() {
         return 'Панель управления'
       case '/users':
         return 'Пользователи'
+      case '/users/role-links':
+        return 'Ссылки ролей пользователей'
       case '/service-tickets':
         return 'Заявки на обслуживание'
+      case '/guest-parking':
+        return 'Гостевая парковка'
+      case '/guest-parking/settings':
+        return 'Настройки парковки'
       case '/feedbacks':
         return 'Отзывы пользователей'
+      case '/polls':
+        return 'Опросы'
+      case '/polls/settings':
+        return 'Настройки опроса'
+      case '/notifications':
+        return 'Оповещения пользователей'
       case '/spaces':
         return 'Бизнес-центры'
+      case '/localization':
+        return 'Локализация бота'
+      case '/file-storage':
+        return 'Хранилище файлов'
       default:
         if (pathname.startsWith('/spaces/')) {
           return 'Помещения бизнес-центра'
@@ -86,6 +102,30 @@ export function SiteHeader() {
 
     if (segments.length === 1) {
       return null
+    }
+
+    if (segments[0] === 'users' && segments[1] === 'role-links') {
+      return (
+        <div className="flex items-center text-sm text-muted-foreground">
+          <a href="/users" className="hover:text-foreground">
+            Пользователи
+          </a>
+          <span className="mx-2">/</span>
+          <span>Ссылки ролей</span>
+        </div>
+      )
+    }
+
+    if (segments[0] === 'polls' && segments[1] === 'settings') {
+      return (
+        <div className="flex items-center text-sm text-muted-foreground">
+          <a href="/polls" className="hover:text-foreground">
+            Опросы
+          </a>
+          <span className="mx-2">/</span>
+          <span>Настройки</span>
+        </div>
+      )
     }
 
     // Handle nested routes like /spaces/[id]

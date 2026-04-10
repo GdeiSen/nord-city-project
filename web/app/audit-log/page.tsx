@@ -1,8 +1,10 @@
 "use client"
 
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { AppSidebar } from "@/components/app-sidebar"
+import { AuditEntrySheet } from "@/components/audit-entry-sheet"
 import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { Badge } from "@/components/ui/badge"
@@ -14,7 +16,7 @@ import { DataTable, createSelectColumn } from "@/components/data-table"
 import { PageHeader } from "@/components/page-header"
 import { useServerPaginatedData, useFilterPickerData } from "@/hooks"
 import { Toaster } from "@/components/ui/sonner"
-import { toast } from "sonner"
+import type { AuditLogEntry } from "@/types"
 
 const ENTITY_TYPE_LABELS: Record<string, string> = {
   ServiceTicket: "Заявка",
@@ -25,12 +27,8 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
   Space: "Помещение",
   SpaceView: "Просмотр",
   PollAnswer: "Опрос",
-}
-
-const ACTION_LABELS: Record<string, string> = {
-  create: "Создание",
-  update: "Изменение",
-  delete: "Удаление",
+  GuestParkingSettings: "Настройки парковки",
+  StorageFile: "Файл",
 }
 
 /** URL списка (таблицы) сущностей по типу */
@@ -50,9 +48,28 @@ function getEntityListUrl(entityType: string): string | null {
       return "/spaces"
     case "PollAnswer":
       return "/spaces"
+    case "StorageFile":
+      return "/file-storage"
     default:
       return null
   }
+}
+
+function renderActor(entry: AuditLogEntry, stopPropagation: boolean = true) {
+  const actor = entry.actor
+  const label = actor?.label ?? entry.actor_display ?? entry.source_service ?? "—"
+  if (actor?.href) {
+    return (
+      <Link
+        href={actor.href}
+        className="text-primary hover:underline"
+        onClick={stopPropagation ? (e) => e.stopPropagation() : undefined}
+      >
+        {label}
+      </Link>
+    )
+  }
+  return <span className="text-sm text-muted-foreground">{label}</span>
 }
 
 function getEntityDetailUrl(entityType: string, entityId: number): string | null {
@@ -75,7 +92,7 @@ function getEntityDetailUrl(entityType: string, entityId: number): string | null
 }
 
 export default function AuditLogPage() {
-  const router = useRouter()
+  const searchParams = useSearchParams()
   const filterPickerData = useFilterPickerData({})
   const {
     data: entries,
@@ -83,15 +100,30 @@ export default function AuditLogPage() {
     loading,
     serverParams,
     setServerParams,
-    refetch,
-  } = useServerPaginatedData<any>({
+  } = useServerPaginatedData<AuditLogEntry>({
     api: auditLogApi,
     errorMessage: "Не удалось загрузить журнал аудита",
     initialParams: { sort: "created:desc" },
   })
+  const [selectedEntry, setSelectedEntry] = useState<AuditLogEntry | null>(null)
+  const [isEntrySheetOpen, setIsEntrySheetOpen] = useState(false)
 
-  const columns: ColumnDef<any>[] = [
-    createSelectColumn<any>(),
+  useEffect(() => {
+    const rawEntryId = searchParams.get("entryId")
+    if (!rawEntryId) return
+    const entryId = Number(rawEntryId)
+    if (!Number.isFinite(entryId)) return
+
+    auditLogApi.getById(entryId)
+      .then((entry) => {
+        setSelectedEntry(entry)
+        setIsEntrySheetOpen(true)
+      })
+      .catch(() => {})
+  }, [searchParams])
+
+  const columns: ColumnDef<AuditLogEntry>[] = [
+    createSelectColumn<AuditLogEntry>(),
     {
       accessorKey: "id",
       header: "ID",
@@ -153,18 +185,24 @@ export default function AuditLogPage() {
               : "secondary"
         return (
           <Badge variant={variant}>
-            {ACTION_LABELS[action] ?? action}
+            {action}
           </Badge>
         )
       },
     },
     {
-      accessorKey: "assignee_display",
-      header: "Исполнитель",
-      meta: auditLogColumnMeta.assignee_display,
+      accessorKey: "actor_display",
+      header: "Кто изменил",
+      meta: auditLogColumnMeta.actor_display,
+      cell: ({ row }) => renderActor(row.original),
+    },
+    {
+      accessorKey: "source_service",
+      header: "Источник",
+      meta: auditLogColumnMeta.source_service,
       cell: ({ row }) => (
         <span className="text-sm text-muted-foreground">
-          {row.original.assignee_display ?? "—"}
+          {row.original.source_service ?? "—"}
         </span>
       ),
     },
@@ -199,12 +237,12 @@ export default function AuditLogPage() {
             loading={loading}
             loadingMessage="Загрузка журнала аудита..."
             onRowClick={(row) => {
-              const url = getEntityDetailUrl(row.original.entity_type, row.original.entity_id)
-              if (url) router.push(url)
+              setSelectedEntry(row.original)
+              setIsEntrySheetOpen(true)
             }}
             contextMenuActions={{
               getCopyText: (row) =>
-                `#${row.original.id} ${row.original.entity_type} #${row.original.entity_id} ${row.original.action} ${row.original.assignee_display ?? ""} ${row.original.created_at ?? ""}`,
+                `#${row.original.id} ${row.original.entity_type} #${row.original.entity_id} ${row.original.action} ${row.original.actor?.label ?? row.original.actor_display ?? ""} ${row.original.created_at ?? ""}`,
             }}
             serverPagination
             totalRowCount={total}
@@ -213,6 +251,16 @@ export default function AuditLogPage() {
           />
         </div>
       </SidebarInset>
+      <AuditEntrySheet
+        entry={selectedEntry}
+        open={isEntrySheetOpen}
+        onOpenChange={(open) => {
+          setIsEntrySheetOpen(open)
+          if (!open) {
+            setSelectedEntry(null)
+          }
+        }}
+      />
       <Toaster />
     </>
   )

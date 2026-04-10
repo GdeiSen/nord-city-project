@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base
 
 if TYPE_CHECKING:
+    from .dynamic_dialog_binding import DynamicDialogBinding
     from .user import User
 
 
@@ -14,7 +15,7 @@ class PollAnswer(Base):
     __tablename__ = "poll_answers"
     id: Mapped[int] = mapped_column(Integer, Sequence("poll_answers_id_seq"), primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"))
-    ddid: Mapped[str] = mapped_column(String(14))
+    ddid: Mapped[str] = mapped_column(String(14), ForeignKey("dynamic_dialog_bindings.ddid"))
     answer: Mapped[str] = mapped_column(String(255))
     meta: Mapped[Optional[str]] = mapped_column(Text)
 
@@ -22,3 +23,4 @@ class PollAnswer(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     user: Mapped["User"] = relationship(back_populates="poll_answers")
+    ddid_binding: Mapped["DynamicDialogBinding"] = relationship(back_populates="poll_answers")

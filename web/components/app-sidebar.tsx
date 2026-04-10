@@ -7,8 +7,13 @@ import {
   IconTicket,
   IconCar,
   IconMessageCircle,
+  IconChartBar,
+  IconBell,
   IconBuildingSkyscraper,
   IconHistory,
+  IconFile,
+  IconLanguage,
+  IconAdjustments,
 } from "@tabler/icons-react"
 
 import { NavMain } from "@/components/nav-main"
@@ -90,18 +95,44 @@ const data = {
       icon: IconMessageCircle,
     },
     {
+      title: "Опросы",
+      url: "/polls",
+      icon: IconChartBar,
+    },
+    {
+      title: "Оповещения",
+      url: "/notifications",
+      icon: IconBell,
+    },
+    {
       title: "Бизнес-центры",
       url: "/spaces",
       icon: IconBuildingSkyscraper,
     },
+  ],
+  
+  navSecondary: [
     {
       title: "Журнал аудита",
       url: "/audit-log",
       icon: IconHistory,
     },
+    {
+      title: "Хранилище файлов",
+      url: "/file-storage",
+      icon: IconFile,
+    },
+    {
+      title: "Локализация бота",
+      url: "/localization",
+      icon: IconLanguage,
+    },
+    {
+      title: "Настройки бота",
+      url: "/localization/settings",
+      icon: IconAdjustments,
+    },
   ],
-  
-  navSecondary: [],
 }
 
 /**

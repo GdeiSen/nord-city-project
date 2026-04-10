@@ -215,7 +215,21 @@ async def start_dyn_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYPE
             await handle_dialog()
             active_sequence_item_index = 0
         else:
-            if active_sequence_item_index + 1 < len(active_items):
+            callback_result = await handle_dialog(is_dialog_finished=False, update_sequence_data=False)
+            if isinstance(callback_result, CallbackResult) and callback_result.action == CallbackActionResult.RETRY_CURRENT:
+                _apply_retry_position(bot, context, callback_result)
+                active_sequence_id = bot.managers.storage.get(context, Variables.ACTIVE_DIALOG_SEQUENCE_ID) or 0
+                active_sequence_item_index = bot.managers.storage.get(context, Variables.ACTIVE_DIALOG_SEQUENCE_ITEM_INDEX) or 0
+                active_sequence = sequences.get(active_sequence_id)
+            elif _is_skip_and_complete(callback_result):
+                completion_result = await handle_dialog(is_dialog_finished=True, update_sequence_data=False)
+                bot.managers.storage.set(context, Variables.ACTIVE_DYN_DIALOG, None)
+                bot.managers.navigator.clear(context)
+                return completion_result if completion_result is not None else await bot.managers.navigator.execute_entry_point(update, context)
+
+            if isinstance(callback_result, CallbackResult) and callback_result.action == CallbackActionResult.RETRY_CURRENT:
+                pass
+            elif active_sequence_item_index + 1 < len(active_items):
                 bot.managers.storage.set(context, Variables.ACTIVE_DIALOG_SEQUENCE_ITEM_INDEX, active_sequence_item_index + 1)
                 active_sequence_item_index += 1
             elif active_sequence.next_sequence_id is not None:
@@ -226,14 +240,13 @@ async def start_dyn_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYPE
                 active_sequence = sequences.get(active_sequence_id)
             else:
                 bot.managers.storage.set(context, Variables.ACTIVE_DYN_DIALOG, None)
-                callback_result = await handle_dialog()
-                if _is_skip_and_complete(callback_result):
+                final_result = await handle_dialog(is_dialog_finished=True, update_sequence_data=False)
+                if _is_skip_and_complete(final_result):
                     result = await handle_dialog(is_dialog_finished=True, update_sequence_data=False)
                     bot.managers.storage.set(context, Variables.ACTIVE_DYN_DIALOG, None)
                     bot.managers.navigator.clear(context)
                     return result if result is not None else await bot.managers.navigator.execute_entry_point(update, context)
-                await handle_dialog(is_dialog_finished=True, update_sequence_data=False)
-                await handle_dialog()
+                return final_result if final_result is not None else await bot.managers.navigator.execute_entry_point(update, context)
 
     # --- Text/other input (handled_data) ---
     elif handled_data is not None:

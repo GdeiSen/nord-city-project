@@ -1,5 +1,4 @@
 import { Button } from "@/components/ui/button"
-import { IconUserPlus } from "@tabler/icons-react"
 
 interface PageHeaderProps {
   title: string
@@ -7,6 +6,7 @@ interface PageHeaderProps {
   buttonText?: string
   onButtonClick?: () => void
   buttonIcon?: React.ReactNode
+  actions?: React.ReactNode
 }
 
 export function PageHeader({ 
@@ -14,15 +14,16 @@ export function PageHeader({
   description, 
   buttonText, 
   onButtonClick, 
-  buttonIcon 
+  buttonIcon,
+  actions,
 }: PageHeaderProps) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2">
+    <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
       <div className="space-y-1">
         <h2 className="text-3xl font-bold tracking-tight">{title}</h2>
         <p className="text-muted-foreground">{description}</p>
       </div>
-      {buttonText && onButtonClick && (
+      {actions ? actions : buttonText && onButtonClick && (
         <Button onClick={onButtonClick} size="default" className="whitespace-nowrap shrink-0">
           {buttonIcon}
           {buttonText}

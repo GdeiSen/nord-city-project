@@ -1,5 +1,4 @@
 from typing import TYPE_CHECKING
-from datetime import datetime
 from shared.schemas import FeedbackSchema
 from shared.constants import Dialogs, CallbackResult
 
@@ -37,17 +36,25 @@ async def feedback_callback(
     Returns:
         Next dialog state or completion code
     """
+    if state == 1:
+        await bot.send_message(update, context, "feedback_completed", dynamic=False)
+        return await bot.managers.navigator.execute(Dialogs.MENU, update, context)
+
     user_id = bot.get_user_id(update)
     if user_id:
         user = await bot.services.user.get_user_by_id(user_id)
         if user:
-            # Create DDID in format "0000-0000-0000" (dialog_id-sequence_id-item_id)
+            # Final text inputs are processed twice by dyn_dialog:
+            # first for saving input, then for completion. Persist only once.
             ddid = f"{dialog.id:04d}-{sequence_id:04d}-{item_id:04d}"
-            
             feedback = FeedbackSchema(user_id=user_id, ddid=ddid, answer=answer or "")
-            await bot.services.feedback.create_feedback(feedback)
-            
-    if state == 1:
-        await bot.send_message(update, context, "feedback_completed", dynamic=False)
-        return await bot.managers.navigator.execute(Dialogs.MENU, update, context)
+            await bot.services.feedback.create_feedback(
+                feedback,
+                _audit_context=bot.services.feedback.build_telegram_actor_audit_context(
+                    telegram_user_id=user_id,
+                    reason="general_feedback_created_via_dialog",
+                    meta_updates={"ddid": ddid},
+                ),
+            )
+
     return CallbackResult.continue_()

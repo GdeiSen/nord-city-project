@@ -32,3 +32,16 @@ class UpdatePollBody(BaseModel):
     ddid: Optional[str] = None
     answer: Optional[str] = None
     meta: Optional[str] = None
+
+
+class PollGoogleFormSettingsResponse(BaseModel):
+    locale: str = "RU"
+    poll_header: str = ""
+    google_form_url: str = ""
+
+
+class PollGoogleFormSettingsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    google_form_url: str
+    poll_header: str = ""

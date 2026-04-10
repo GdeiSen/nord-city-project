@@ -17,7 +17,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { Feedback, User } from "@/types"
+import { Feedback, User, FEEDBACK_TYPES, FEEDBACK_TYPE_LABELS_RU } from "@/types"
 import { feedbackApi, userApi } from "@/lib/api"
 import { EntityPicker } from "@/components/entity-picker"
 import {
@@ -54,11 +54,13 @@ export default function FeedbackEditPage() {
       if (!isEdit) return {}
       return feedbackApi.getById(entityId!)
     },
-    defaultValues: {},
+    defaultValues: { feedback_type: FEEDBACK_TYPES.GENERAL },
     preparePayload: (data) => {
       const payload = { ...data }
       delete (payload as Record<string, unknown>).id
       delete (payload as Record<string, unknown>).user
+      delete (payload as Record<string, unknown>).service_ticket
+      delete (payload as Record<string, unknown>).service_ticket_id
       delete (payload as Record<string, unknown>).created_at
       delete (payload as Record<string, unknown>).updated_at
       return payload as Record<string, unknown>
@@ -90,6 +92,8 @@ export default function FeedbackEditPage() {
     userApi.getAll().then(setUsers).catch(() => {})
   }, [])
 
+  const isServiceTicketFeedback = formData.feedback_type === FEEDBACK_TYPES.SERVICE_TICKET
+
   return (
     <>
       <AppSidebar />
@@ -112,7 +116,7 @@ export default function FeedbackEditPage() {
 
           {isEdit && (
             isSuperAdmin ? (
-            <div className="max-w-2xl space-y-6">
+            <div className="w-full min-w-0 max-w-2xl space-y-6">
               <div>
                 <h1 className="text-2xl font-semibold">Редактирование отзыва</h1>
                 <p className="text-sm text-muted-foreground mt-1">Изменение информации об отзыве.</p>
@@ -121,6 +125,38 @@ export default function FeedbackEditPage() {
                 {loading ? (
                   <div className="flex items-center justify-center py-12">
                     <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                  </div>
+                ) : isServiceTicketFeedback ? (
+                  <div className="space-y-6">
+                    <div className="rounded-lg border bg-muted/20 p-4">
+                      <div className="text-sm font-medium">Системный отзыв</div>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Отзывы по выполненным заявкам создаются ботом автоматически и не редактируются вручную.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Тип</Label>
+                      <Input value={FEEDBACK_TYPE_LABELS_RU[FEEDBACK_TYPES.SERVICE_TICKET]} readOnly />
+                    </div>
+                    {formData.service_ticket_id && (
+                      <div className="space-y-2">
+                        <Label>Заявка</Label>
+                        <Link
+                          href={`/service-tickets/${formData.service_ticket_id}`}
+                          className="text-sm font-medium text-primary hover:underline"
+                        >
+                          #{formData.service_ticket_id}
+                        </Link>
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      <Label htmlFor="answer">Ответ</Label>
+                      <Input id="answer" name="answer" value={formData.answer ?? ""} readOnly />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="text">Текст</Label>
+                      <Textarea id="text" name="text" value={formData.text ?? ""} readOnly rows={4} />
+                    </div>
                   </div>
                 ) : (
                   <div className="grid gap-6">
@@ -170,7 +206,7 @@ export default function FeedbackEditPage() {
               </div>
             </div>
             ) : (
-              <div className="max-w-2xl space-y-4 py-8">
+              <div className="w-full min-w-0 max-w-2xl space-y-4 py-8">
                 <p className="text-muted-foreground">Редактирование отзывов доступно только для Super Admin.</p>
                 <Link href="/feedbacks" className="text-sm text-primary hover:underline">
                   К списку отзывов
@@ -181,7 +217,7 @@ export default function FeedbackEditPage() {
 
           {!isEdit && (
             isSuperAdmin ? (
-              <div className="max-w-2xl space-y-6">
+              <div className="w-full min-w-0 max-w-2xl space-y-6">
                 <div>
                   <h1 className="text-2xl font-semibold">Создание отзыва</h1>
                   <p className="text-sm text-muted-foreground mt-1">Добавление нового отзыва от имени пользователя.</p>
@@ -215,6 +251,10 @@ export default function FeedbackEditPage() {
                     />
                   </div>
                   <div className="space-y-2">
+                    <Label htmlFor="feedback_type">Тип</Label>
+                    <Input id="feedback_type" value={FEEDBACK_TYPE_LABELS_RU[FEEDBACK_TYPES.GENERAL]} readOnly />
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="answer">Ответ</Label>
                     <Input id="answer" name="answer" value={formData.answer ?? ""} onChange={handleInputChange} />
                   </div>
@@ -230,7 +270,7 @@ export default function FeedbackEditPage() {
                 </div>
               </div>
             ) : (
-              <div className="max-w-2xl space-y-4 py-8">
+              <div className="w-full min-w-0 max-w-2xl space-y-4 py-8">
                 <p className="text-muted-foreground">Создание отзывов доступно только для Super Admin.</p>
                 <Link href="/feedbacks" className="text-sm text-primary hover:underline">
                   К списку отзывов

@@ -143,7 +143,6 @@ export default function GuestParkingEditPage() {
     arrival_time: string
     license_plate: string
     car_make_color: string
-    driver_phone: string
     tenant_phone: string
   }>({
     user_id: null,
@@ -151,14 +150,12 @@ export default function GuestParkingEditPage() {
     arrival_time: "09:00",
     license_plate: "",
     car_make_color: "",
-    driver_phone: "",
     tenant_phone: "",
   })
   const [saving, setSaving] = useState(false)
   const [dateInputDisplay, setDateInputDisplay] = useState("")
   const [hourDisplay, setHourDisplay] = useState("09")
   const [minuteDisplay, setMinuteDisplay] = useState("00")
-  const [driverPhoneError, setDriverPhoneError] = useState("")
   const [tenantPhoneError, setTenantPhoneError] = useState("")
 
   useEffect(() => {
@@ -175,13 +172,11 @@ export default function GuestParkingEditPage() {
           arrival_time: time,
           license_plate: req.license_plate ?? "",
           car_make_color: req.car_make_color ?? "",
-          driver_phone: req.driver_phone ?? "",
           tenant_phone: req.tenant_phone ?? "",
         })
         setDateInputDisplay(date ? format(parseISO(date), "dd.MM.yyyy", { locale: ru }) : "")
         setHourDisplay(h || "09")
         setMinuteDisplay(m || "00")
-        setDriverPhoneError("")
         setTenantPhoneError("")
       } else {
         const now = new Date()
@@ -194,7 +189,6 @@ export default function GuestParkingEditPage() {
         setDateInputDisplay(format(now, "dd.MM.yyyy", { locale: ru }))
         setHourDisplay("09")
         setMinuteDisplay("00")
-        setDriverPhoneError("")
         setTenantPhoneError("")
       }
     }
@@ -223,11 +217,6 @@ export default function GuestParkingEditPage() {
       toast.error("Укажите марку и цвет автомобиля")
       return
     }
-    const driverPhoneError = getPhoneValidationError(formData.driver_phone, true)
-    if (driverPhoneError) {
-      toast.error(driverPhoneError)
-      return
-    }
     const tenantPhoneError = getPhoneValidationError(formData.tenant_phone, false)
     if (tenantPhoneError) {
       toast.error(tenantPhoneError)
@@ -247,7 +236,6 @@ export default function GuestParkingEditPage() {
           arrival_date: arrivalDate,
           license_plate: formData.license_plate.trim(),
           car_make_color: formData.car_make_color.trim(),
-          driver_phone: formData.driver_phone.trim(),
           tenant_phone: formData.tenant_phone.trim() || undefined,
         } as any)
         toast.success("Заявка обновлена")
@@ -258,7 +246,6 @@ export default function GuestParkingEditPage() {
           arrival_date: arrivalDate,
           license_plate: formData.license_plate.trim(),
           car_make_color: formData.car_make_color.trim(),
-          driver_phone: formData.driver_phone.trim(),
           tenant_phone: formData.tenant_phone.trim() || undefined,
         } as any)
         toast.success("Заявка создана")
@@ -302,7 +289,7 @@ export default function GuestParkingEditPage() {
             </BreadcrumbList>
           </Breadcrumb>
 
-          <div className="max-w-2xl space-y-6">
+          <div className="w-full min-w-0 max-w-2xl space-y-6">
             <div>
               <h1 className="text-2xl font-semibold">
                 {isEdit ? "Редактирование заявки" : "Создание заявки"}
@@ -453,29 +440,6 @@ export default function GuestParkingEditPage() {
                     onChange={handleInputChange}
                     placeholder="Toyota Corolla, белый"
                   />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="driver_phone">Телефон водителя</Label>
-                  <Input
-                    id="driver_phone"
-                    name="driver_phone"
-                    type="tel"
-                    value={formData.driver_phone}
-                    onChange={(e) => {
-                      handleInputChange(e)
-                      if (getPhoneValidationError(e.target.value, true) === null) setDriverPhoneError("")
-                    }}
-                    onBlur={(e) => {
-                      const err = getPhoneValidationError(e.target.value, true)
-                      setDriverPhoneError(err ?? "")
-                    }}
-                    placeholder="+375291234567"
-                    className={driverPhoneError ? "border-destructive" : undefined}
-                    aria-invalid={!!driverPhoneError}
-                  />
-                  {driverPhoneError && (
-                    <p className="text-sm text-destructive">{driverPhoneError}</p>
-                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="tenant_phone">Телефон арендатора</Label>

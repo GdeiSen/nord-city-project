@@ -1,238 +1,373 @@
-# ./services/stats_service.py
-import json
-import os
 import asyncio
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
-from zoneinfo import ZoneInfo
+import logging
+from typing import TYPE_CHECKING, Any
+
 from services.base_service import BaseService
-from typing import TYPE_CHECKING
-from shared.schemas.service_tickets_stats import ServiceTicketsStatsSchema
-from telegram.error import BadRequest
+from shared.schemas import BotMessageRefSchema, ObjectSchema, ObjectServiceTicketsStatsSchema
+from telegram.constants import ParseMode
+
+from utils.time_utils import now
+
 if TYPE_CHECKING:
     from bot import Bot
 
 
-class StatsService(BaseService):
-    """Service for managing ticket statistics and auto-updating messages."""
+logger = logging.getLogger(__name__)
 
-    def __init__(self, bot: "Bot", json_file_path: str = "stats_data.json"):
+
+class StatsService(BaseService):
+    """Keeps per-object statistics messages in sync with object admin chats."""
+
+    SYNC_INTERVAL_SECONDS = 3600
+
+    def __init__(self, bot: "Bot"):
         super().__init__(bot)
-        self.json_file_path = json_file_path
-        self.moscow_tz = ZoneInfo("Europe/Moscow")
-        self._ensure_json_file()
+        self._update_lock = asyncio.Lock()
+        self._periodic_task: asyncio.Task[None] | None = None
 
     async def initialize(self) -> None:
-        """Initializes the statistics service."""
-        await self.initialize_stats_message()
-        print("StatsService initialized")
-        self.bot.managers.event.on('service_ticket_created', self._on_ticket_created)
+        self.bot.managers.event.on("service_ticket_created", self._on_ticket_event)
+        self.bot.managers.event.on("service_ticket_updated", self._on_ticket_event)
+        self.bot.managers.event.on("service_ticket_deleted", self._on_ticket_event)
+        self._periodic_task = asyncio.create_task(self._run_periodic_sync())
+        await self.sync_stats_message()
+        logger.info("StatsService initialized")
 
-    def _now(self):
-        return datetime.now(self.moscow_tz)
+    @staticmethod
+    def _zero_stats(object_id: int) -> ObjectServiceTicketsStatsSchema:
+        return ObjectServiceTicketsStatsSchema(
+            object_id=object_id,
+            total_count=0,
+            new_count=0,
+            in_progress_count=0,
+            completed_count=0,
+            new_tickets=[],
+            in_progress_tickets=[],
+            completed_tickets=[],
+        )
 
-    def _ensure_json_file(self):
-        if not os.path.exists(self.json_file_path):
-            self._save_data({
-                "stats_message": {"chat_id": None, "message_id": None, "created_at": None},
-                "detailed_stats": {"new_count": 0, "in_progress_count": 0, "new_tickets": [], "in_progress_tickets": [], "last_update": None}
-            })
-
-    def _load_data(self) -> Dict[str, Any]:
+    async def _run_periodic_sync(self) -> None:
         try:
-            with open(self.json_file_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            self._ensure_json_file()
-            return self._load_data()
+            while True:
+                await asyncio.sleep(self.SYNC_INTERVAL_SECONDS)
+                await self.sync_stats_message()
+        except asyncio.CancelledError:
+            return
 
-    def _save_data(self, data: Dict[str, Any]):
-        with open(self.json_file_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+    async def _get_all_objects(self) -> list[ObjectSchema]:
+        response = await self.bot.managers.database.object.get_all(model_class=ObjectSchema)
+        if not response.get("success"):
+            return []
+        return response.get("data") or []
 
-    def save_message_info(self, chat_id: Optional[int], message_id: Optional[int]):
-        """Сохраняет информацию о сообщении со статистикой."""
-        data = self._load_data()
-        if chat_id is None or message_id is None:
-            # Очищаем информацию о сообщении
-            data["stats_message"] = {"chat_id": None, "message_id": None, "created_at": None}
-        else:
-            data["stats_message"] = {"chat_id": chat_id, "message_id": message_id, "created_at": self._now().isoformat()}
-        self._save_data(data)
+    async def _get_stats_map(self) -> dict[int, ObjectServiceTicketsStatsSchema]:
+        response = await self.bot.managers.database.service_ticket.get_stats_grouped_by_object(
+            model_class=ObjectServiceTicketsStatsSchema
+        )
+        if not response.get("success"):
+            raise RuntimeError(response.get("error", "stats_grouped_query_failed"))
+        stats_items = response.get("data") or []
+        return {int(item.object_id): item for item in stats_items}
 
-    def get_message_info(self) -> Optional[Dict[str, Any]]:
-        data = self._load_data()
-        msg_info = data.get("stats_message", {})
-        return msg_info if msg_info.get("chat_id") and msg_info.get("message_id") else None
+    async def _get_primary_message_ref(self, *, object_id: int):
+        response = await self.bot.managers.database.bot_message_ref.get_primary(
+            entity_type="ServiceTicketStats",
+            entity_id=object_id,
+            model_class=BotMessageRefSchema,
+        )
+        return response.get("data") if response.get("success") else None
 
-    def is_message_expired(self, hours_limit: int = 48) -> bool:
-        message_info = self.get_message_info()
-        if not message_info or not message_info.get("created_at"):
-            return True
-        created_at = datetime.fromisoformat(message_info["created_at"])
-        return (self._now() - created_at) > timedelta(hours=hours_limit)
-
-    def update_detailed_stats(self, stats: Dict[str, Any]):
-        data = self._load_data()
-        data["detailed_stats"] = {**stats, "last_update": self._now().isoformat()}
-        self._save_data(data)
-
-    def format_stats_message(self, stats: Dict[str, Any]) -> str:
-        """Formats the statistics into a message string."""
-        data = self._load_data()
-        last_update_iso = data.get("detailed_stats", {}).get("last_update")
-        time_str = datetime.fromisoformat(last_update_iso).strftime('%d.%m.%Y %H:%M') if last_update_iso else self._now().strftime('%d.%m.%Y %H:%M')
-        
-        stats_no_tickets = self.bot.get_text("stats_no_tickets")
-        new_tickets_str = ', '.join(map(str, stats.get('new_tickets', []))) or stats_no_tickets
-        in_progress_tickets_str = ', '.join(map(str, stats.get('in_progress_tickets', []))) or stats_no_tickets
-
-        return self.bot.get_text("stats_message", [
-            stats.get('new_count', 0),
-            stats.get('in_progress_count', 0),
-            new_tickets_str,
-            in_progress_tickets_str,
-            time_str,
-        ])
-
-    async def _get_stats(self) -> ServiceTicketsStatsSchema:
-        # Получаем агрегированную статистику через новый метод базы
-        result = await self.bot.managers.database.service_ticket.get_stats(model_class=ServiceTicketsStatsSchema)
-        if result["success"] and result["data"]:
-            return result["data"]
-        raise Exception(f"Failed to get stats: {result.get('error')}")
-    
-    async def _update_stats_message(self):
-        """Updates the statistics message, creating a new one if necessary."""
-        try:
-            admin_chat_id = self.bot.managers.headers.get("ADMIN_CHAT_ID")
-            if not admin_chat_id:
-                return
-
-            stats_obj = await self._get_stats()
-            stats = stats_obj.model_dump()
-            self.update_detailed_stats(stats)
-            message_text = self.format_stats_message(stats)
-            message_info = self.get_message_info()
-
-            if message_info and not self.is_message_expired():
-                success = await self.bot.managers.message.edit_message(
-                    chat_id=message_info["chat_id"], message_id=message_info["message_id"],
-                    text=message_text, parse_mode='HTML'
-                )
-                if success:
-                    return
-
-            # Создаем новое сообщение, если редактирование не удалось или сообщение истекло
-            await self._create_new_stats_message(admin_chat_id, message_text)
-        except Exception as e:
-            print(f"Error updating stats message: {e}")
-
-    async def _create_new_stats_message(self, chat_id: str, message_text: str):
-        """
-        Создает новое сообщение со статистикой, предварительно удаляя старое.
-        
-        Args:
-            chat_id: ID чата для отправки сообщения
-            message_text: Текст сообщения со статистикой
-        """
-        await self._delete_old_message()
-
-        try:
-            await asyncio.sleep(0.5)
-
-            message = await self.bot.application.bot.send_message(
-                chat_id=int(chat_id), text=message_text, parse_mode='HTML'
-            )
-
+    async def _list_known_stats_object_ids(self) -> set[int]:
+        response = await self.bot.managers.database.bot_message_ref.find(
+            filters={"entity_type": "ServiceTicketStats"},
+            model_class=BotMessageRefSchema,
+        )
+        if not response.get("success"):
+            return set()
+        refs = response.get("data") or []
+        object_ids: set[int] = set()
+        for ref in refs:
+            entity_id = getattr(ref, "entity_id", None)
+            if entity_id is None:
+                continue
             try:
-                await self.bot.application.bot.pin_chat_message(
-                    chat_id=int(chat_id), message_id=message.message_id, disable_notification=True
+                object_ids.add(int(entity_id))
+            except (TypeError, ValueError):
+                continue
+        return object_ids
+
+    async def _list_message_refs(self, *, object_id: int) -> list[BotMessageRefSchema]:
+        response = await self.bot.managers.database.bot_message_ref.list_by_entity(
+            entity_type="ServiceTicketStats",
+            entity_id=object_id,
+            model_class=BotMessageRefSchema,
+        )
+        if not response.get("success"):
+            return []
+        return response.get("data") or []
+
+    async def _upsert_message_ref(self, *, object_id: int, chat_id: int, message_id: int) -> None:
+        await self.bot.managers.database.bot_message_ref.upsert_message(
+            entity_type="ServiceTicketStats",
+            entity_id=object_id,
+            chat_id=chat_id,
+            message_id=message_id,
+            kind="PRIMARY",
+            meta={"source": "stats_service"},
+            model_class=BotMessageRefSchema,
+        )
+
+    async def _delete_message_refs(self, *, object_id: int) -> None:
+        await self.bot.managers.database.bot_message_ref.delete_by_entity(
+            entity_type="ServiceTicketStats",
+            entity_id=object_id,
+        )
+
+    async def _delete_existing_stats_messages(self, *, object_id: int) -> None:
+        refs = await self._list_message_refs(object_id=object_id)
+        for ref in refs:
+            try:
+                await self.bot.managers.message.delete_message(
+                    chat_id=int(ref.chat_id),
+                    message_id=int(ref.message_id),
                 )
             except Exception:
-                pass  # Pin may fail without admin permissions
+                pass
+        await self._delete_message_refs(object_id=object_id)
 
-            self.save_message_info(int(chat_id), message.message_id)
-        except BadRequest as e:
-            if "Chat not found" in str(e) or "chat not found" in str(e).lower():
-                print(
-                    f"[Stats] Admin chat not found (chat_id={chat_id}). "
-                    "Ensure: 1) ADMIN_CHAT_ID in .env is correct, 2) the bot was added to that chat. "
-                    "Stats message will not be sent until the chat is available."
-                )
-                self.save_message_info(None, None)
-            else:
-                print(f"Error creating new stats message: {e}")
-                import traceback
-                traceback.print_exc()
-        except Exception as e:
-            print(f"Error creating new stats message: {e}")
-            import traceback
-            traceback.print_exc()
+    def format_stats_message(self, object_name: str, stats: ObjectServiceTicketsStatsSchema) -> str:
+        stats_no_tickets = self.bot.get_text("stats_no_tickets")
+        new_tickets_str = ", ".join(map(str, stats.new_tickets)) or stats_no_tickets
+        in_progress_tickets_str = ", ".join(map(str, stats.in_progress_tickets)) or stats_no_tickets
+        updated_at = now().strftime("%d.%m.%Y %H:%M")
+        body = self.bot.get_text(
+            "stats_message",
+            [
+                stats.new_count,
+                stats.in_progress_count,
+                new_tickets_str,
+                in_progress_tickets_str,
+                updated_at,
+            ],
+        )
+        return body
 
-    async def _delete_old_message(self) -> bool:
-        """
-        Удаляет старое сообщение со статистикой.
-        
-        Returns:
-            True если сообщение было успешно удалено или не существовало,
-            False если произошла ошибка при удалении.
-        """
-        message_info = self.get_message_info()
-        if not message_info:
-            return True
-
-        chat_id = message_info.get("chat_id")
-        message_id = message_info.get("message_id")
-
-        if not chat_id or not message_id:
-            self.save_message_info(None, None)
-            return True
-        
+    async def _create_stats_message(
+        self,
+        *,
+        object_id: int,
+        chat_id: int,
+        text: str,
+        audit_context: dict | None = None,
+    ) -> bool:
         try:
-            deleted = await self.bot.managers.message.delete_message(
-                chat_id=chat_id, message_id=message_id
+            message = await self.bot.application.bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode=ParseMode.HTML,
             )
-
-            if deleted:
-                self.save_message_info(None, None)
-                return True
-            else:
-                self.save_message_info(None, None)
-                return False
-        except Exception:
-            self.save_message_info(None, None)
+            try:
+                await self.bot.application.bot.pin_chat_message(
+                    chat_id=chat_id,
+                    message_id=message.message_id,
+                    disable_notification=True,
+                )
+            except Exception:
+                await self.append_business_audit_event(
+                    entity_type="Object",
+                    entity_id=int(object_id),
+                    event_type="DELIVERY_WARNING",
+                    action="pin",
+                    audit_context=self.derive_audit_context(
+                        audit_context,
+                        source_service="bot_service",
+                        reason="stats_message_pin_failed",
+                    ),
+                    reason="stats_message_pin_failed",
+                    meta={
+                        "delivery_channel": "telegram_admin_chat",
+                        "target_chat_id": int(chat_id),
+                        "telegram_message_id": int(message.message_id),
+                    },
+                )
+            await self._upsert_message_ref(
+                object_id=object_id,
+                chat_id=chat_id,
+                message_id=message.message_id,
+            )
+            await self.append_business_audit_event(
+                entity_type="Object",
+                entity_id=int(object_id),
+                event_type="DELIVERY_SUCCESS",
+                action="send",
+                audit_context=self.derive_audit_context(
+                    audit_context,
+                    source_service="bot_service",
+                    reason="stats_message_created",
+                ),
+                reason="stats_message_created",
+                meta={
+                    "delivery_channel": "telegram_admin_chat",
+                    "target_chat_id": int(chat_id),
+                    "telegram_message_id": int(message.message_id),
+                    "message_kind": "stats",
+                },
+            )
+            return True
+        except Exception as exc:
+            await self.append_business_audit_event(
+                entity_type="Object",
+                entity_id=int(object_id),
+                event_type="DELIVERY_FAILED",
+                action="send",
+                audit_context=self.derive_audit_context(
+                    audit_context,
+                    source_service="bot_service",
+                    reason="stats_message_create_failed",
+                ),
+                reason="stats_message_create_failed",
+                meta={
+                    "delivery_channel": "telegram_admin_chat",
+                    "target_chat_id": int(chat_id),
+                    "message_kind": "stats",
+                    "error": str(exc),
+                },
+            )
+            logger.warning("Failed to create stats message for object_id=%s: %s", object_id, exc)
             return False
 
-    async def _periodic_message_check(self):
-        while True:
-            await asyncio.sleep(3600)  # Check every hour
-            if self.get_message_info() and self.is_message_expired():
-                print("Stats message expired, recreating.")
-                await self._update_stats_message()
+    async def _sync_object_stats_message(
+        self,
+        *,
+        obj: ObjectSchema,
+        stats: ObjectServiceTicketsStatsSchema,
+        audit_context: dict | None = None,
+    ) -> bool:
+        object_id = int(obj.id)
+        target_chat_id = int(obj.admin_chat_id)
+        text = self.format_stats_message(obj.name or f"Объект #{object_id}", stats)
+        primary_ref = await self._get_primary_message_ref(object_id=object_id)
 
-    async def force_update_stats(self) -> bool:
-        """Forces an immediate update of the statistics."""
-        print("Force updating stats message...")
-        await self._update_stats_message()
-        return True
-    
-    async def recreate_stats_message(self) -> bool:
-        """Deletes the old stats message and creates a new one."""
-        print("Recreating stats message via command...")
-        admin_chat_id = self.bot.managers.headers.get("ADMIN_CHAT_ID")
-        if not admin_chat_id: return False
-        stats_obj = await self._get_stats()
-        stats = stats_obj.model_dump()
-        self.update_detailed_stats(stats)
-        message_text = self.format_stats_message(stats)
-        await self._create_new_stats_message(admin_chat_id, message_text)
-        return True
+        if primary_ref is None:
+            return await self._create_stats_message(
+                object_id=object_id,
+                chat_id=target_chat_id,
+                text=text,
+                audit_context=audit_context,
+            )
 
-    async def initialize_stats_message(self):
-        """Initializes the stats message on bot startup."""
-        await self._update_stats_message()
-        asyncio.create_task(self._periodic_message_check())
+        current_chat_id = int(primary_ref.chat_id)
+        if current_chat_id != target_chat_id:
+            await self._delete_existing_stats_messages(object_id=object_id)
+            await self.append_business_audit_event(
+                entity_type="Object",
+                entity_id=object_id,
+                event_type="ROUTE_RESYNC",
+                action="reroute",
+                audit_context=self.derive_audit_context(
+                    audit_context,
+                    source_service="bot_service",
+                    reason="stats_message_rerouted",
+                ),
+                reason="stats_message_rerouted",
+                meta={
+                    "previous_chat_id": current_chat_id,
+                    "target_chat_id": target_chat_id,
+                    "message_kind": "stats",
+                },
+            )
+            return await self._create_stats_message(
+                object_id=object_id,
+                chat_id=target_chat_id,
+                text=text,
+                audit_context=audit_context,
+            )
 
-    async def _on_ticket_created(self, ticket):
-        await self._update_stats_message()
+        result = await self.bot.managers.message.edit_message_detailed(
+            chat_id=current_chat_id,
+            message_id=int(primary_ref.message_id),
+            text=text,
+            parse_mode=ParseMode.HTML,
+        )
+        if result.success:
+            await self.append_business_audit_event(
+                entity_type="Object",
+                entity_id=object_id,
+                event_type="DELIVERY_UPDATED",
+                action="edit",
+                audit_context=self.derive_audit_context(
+                    audit_context,
+                    source_service="bot_service",
+                    reason="stats_message_updated",
+                ),
+                reason="stats_message_updated",
+                meta={
+                    "delivery_channel": "telegram_admin_chat",
+                    "target_chat_id": current_chat_id,
+                    "telegram_message_id": int(primary_ref.message_id),
+                    "message_kind": "stats",
+                    "result_reason": result.reason,
+                },
+            )
+            return True
+
+        await self._delete_existing_stats_messages(object_id=object_id)
+        return await self._create_stats_message(
+            object_id=object_id,
+            chat_id=target_chat_id,
+            text=text,
+            audit_context=self.derive_audit_context(
+                audit_context,
+                source_service="bot_service",
+                reason="stats_message_recreated",
+                meta_updates={"previous_chat_id": current_chat_id},
+            ),
+        )
+
+    async def _sync_all_objects(self, *, audit_context: dict | None = None) -> bool:
+        objects = await self._get_all_objects()
+        stats_map = await self._get_stats_map()
+        updated = False
+        object_ids = {
+            int(obj.id)
+            for obj in objects
+            if getattr(obj, "id", None) is not None
+        }
+        known_stats_object_ids = await self._list_known_stats_object_ids()
+
+        for orphan_object_id in sorted(known_stats_object_ids - object_ids):
+            await self._delete_existing_stats_messages(object_id=orphan_object_id)
+
+        for obj in objects:
+            if obj.id is None:
+                continue
+            object_id = int(obj.id)
+            if getattr(obj, "admin_chat_id", None) is None:
+                await self._delete_existing_stats_messages(object_id=object_id)
+                continue
+            stats = stats_map.get(object_id) or self._zero_stats(object_id)
+            synced = await self._sync_object_stats_message(
+                obj=obj,
+                stats=stats,
+                audit_context=audit_context,
+            )
+            updated = updated or synced
+
+        return updated
+
+    async def _on_ticket_event(self, _: Any) -> None:
+        await self.sync_stats_message()
+
+    async def sync_stats_message(self, _audit_context: dict | None = None) -> dict[str, Any]:
+        async with self._update_lock:
+            updated = await self._sync_all_objects(audit_context=_audit_context)
+            return {"success": True, "data": {"updated": updated}, "error": None}
+
+    async def recreate_stats_message(self, _audit_context: dict | None = None) -> bool:
+        async with self._update_lock:
+            objects = await self._get_all_objects()
+            for obj in objects:
+                if obj.id is None:
+                    continue
+                await self._delete_existing_stats_messages(object_id=int(obj.id))
+            return await self._sync_all_objects(audit_context=_audit_context)

@@ -10,7 +10,7 @@ export const serviceTicketColumns: TableColumnConfig[] = [
     label: "Заявка",
     type: "string",
     filterDbColumn: "description",
-    searchDbColumns: ["description", "location", "msid"],
+    searchDbColumns: ["description", "location"],
   },
   { id: "user", label: "Пользователь", filterDbColumn: "user_id", filterPicker: "users", searchDbColumns: [] },
   { id: "object", label: "Объект", filterDbColumn: "object_id", filterPicker: "objects", searchDbColumns: [] },

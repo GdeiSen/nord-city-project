@@ -1,6 +1,13 @@
 import { getToken } from "@/lib/auth"
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8003/api/v1"
+function normalizeApiBase(baseUrl: string | undefined): string {
+  const base = String(baseUrl || "").trim().replace(/\/+$/, "")
+  if (!base) return "http://localhost:8003/api/v1"
+  if (/^https?:\/\//i.test(base)) return base
+  return `https://${base}`
+}
+
+const API_BASE = normalizeApiBase(process.env.NEXT_PUBLIC_API_URL)
 
 interface PaginatedResponse<T> {
   items: T[]
@@ -172,45 +179,226 @@ export const authApi = {
     })
   },
 
-  async validateToken(token: string): Promise<{ valid: boolean }> {
+  async validateToken(token: string): Promise<{ valid: boolean; user_id?: number; role?: number; reason?: string }> {
     const res = await fetch(`${API_BASE}/auth/validate`, {
       headers: { Authorization: `Bearer ${token}` },
     })
     const data = await res.json().catch(() => ({}))
-    return { valid: !!data?.valid }
+    return {
+      valid: !!data?.valid,
+      user_id: typeof data?.user_id === "number" ? data.user_id : undefined,
+      role: typeof data?.role === "number" ? data.role : undefined,
+      reason: typeof data?.reason === "string" ? data.reason : undefined,
+    }
   },
 }
 
-// Media upload (multipart/form-data)
-export const mediaApi = {
-  async upload(file: File): Promise<{ path: string; url: string }> {
-    const token = typeof window !== "undefined" ? getToken() : null
-    const headers: Record<string, string> = {}
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`
-    }
-    const formData = new FormData()
-    formData.append("file", file)
+export interface UploadedStorageFile {
+  file_id?: number
+  path: string
+  url: string
+  original_name?: string
+  filename?: string
+  content_type?: string
+  extension?: string
+  size_bytes?: number
+  kind?: string
+}
 
-    const res = await fetch(`${API_BASE}/media/upload`, {
-      method: "POST",
-      headers,
-      body: formData,
+interface StorageUploadSession {
+  path: string
+  upload_url: string
+  method?: string
+  headers?: Record<string, string>
+  content_type?: string
+  expires_in?: number
+  original_name?: string
+  category?: string
+}
+
+async function uploadStorageFile(
+  file: File,
+  options: { category?: string } = {}
+): Promise<UploadedStorageFile> {
+  const token = typeof window !== "undefined" ? getToken() : null
+  const headers: Record<string, string> = {}
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`
+  }
+  headers["Content-Type"] = "application/json"
+  const initRes = await fetch(`${API_BASE}/storage/uploads/init`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      filename: file.name || "file",
+      content_type: file.type || "application/octet-stream",
+      size_bytes: file.size || 0,
+      category: options.category || "DEFAULT",
+    }),
+  })
+  const initText = await initRes.text()
+  let initData: StorageUploadSession | any
+  try {
+    initData = initText ? JSON.parse(initText) : null
+  } catch {
+    throw new Error(initRes.statusText || "Upload init failed")
+  }
+
+  if (!initRes.ok) {
+    const msg =
+      typeof initData?.detail === "string"
+        ? initData.detail
+        : initData?.detail?.msg ?? initRes.statusText
+    throw new Error(msg)
+  }
+
+  const uploadHeaders = new Headers(initData?.headers || {})
+  if (!uploadHeaders.has("Content-Type")) {
+    uploadHeaders.set("Content-Type", file.type || "application/octet-stream")
+  }
+  const uploadRes = await fetch(String(initData?.upload_url || ""), {
+    method: String(initData?.method || "PUT").toUpperCase(),
+    headers: uploadHeaders,
+    body: file,
+  })
+
+  if (!uploadRes.ok) {
+    const uploadText = await uploadRes.text().catch(() => "")
+    throw new Error(uploadText || uploadRes.statusText || "Direct upload failed")
+  }
+
+  const completeRes = await fetch(`${API_BASE}/storage/uploads/complete`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      path: initData?.path,
+      original_name: initData?.original_name || file.name || "file",
+      content_type: initData?.content_type || file.type || "application/octet-stream",
+      category: initData?.category || options.category || "DEFAULT",
+    }),
+  })
+  const completeText = await completeRes.text()
+  let completeData: any
+  try {
+    completeData = completeText ? JSON.parse(completeText) : null
+  } catch {
+    throw new Error(completeRes.statusText || "Upload finalize failed")
+  }
+
+  if (!completeRes.ok) {
+    const msg =
+      typeof completeData?.detail === "string"
+        ? completeData.detail
+        : completeData?.detail?.msg ?? completeRes.statusText
+    throw new Error(msg)
+  }
+
+  return completeData
+}
+
+function extractStoragePath(value: string): string {
+  const candidate = String(value || "").trim()
+  if (!candidate) return ""
+
+  try {
+    const parsed = new URL(candidate)
+    const match = parsed.pathname.match(/\/storage\/(.+)$/)
+    if (match?.[1]) {
+      return decodeURIComponent(match[1])
+    }
+  } catch {
+    // value may already be a raw path
+  }
+
+  return candidate.replace(/^\/+/, "").replace(/^storage\//, "")
+}
+
+async function deleteStorageFile(fileUrlOrPath: string): Promise<void> {
+  const path = extractStoragePath(fileUrlOrPath)
+  if (!path) return
+
+  const encodedPath = path
+    .split("/")
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join("/")
+
+  await apiFetch<void>(`/storage/${encodedPath}`, {
+    method: "DELETE",
+  })
+}
+
+export const storageApi = {
+  async upload(
+    file: File,
+    options: { category?: string } = {}
+  ): Promise<UploadedStorageFile> {
+    return uploadStorageFile(file, options)
+  },
+  async delete(fileUrlOrPath: string): Promise<void> {
+    return deleteStorageFile(fileUrlOrPath)
+  },
+}
+
+export interface LocalizationData {
+  [locale: string]: Record<string, string>
+}
+
+export interface BotFeatureSetting {
+  enabled: boolean
+}
+
+export interface BotSettingsData {
+  features: Record<string, BotFeatureSetting>
+}
+
+export const localizationApi = {
+  async get(): Promise<LocalizationData> {
+    return apiFetch<LocalizationData>("/localization/")
+  },
+
+  async update(data: LocalizationData): Promise<LocalizationData> {
+    return apiFetch<LocalizationData>("/localization/", {
+      method: "PUT",
+      body: JSON.stringify(data),
     })
+  },
+}
 
-    const text = await res.text()
-    let data: any
-    try {
-      data = text ? JSON.parse(text) : null
-    } catch {
-      throw new Error(res.statusText || "Upload failed")
-    }
+export const botSettingsApi = {
+  async get(): Promise<BotSettingsData> {
+    return apiFetch<BotSettingsData>("/bot-settings/")
+  },
 
-    if (!res.ok) {
-      const msg = typeof data?.detail === "string" ? data.detail : data?.detail?.msg ?? res.statusText
-      throw new Error(msg)
-    }
-    return data
+  async update(data: BotSettingsData): Promise<BotSettingsData> {
+    return apiFetch<BotSettingsData>("/bot-settings/", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+  },
+}
+
+export interface SendNotificationPayload {
+  role_ids: number[]
+  user_ids: number[]
+  title: string
+  message: string
+  attachment_urls: string[]
+}
+
+export interface SendNotificationResult {
+  resolved_recipient_count: number
+  sent_count: number
+  failed_count: number
+  failed_user_ids: number[]
+}
+
+export const notificationApi = {
+  async send(payload: SendNotificationPayload): Promise<SendNotificationResult> {
+    return apiFetch<SendNotificationResult>("/notifications/broadcast", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    })
   },
 }
 
@@ -257,17 +445,52 @@ function createExportApi(basePath: string) {
   }
 }
 
+export interface UserRoleLinkItem {
+  role_code: string
+  role_id: number
+  token: string
+  title: string
+  description: string
+  url: string
+}
+
+export interface UserRoleLinksResponse {
+  bot_username: string
+  links: UserRoleLinkItem[]
+}
+
+export interface TelegramChatResponse {
+  chat_id: number
+  title: string
+  chat_type: string
+  is_active: boolean
+  bot_status?: string
+  last_seen_at?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface PollGoogleFormSettings {
+  locale: string
+  poll_header: string
+  google_form_url: string
+}
+
 // Resource APIs
 const userBase = createCrudApi<any>("/users")
 export const userApi = {
   ...userBase,
   ...createExportApi("/users"),
+  async getRoleLinks(): Promise<UserRoleLinksResponse> {
+    return apiFetch<UserRoleLinksResponse>("/users/role-links")
+  },
 }
 const serviceTicketBase = createCrudApi<any>("/service-tickets")
 export const serviceTicketApi = {
   ...serviceTicketBase,
   ...createExportApi("/service-tickets"),
 }
+export const storageFileApi = createCrudApi<any>("/storage-files")
 
 // Audit log (read-only)
 export const auditLogApi = {
@@ -291,16 +514,65 @@ export const auditLogApi = {
     const res = await apiFetch<PaginatedResponse<any>>(`/audit-log/list?${q}`)
     return { items: res?.items ?? [], total: res?.total ?? 0 }
   },
+
+  async getById(entryId: number): Promise<any> {
+    return apiFetch<any>(`/audit-log/entries/${entryId}`)
+  },
 }
 const guestParkingBase = createCrudApi<any>("/guest-parking")
 export const guestParkingApi = { ...guestParkingBase }
+
+export const guestParkingSettingsApi = {
+  async get(): Promise<any> {
+    return apiFetch<any>("/guest-parking-settings/")
+  },
+
+  async update(routeImages: string[]): Promise<any> {
+    return apiFetch<any>("/guest-parking-settings/", {
+      method: "PUT",
+      body: JSON.stringify({ route_images: routeImages }),
+    })
+  },
+}
 
 const feedbackBase = createCrudApi<any>("/feedbacks")
 export const feedbackApi = {
   ...feedbackBase,
   ...createExportApi("/feedbacks"),
+  async getByServiceTicket(serviceTicketId: number): Promise<any | null> {
+    return apiFetch<any | null>(`/feedbacks/service-ticket/${serviceTicketId}`)
+  },
+}
+const pollBase = createCrudApi<any>("/polls")
+export const pollApi = {
+  ...pollBase,
+  async getAll(): Promise<any[]> {
+    const res = await apiFetch<any[]>("/polls/")
+    return Array.isArray(res) ? res : []
+  },
+  async getGoogleFormSettings(): Promise<PollGoogleFormSettings> {
+    return apiFetch<PollGoogleFormSettings>("/polls/settings/google-form")
+  },
+  async updateGoogleFormSettings(
+    googleFormUrl: string,
+    pollHeader: string
+  ): Promise<PollGoogleFormSettings> {
+    return apiFetch<PollGoogleFormSettings>("/polls/settings/google-form", {
+      method: "PUT",
+      body: JSON.stringify({
+        google_form_url: googleFormUrl,
+        poll_header: pollHeader,
+      }),
+    })
+  },
 }
 export const rentalObjectApi = createCrudApi<any>("/rental-objects")
+export const telegramChatApi = {
+  async getAll(): Promise<TelegramChatResponse[]> {
+    const res = await apiFetch<TelegramChatResponse[]>("/telegram-chats/")
+    return Array.isArray(res) ? res : []
+  },
+}
 
 // Rental spaces: base CRUD + getByObjectId (GET /rental-spaces/rental-objects/{object_id})
 const rentalSpaceBase = createCrudApi<any>("/rental-spaces")

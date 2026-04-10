@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { EntityPicker, type EntityPickerOption } from "@/components/entity-picker"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -19,9 +20,9 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { RentalObject } from "@/types"
-import { rentalObjectApi } from "@/lib/api"
-import { MediaUploader } from "@/components/media-uploader"
+import { RentalObject, TelegramChat, User, USER_ROLES } from "@/types"
+import { rentalObjectApi, telegramChatApi, userApi } from "@/lib/api"
+import { StorageUploader } from "@/components/storage-uploader"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,20 +43,35 @@ export default function RentalObjectEditPage() {
   const { id: objectId, isEdit } = useRouteId({ paramKey: "id", parseMode: "number" })
 
   const { loading, withLoading } = useLoading(true)
+  const [availableChats, setAvailableChats] = useState<TelegramChat[]>([])
+  const [availableUsers, setAvailableUsers] = useState<User[]>([])
   const [formData, setFormData] = useState<Partial<RentalObject>>({ status: "ACTIVE", photos: [] })
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    if (!isEdit) {
-      setFormData({ status: "ACTIVE", photos: [] })
-      return
-    }
     withLoading(async () => {
+      const [chats, users] = await Promise.all([
+        telegramChatApi.getAll(),
+        userApi.getAll(),
+      ])
+      setAvailableChats(chats)
+      setAvailableUsers(users)
+      if (!isEdit) {
+        setFormData({
+          status: "ACTIVE",
+          photos: [],
+          admin_chat_id: undefined,
+          service_feedback_recipient_user_id: undefined,
+        })
+        return
+      }
       const data = await rentalObjectApi.getById(Number(objectId!))
       setFormData({ ...data, photos: data.photos ?? [] })
     }).catch((err: any) => {
       toast.error("Не удалось загрузить объект", { description: err?.message })
-      router.push(`/spaces/${Number(objectId!)}`)
+      if (isEdit) {
+        router.push(`/spaces/${Number(objectId!)}`)
+      }
     })
   }, [objectId, isEdit])
 
@@ -66,6 +82,20 @@ export default function RentalObjectEditPage() {
 
   const handleStatusChange = (value: string) => {
     setFormData((prev) => ({ ...prev, status: value }))
+  }
+
+  const handleAdminChatChange = (value: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      admin_chat_id: value === "__none__" ? undefined : Number(value),
+    }))
+  }
+
+  const handleFeedbackRecipientChange = (value: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      service_feedback_recipient_user_id: value === "__none__" ? undefined : Number(value),
+    }))
   }
 
   const handlePhotosChange = (links: string[]) => {
@@ -90,6 +120,8 @@ export default function RentalObjectEditPage() {
         description: formData.description,
         status: formData.status ?? "ACTIVE",
         photos: (formData.photos ?? []).map((u) => u.trim()).filter(Boolean),
+        admin_chat_id: formData.admin_chat_id ?? null,
+        service_feedback_recipient_user_id: formData.service_feedback_recipient_user_id ?? null,
       }
 
       if (isEdit) {
@@ -119,6 +151,32 @@ export default function RentalObjectEditPage() {
     }
   }
 
+  const adminChatOptions: EntityPickerOption[] = [
+    { value: "__none__", label: "Не привязан" },
+    ...availableChats.map((chat) => ({
+      value: String(chat.chat_id),
+      label: `${chat.title || `Chat ${chat.chat_id}`} (${chat.chat_type}, ${chat.chat_id})`,
+    })),
+  ]
+
+  const feedbackRecipientUsers = availableUsers.filter((user) =>
+    [USER_ROLES.MANAGER, USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN].includes((user.role ?? -1) as any)
+  )
+
+  const feedbackRecipientOptions: EntityPickerOption[] = [
+    { value: "__none__", label: "Не привязан" },
+    ...feedbackRecipientUsers.map((user) => {
+      const name = [user.last_name, user.first_name, user.middle_name].filter(Boolean).join(" ").trim()
+      const username = user.username ? `@${user.username}` : ""
+      const suffix = [username, user.object?.name].filter(Boolean).join(" · ")
+      const labelBase = name || username || `#${user.id}`
+      return {
+        value: String(user.id),
+        label: suffix ? `${labelBase} (${suffix})` : labelBase,
+      }
+    }),
+  ]
+
   return (
     <>
       <AppSidebar />
@@ -139,7 +197,7 @@ export default function RentalObjectEditPage() {
             </BreadcrumbList>
           </Breadcrumb>
 
-          <div className="max-w-2xl space-y-6">
+          <div className="w-full min-w-0 max-w-2xl space-y-6">
             <div>
               <h1 className="text-2xl font-semibold">{isEdit ? "Редактирование бизнес-центра" : "Новый бизнес-центр"}</h1>
               <p className="text-sm text-muted-foreground mt-1">
@@ -152,7 +210,7 @@ export default function RentalObjectEditPage() {
                   <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
                 </div>
               ) : (
-                <div className="grid gap-6">
+                <div className="grid min-w-0 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="name">Название</Label>
                     <Input
@@ -197,11 +255,47 @@ export default function RentalObjectEditPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <MediaUploader
+                  <div className="space-y-2">
+                    <Label htmlFor="admin_chat_id">Чат администраторов</Label>
+                    <EntityPicker
+                      className="w-full"
+                      placeholder="Чат не выбран"
+                      emptyMessage="Доступные чаты не найдены"
+                      value={formData.admin_chat_id != null ? String(formData.admin_chat_id) : "__none__"}
+                      options={adminChatOptions}
+                      onSelect={handleAdminChatChange}
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      {availableChats.length > 0
+                        ? "В списке только групповые чаты, которые бот уже видел."
+                        : "Бот еще не обнаружил ни одного доступного группового чата."}
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="service_feedback_recipient_user_id">Получатель отзывов по заявкам</Label>
+                    <EntityPicker
+                      className="w-full"
+                      placeholder="Пользователь не выбран"
+                      emptyMessage="Доступные пользователи не найдены"
+                      value={
+                        formData.service_feedback_recipient_user_id != null
+                          ? String(formData.service_feedback_recipient_user_id)
+                          : "__none__"
+                      }
+                      options={feedbackRecipientOptions}
+                      onSelect={handleFeedbackRecipientChange}
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      В списке только внутренние пользователи, которым можно маршрутизировать отзыв клиента по заявке.
+                    </p>
+                  </div>
+                  <StorageUploader
                     label="Фото и видео"
-                    description="Загрузите фотографии или короткие видео."
+                    description="Загрузите фотографии или короткие видео. Файлы хранятся в системе storage."
                     value={formData.photos ?? []}
                     onChange={handlePhotosChange}
+                    acceptedKinds={["image", "video"]}
+                    category="DEFAULT"
                   />
 
                   <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end pt-4">

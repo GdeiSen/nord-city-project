@@ -5,6 +5,7 @@
 Существующие naive-значения интерпретируются как UTC.
 После миграции asyncpg корректно работает с timezone-aware datetime.
 """
+import logging
 import os
 import sys
 from pathlib import Path
@@ -24,11 +25,14 @@ if env_path.exists():
 required = ["DB_HOST", "DB_NAME", "DB_USER", "DB_PASSWORD"]
 missing = [v for v in required if not os.getenv(v)]
 if missing:
-    print(f"Ошибка: не заданы переменные: {', '.join(missing)}")
+    logger.error("Не заданы переменные окружения: %s", ", ".join(missing))
     sys.exit(1)
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
 
 def get_db_url() -> str:
@@ -79,13 +83,13 @@ async def run_migration():
                     ALTER COLUMN {column} TYPE TIMESTAMP WITH TIME ZONE
                     USING {column} AT TIME ZONE 'UTC'
                 """))
-                print(f"  {table}.{column} → timestamptz")
+                logger.info("%s.%s -> timestamptz", table, column)
             except Exception as e:
-                print(f"  {table}.{column}: {e}")
+                logger.exception("Ошибка миграции %s.%s: %s", table, column, e)
                 raise
 
     await engine.dispose()
-    print("Миграция TIMESTAMPTZ завершена.")
+    logger.info("Миграция TIMESTAMPTZ завершена")
 
 
 def main():
@@ -93,7 +97,7 @@ def main():
     try:
         asyncio.run(run_migration())
     except Exception as e:
-        print(f"Ошибка миграции: {e}")
+        logger.exception("Ошибка миграции timestamptz: %s", e)
         sys.exit(1)
 
 

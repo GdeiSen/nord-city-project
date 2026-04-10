@@ -1,3 +1,4 @@
+import logging
 from typing import TYPE_CHECKING
 from shared.constants import Dialogs, Variables, CallbackResult
 import json
@@ -15,6 +16,9 @@ if TYPE_CHECKING:
     from telegram.ext import ContextTypes
     from shared.entities.dialog import Dialog
     from bot import Bot
+
+
+logger = logging.getLogger(__name__)
 
 async def service_callback(
     bot: "Bot",
@@ -69,10 +73,21 @@ async def service_callback(
     if state == 1:
         service_ticket = bot.managers.storage.get(context, Variables.USER_SERVICE_TICKET)
         if service_ticket:
-            saved_ticket = await bot.services.service_ticket.create_service_ticket(service_ticket)
+            user_id = bot.get_user_id(update)
+            audit_context = bot.services.service_ticket.build_telegram_actor_audit_context(
+                telegram_user_id=user_id,
+                reason="service_ticket_created_via_dialog",
+            )
+            saved_ticket = await bot.services.service_ticket.create_service_ticket(
+                service_ticket,
+                _audit_context=audit_context,
+            )
             bot.managers.storage.set(context, Variables.USER_SERVICE_TICKET, None)
             if saved_ticket:
-                await bot.services.notification.notify_new_ticket(saved_ticket)
+                await bot.services.notification.notify_new_ticket(
+                    saved_ticket,
+                    _audit_context=audit_context,
+                )
             await bot.send_message(update, context, "service_ticket_completed", dynamic=False)
         return await bot.managers.navigator.execute(Dialogs.MENU, update, context)
 
@@ -94,7 +109,6 @@ async def service_callback(
                 description=None,
                 location=None,
                 status="NEW",
-                msid=None
             )
             
             active_dialog = bot.managers.storage.get(context, Variables.ACTIVE_DYN_DIALOG)
@@ -149,7 +163,7 @@ async def service_callback(
                                         })
                     
                 except (ValueError, IndexError):
-                    print(f"Failed to process trace item: {raw_item}")
+                    logger.warning("Failed to process trace item: %s", raw_item)
                     continue
             
             formatted_trace = []
@@ -234,16 +248,27 @@ async def service_callback(
             user_id = update.effective_user.id
             user = await bot.services.user.get_user_by_id(user_id)
             if user and (not user.phone_number or not user.phone_number.strip()):
-                await bot.services.user.update_user(user_id, {"phone_number": phone_normalized})
+                await bot.services.user.update_user(
+                    user_id,
+                    {"phone_number": phone_normalized},
+                    _audit_context=bot.services.user.build_telegram_actor_audit_context(
+                        telegram_user_id=user_id,
+                        reason="profile_phone_updated_from_service_dialog",
+                    ),
+                )
                 await bot.send_message(
                     update, context, "profile_phone_saved", dynamic=False
                 )
             else:
-                await bot.services.user.update_user(user_id, {"phone_number": phone_normalized})
+                await bot.services.user.update_user(
+                    user_id,
+                    {"phone_number": phone_normalized},
+                    _audit_context=bot.services.user.build_telegram_actor_audit_context(
+                        telegram_user_id=user_id,
+                        reason="profile_phone_updated_from_service_dialog",
+                    ),
+                )
         
         bot.managers.storage.set(context, Variables.USER_SERVICE_TICKET, service_ticket)
 
     return CallbackResult.continue_()
-
-
-

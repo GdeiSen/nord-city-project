@@ -7,6 +7,15 @@
   2. Миграция колонок TIMESTAMP → TIMESTAMPTZ
   3. Добавление колонки msid в guest_parking_requests
   4. Удаление колонки reminder_sent из guest_parking_requests
+  5. Удаление колонки reminder_sent_at из guest_parking_requests
+  6. Удаление колонки driver_phone из guest_parking_requests
+  7. Создание таблицы guest_parking_settings
+  8. Создание таблицы storage_files
+  9. Рефакторинг аудита (новые поля audit_log + bot_message_refs)
+  10. Перенос legacy service_tickets.msid в bot_message_refs и удаление колонки
+  11. Создание реестра DDID и связывание feedbacks / poll_answers / service_tickets
+  12. Поддержка объектной маршрутизации Telegram-чатов
+  13. Поддержка получателя сервисных отзывов и связи service_ticket <-> feedback
 
 Использование:
     Из корня проекта:
@@ -47,6 +56,117 @@ db_src = INFRASTRUCTURE_ROOT / "services" / "database_service" / "src"
 if str(db_src) not in sys.path:
     sys.path.insert(0, str(db_src))
 from models.guest_parking_request import GuestParkingRequest
+from models.guest_parking_settings import GuestParkingSettings
+from models.audit_log import AuditLog
+from models.storage_file import StorageFile
+from models.bot_message_ref import BotMessageRef
+from models.dynamic_dialog_binding import DynamicDialogBinding
+from models.telegram_chat import TelegramChat
+from models.service_ticket_feedback_ref import ServiceTicketFeedbackRef
+from shared.utils.ddid_utils import normalize_ddid, parse_ddid
+
+DDID_TABLES = ("feedbacks", "poll_answers", "service_tickets")
+PLACEHOLDER_DDID = "0000-0000-0000"
+
+AUDIT_TRIGGER_DROP_USER_TRIGGERS_SQL = """
+DO $$
+DECLARE
+    trigger_rec record;
+BEGIN
+    FOR trigger_rec IN
+        SELECT tg.tgname
+        FROM pg_trigger tg
+        JOIN pg_class cls ON cls.oid = tg.tgrelid
+        JOIN pg_namespace ns ON ns.oid = cls.relnamespace
+        WHERE cls.relname = 'audit_log'
+          AND ns.nspname = current_schema()
+          AND NOT tg.tgisinternal
+    LOOP
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I.%I', trigger_rec.tgname, current_schema(), 'audit_log');
+    END LOOP;
+END $$;
+"""
+
+AUDIT_TRIGGER_CREATE_FUNCTION_SQL = """
+CREATE OR REPLACE FUNCTION audit_log_fill_defaults_trigger()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    NEW.event_type := COALESCE(NULLIF(NEW.event_type, ''), 'ENTITY_CHANGE');
+    NEW.event_category := COALESCE(
+        NULLIF(NEW.event_category, ''),
+        CASE
+            WHEN COALESCE(NEW.event_type, 'ENTITY_CHANGE') LIKE 'DELIVERY_%' THEN 'DELIVERY_EVENT'
+            WHEN COALESCE(NEW.event_type, 'ENTITY_CHANGE') IN ('ENTITY_CHANGE', 'STATE_CHANGE') THEN 'DATA_CHANGE'
+            ELSE 'BUSINESS_EVENT'
+        END
+    );
+    NEW.event_name := COALESCE(
+        NULLIF(NEW.event_name, ''),
+        lower(
+            regexp_replace(
+                regexp_replace(COALESCE(NEW.entity_type, 'entity'), '(.)([A-Z][a-z]+)', '\1_\2', 'g'),
+                '([a-z0-9])([A-Z])',
+                '\1_\2',
+                'g'
+            )
+        ) || '.' || lower(COALESCE(NEW.event_type, 'event'))
+    );
+    NEW.source_service := COALESCE(NULLIF(NEW.source_service, ''), 'database_service');
+    NEW.retention_class := COALESCE(NULLIF(NEW.retention_class, ''), 'OPERATIONAL');
+
+    IF NEW.actor_type IS NULL OR NEW.actor_type = '' THEN
+        NEW.actor_type := CASE
+            WHEN NEW.actor_id IS NOT NULL AND NEW.actor_id > 1 THEN 'USER'
+            WHEN COALESCE(NEW.source_service, 'database_service') NOT IN ('database_service', 'web_service') THEN 'SERVICE'
+            ELSE 'SYSTEM'
+        END;
+    END IF;
+
+    IF NEW.meta IS NULL THEN
+        NEW.meta := '{}'::json;
+    END IF;
+
+    NEW.actor_external_id := COALESCE(
+        NULLIF(NEW.actor_external_id, ''),
+        NULLIF(COALESCE(NEW.meta::jsonb, '{}'::jsonb) ->> 'actor_external_id', ''),
+        NULLIF(COALESCE(NEW.meta::jsonb, '{}'::jsonb) ->> 'telegram_user_id', '')
+    );
+    NEW.actor_origin := COALESCE(
+        NULLIF(NEW.actor_origin, ''),
+        NULLIF(COALESCE(NEW.meta::jsonb, '{}'::jsonb) ->> 'actor_origin', ''),
+        CASE
+            WHEN NEW.actor_type = 'TELEGRAM_USER' THEN 'telegram'
+            WHEN NEW.actor_type = 'USER' THEN 'web'
+            WHEN NEW.actor_type = 'SERVICE' THEN 'service'
+            ELSE 'system'
+        END
+    );
+    NEW.operation_id := COALESCE(
+        NULLIF(NEW.operation_id, ''),
+        NULLIF(COALESCE(NEW.meta::jsonb, '{}'::jsonb) ->> 'operation_id', ''),
+        NULLIF(NEW.correlation_id, ''),
+        NULLIF(NEW.request_id, '')
+    );
+    NEW.causation_id := COALESCE(
+        NULLIF(NEW.causation_id, ''),
+        NULLIF(COALESCE(NEW.meta::jsonb, '{}'::jsonb) ->> 'causation_id', '')
+    );
+
+    RETURN NEW;
+END;
+$$;
+"""
+
+AUDIT_TRIGGER_DROP_SQL = "DROP TRIGGER IF EXISTS trg_audit_log_fill_defaults ON audit_log"
+
+AUDIT_TRIGGER_CREATE_SQL = """
+CREATE TRIGGER trg_audit_log_fill_defaults
+BEFORE INSERT ON audit_log
+FOR EACH ROW
+EXECUTE FUNCTION audit_log_fill_defaults_trigger();
+"""
 
 
 def get_db_url() -> str:
@@ -82,6 +202,8 @@ TIMESTAMPTZ_COLUMNS = [
     ("objects", "updated_at"),
     ("user_auth", "created_at"),
     ("user_auth", "updated_at"),
+    ("service_ticket_feedback_refs", "created_at"),
+    ("service_ticket_feedback_refs", "updated_at"),
 ]
 
 
@@ -142,26 +264,719 @@ async def step5_drop_reminder_sent_at(engine):
     print("  [OK] Колонка reminder_sent_at удалена или отсутствовала")
 
 
+async def step6_drop_driver_phone(engine):
+    """Удаление колонки driver_phone из guest_parking_requests."""
+    async with engine.begin() as conn:
+        await conn.execute(text(
+            "ALTER TABLE guest_parking_requests DROP COLUMN IF EXISTS driver_phone"
+        ))
+    print("  [OK] Колонка driver_phone удалена или отсутствовала")
+
+
+async def step7_create_guest_parking_settings(engine):
+    """Создание таблицы guest_parking_settings."""
+    async with engine.begin() as conn:
+        await conn.run_sync(
+            lambda c: GuestParkingSettings.__table__.create(c, checkfirst=True)
+        )
+    print("  [OK] Таблица guest_parking_settings создана или уже существует")
+
+
+async def step8_create_storage_files(engine):
+    """Создание таблицы storage_files."""
+    async with engine.begin() as conn:
+        await conn.run_sync(
+            lambda c: StorageFile.__table__.create(c, checkfirst=True)
+        )
+    print("  [OK] Таблица storage_files создана или уже существует")
+
+
+async def step9_migrate_audit(engine):
+    """Рефакторинг audit_log и создание bot_message_refs."""
+    async with engine.begin() as conn:
+        await conn.run_sync(
+            lambda c: AuditLog.__table__.create(c, checkfirst=True)
+        )
+        await conn.run_sync(
+            lambda c: TelegramChat.__table__.create(c, checkfirst=True)
+        )
+        await conn.run_sync(
+            lambda c: BotMessageRef.__table__.create(c, checkfirst=True)
+        )
+        await conn.execute(text("CREATE SEQUENCE IF NOT EXISTS bot_message_refs_id_seq"))
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE bot_message_refs
+                ALTER COLUMN id
+                SET DEFAULT nextval('bot_message_refs_id_seq'::regclass)
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                SELECT setval(
+                    'bot_message_refs_id_seq',
+                    COALESCE((SELECT MAX(id) FROM bot_message_refs), 1),
+                    EXISTS (SELECT 1 FROM bot_message_refs)
+                )
+                """
+            )
+        )
+        await conn.execute(text(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'audit_log' AND column_name = 'assignee_id'
+                ) AND NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'audit_log' AND column_name = 'actor_id'
+                ) THEN
+                    ALTER TABLE audit_log RENAME COLUMN assignee_id TO actor_id;
+                END IF;
+            END $$;
+            """
+        ))
+        await conn.execute(text("ALTER TABLE audit_log ALTER COLUMN entity_id TYPE BIGINT"))
+        await conn.execute(text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS event_type VARCHAR(64) DEFAULT 'ENTITY_CHANGE'"))
+        await conn.execute(text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS event_category VARCHAR(32) DEFAULT 'DATA_CHANGE'"))
+        await conn.execute(text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS event_name VARCHAR(128)"))
+        await conn.execute(text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS actor_type VARCHAR(16) DEFAULT 'SYSTEM'"))
+        await conn.execute(text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS actor_external_id VARCHAR(128)"))
+        await conn.execute(text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS actor_origin VARCHAR(32)"))
+        await conn.execute(text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS source_service VARCHAR(64) DEFAULT 'database_service'"))
+        await conn.execute(text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS retention_class VARCHAR(16) DEFAULT 'OPERATIONAL'"))
+        await conn.execute(text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS request_id VARCHAR(128)"))
+        await conn.execute(text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS correlation_id VARCHAR(128)"))
+        await conn.execute(text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS operation_id VARCHAR(128)"))
+        await conn.execute(text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS causation_id VARCHAR(128)"))
+        await conn.execute(text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS reason VARCHAR(255)"))
+        await conn.execute(text("UPDATE audit_log SET event_type = COALESCE(event_type, 'ENTITY_CHANGE')"))
+        await conn.execute(text(
+            """
+            UPDATE audit_log
+            SET event_category = CASE
+                WHEN COALESCE(event_type, 'ENTITY_CHANGE') LIKE 'DELIVERY_%' THEN 'DELIVERY_EVENT'
+                WHEN COALESCE(event_type, 'ENTITY_CHANGE') IN ('ENTITY_CHANGE', 'STATE_CHANGE') THEN 'DATA_CHANGE'
+                ELSE 'BUSINESS_EVENT'
+            END
+            WHERE event_category IS NULL OR event_category = ''
+            """
+        ))
+        await conn.execute(text(
+            """
+            UPDATE audit_log
+            SET event_name = lower(
+                regexp_replace(
+                    regexp_replace(entity_type, '(.)([A-Z][a-z]+)', '\1_\2', 'g'),
+                    '([a-z0-9])([A-Z])',
+                    '\1_\2',
+                    'g'
+                )
+            ) || '.' || lower(COALESCE(event_type, 'event'))
+            WHERE event_name IS NULL OR event_name = ''
+            """
+        ))
+        await conn.execute(text(
+            """
+            UPDATE audit_log
+            SET source_service = COALESCE(
+                NULLIF(source_service, ''),
+                NULLIF(meta::jsonb ->> 'source', ''),
+                'database_service'
+            )
+            """
+        ))
+        await conn.execute(text(
+            """
+            UPDATE audit_log
+            SET actor_type = CASE
+                WHEN actor_id IS NOT NULL AND actor_id > 1 THEN 'USER'
+                WHEN COALESCE(source_service, 'database_service') NOT IN ('database_service', 'web_service') THEN 'SERVICE'
+                ELSE 'SYSTEM'
+            END
+            WHERE actor_type IS NULL OR actor_type = ''
+            """
+        ))
+        await conn.execute(text(
+            """
+            UPDATE audit_log
+            SET actor_external_id = COALESCE(
+                NULLIF(actor_external_id, ''),
+                NULLIF(COALESCE(meta::jsonb, '{}'::jsonb) ->> 'actor_external_id', ''),
+                NULLIF(COALESCE(meta::jsonb, '{}'::jsonb) ->> 'telegram_user_id', '')
+            )
+            WHERE actor_external_id IS NULL OR actor_external_id = ''
+            """
+        ))
+        await conn.execute(text(
+            """
+            UPDATE audit_log
+            SET actor_origin = CASE
+                WHEN actor_type = 'TELEGRAM_USER' THEN 'telegram'
+                WHEN actor_type = 'USER' THEN 'web'
+                WHEN actor_type = 'SERVICE' THEN 'service'
+                ELSE 'system'
+            END
+            WHERE actor_origin IS NULL OR actor_origin = ''
+            """
+        ))
+        await conn.execute(text(
+            """
+            UPDATE audit_log
+            SET operation_id = COALESCE(
+                NULLIF(operation_id, ''),
+                NULLIF(COALESCE(meta::jsonb, '{}'::jsonb) ->> 'operation_id', ''),
+                NULLIF(correlation_id, ''),
+                NULLIF(request_id, '')
+            )
+            WHERE operation_id IS NULL OR operation_id = ''
+            """
+        ))
+        await conn.execute(text(
+            """
+            UPDATE audit_log
+            SET causation_id = COALESCE(
+                NULLIF(causation_id, ''),
+                NULLIF(COALESCE(meta::jsonb, '{}'::jsonb) ->> 'causation_id', '')
+            )
+            WHERE causation_id IS NULL OR causation_id = ''
+            """
+        ))
+        await conn.execute(text(
+            """
+            UPDATE audit_log
+            SET retention_class = CASE entity_type
+                WHEN 'User' THEN 'CRITICAL'
+                WHEN 'Object' THEN 'CRITICAL'
+                WHEN 'Space' THEN 'CRITICAL'
+                WHEN 'GuestParkingSettings' THEN 'CRITICAL'
+                WHEN 'SpaceView' THEN 'TECHNICAL'
+                WHEN 'StorageFile' THEN 'TECHNICAL'
+                ELSE 'OPERATIONAL'
+            END
+            WHERE retention_class IS NULL OR retention_class = ''
+            """
+        ))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audit_log_created ON audit_log (created_at)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audit_log_actor_created ON audit_log (actor_id, created_at)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audit_log_correlation_created ON audit_log (correlation_id, created_at)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audit_log_operation_created ON audit_log (operation_id, created_at)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audit_log_category_created ON audit_log (event_category, created_at)"))
+        await conn.execute(text(AUDIT_TRIGGER_DROP_USER_TRIGGERS_SQL))
+        await conn.execute(text(AUDIT_TRIGGER_CREATE_FUNCTION_SQL))
+        await conn.execute(text(AUDIT_TRIGGER_DROP_SQL))
+        await conn.execute(text(AUDIT_TRIGGER_CREATE_SQL))
+    print("  [OK] audit_log обновлен, bot_message_refs создана")
+
+
+async def step10_drop_service_ticket_msid(engine):
+    """Перенос legacy service_tickets.msid в bot_message_refs и удаление колонки."""
+    async with engine.begin() as conn:
+        column_exists = await conn.scalar(
+            text(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_name = 'service_tickets' AND column_name = 'msid'
+                )
+                """
+            )
+        )
+        if not column_exists:
+            print("  [OK] Колонка service_tickets.msid уже отсутствует")
+            return
+
+        await conn.execute(text("CREATE SEQUENCE IF NOT EXISTS bot_message_refs_id_seq"))
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE bot_message_refs
+                ALTER COLUMN id
+                SET DEFAULT nextval('bot_message_refs_id_seq'::regclass)
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                SELECT setval(
+                    'bot_message_refs_id_seq',
+                    COALESCE((SELECT MAX(id) FROM bot_message_refs), 1),
+                    EXISTS (SELECT 1 FROM bot_message_refs)
+                )
+                """
+            )
+        )
+
+        pending_backfill = await conn.scalar(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM service_tickets st
+                WHERE st.msid IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM bot_message_refs bmr
+                      WHERE bmr.entity_type = 'ServiceTicket'
+                        AND bmr.entity_id = st.id
+                        AND bmr.kind = 'PRIMARY'
+                  )
+                """
+            )
+        )
+        pending_backfill = int(pending_backfill or 0)
+
+        inserted = 0
+        if pending_backfill > 0:
+            admin_chat_id_raw = os.getenv("ADMIN_CHAT_ID")
+            if not admin_chat_id_raw:
+                raise RuntimeError(
+                    "Для переноса service_tickets.msid требуется ADMIN_CHAT_ID, "
+                    "потому что найдены тикеты без PRIMARY-ссылки в bot_message_refs."
+                )
+            try:
+                admin_chat_id = int(str(admin_chat_id_raw).strip())
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError("ADMIN_CHAT_ID должен быть целым числом") from exc
+
+            result = await conn.execute(
+                text(
+                    """
+                    INSERT INTO bot_message_refs (
+                        entity_type,
+                        entity_id,
+                        chat_id,
+                        message_id,
+                        kind,
+                        meta
+                    )
+                    SELECT
+                        'ServiceTicket',
+                        st.id,
+                        :admin_chat_id,
+                        st.msid,
+                        'PRIMARY',
+                        json_build_object('source', 'service_ticket_msid_migration')
+                    FROM service_tickets st
+                    WHERE st.msid IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM bot_message_refs bmr
+                          WHERE bmr.entity_type = 'ServiceTicket'
+                            AND bmr.entity_id = st.id
+                            AND bmr.kind = 'PRIMARY'
+                      )
+                    ON CONFLICT (chat_id, message_id) DO NOTHING
+                    """
+                ),
+                {"admin_chat_id": admin_chat_id},
+            )
+            inserted = result.rowcount or 0
+
+        await conn.execute(text("ALTER TABLE service_tickets DROP COLUMN IF EXISTS msid"))
+
+    if pending_backfill > 0:
+        print(f"  [OK] Перенесено PRIMARY message refs: {inserted}")
+    print("  [OK] Колонка service_tickets.msid удалена или отсутствовала")
+
+
+def _normalize_existing_ddid(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return PLACEHOLDER_DDID
+    return normalize_ddid(raw)
+
+
+async def _normalize_table_ddids(conn, table_name: str) -> int:
+    result = await conn.execute(text(f"SELECT DISTINCT ddid FROM {table_name}"))
+    changed = 0
+    for row in result:
+        raw_ddid = row[0]
+        if raw_ddid is None:
+            continue
+        normalized = _normalize_existing_ddid(raw_ddid)
+        if normalized == raw_ddid:
+            continue
+        await conn.execute(
+            text(f"UPDATE {table_name} SET ddid = :normalized WHERE ddid = :raw_ddid"),
+            {"normalized": normalized, "raw_ddid": raw_ddid},
+        )
+        changed += 1
+    return changed
+
+
+async def _backfill_dynamic_dialog_bindings(conn) -> int:
+    result = await conn.execute(
+        text(
+            """
+            SELECT ddid FROM feedbacks
+            UNION
+            SELECT ddid FROM poll_answers
+            UNION
+            SELECT ddid FROM service_tickets
+            """
+        )
+    )
+    inserted = 0
+    for row in result:
+        ddid = row[0]
+        if ddid is None:
+            continue
+        normalized = _normalize_existing_ddid(ddid)
+        dialog_id, sequence_id, item_id = parse_ddid(normalized)
+        insert_result = await conn.execute(
+            text(
+                """
+                INSERT INTO dynamic_dialog_bindings (id, ddid, dialog_id, sequence_id, item_id)
+                VALUES (nextval('dynamic_dialog_bindings_id_seq'::regclass), :ddid, :dialog_id, :sequence_id, :item_id)
+                ON CONFLICT (ddid) DO NOTHING
+                """
+            ),
+            {
+                "ddid": normalized,
+                "dialog_id": dialog_id,
+                "sequence_id": sequence_id,
+                "item_id": item_id,
+            },
+        )
+        inserted += insert_result.rowcount or 0
+    return inserted
+
+
+async def _ensure_ddid_fk(conn, *, table_name: str, constraint_name: str) -> None:
+    await conn.execute(
+        text(
+            f"""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint
+                    WHERE conname = '{constraint_name}'
+                ) THEN
+                    ALTER TABLE {table_name}
+                    ADD CONSTRAINT {constraint_name}
+                    FOREIGN KEY (ddid)
+                    REFERENCES dynamic_dialog_bindings(ddid)
+                    ON UPDATE RESTRICT
+                    ON DELETE RESTRICT;
+                END IF;
+            END $$;
+            """
+        )
+    )
+
+
+async def step11_add_dynamic_dialog_bindings(engine):
+    """Создание реестра DDID и внешних ключей на canonical DDID."""
+    async with engine.begin() as conn:
+        await conn.run_sync(
+            lambda c: DynamicDialogBinding.__table__.create(c, checkfirst=True)
+        )
+        await conn.execute(text("CREATE SEQUENCE IF NOT EXISTS dynamic_dialog_bindings_id_seq"))
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE dynamic_dialog_bindings
+                ALTER COLUMN id
+                SET DEFAULT nextval('dynamic_dialog_bindings_id_seq'::regclass)
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                SELECT setval(
+                    'dynamic_dialog_bindings_id_seq',
+                    COALESCE((SELECT MAX(id) FROM dynamic_dialog_bindings), 1),
+                    EXISTS (SELECT 1 FROM dynamic_dialog_bindings)
+                )
+                """
+            )
+        )
+
+        normalized_tables: dict[str, int] = {}
+        for table_name in DDID_TABLES:
+            normalized_tables[table_name] = await _normalize_table_ddids(conn, table_name)
+
+        inserted = await _backfill_dynamic_dialog_bindings(conn)
+
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_feedbacks_ddid ON feedbacks (ddid)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_poll_answers_ddid ON poll_answers (ddid)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_service_tickets_ddid ON service_tickets (ddid)"))
+
+        await _ensure_ddid_fk(
+            conn,
+            table_name="feedbacks",
+            constraint_name="fk_feedbacks_ddid_dynamic_dialog_bindings",
+        )
+        await _ensure_ddid_fk(
+            conn,
+            table_name="poll_answers",
+            constraint_name="fk_poll_answers_ddid_dynamic_dialog_bindings",
+        )
+        await _ensure_ddid_fk(
+            conn,
+            table_name="service_tickets",
+            constraint_name="fk_service_tickets_ddid_dynamic_dialog_bindings",
+        )
+
+    print("  [OK] Таблица dynamic_dialog_bindings создана или уже существует")
+    print(
+        "  [OK] Нормализация ddid: "
+        + ", ".join(f"{table}={count}" for table, count in normalized_tables.items())
+    )
+    print(f"  [OK] Backfill DDID-реестра: {inserted}")
+    print("  [OK] Внешние ключи ddid настроены для feedbacks, poll_answers и service_tickets")
+
+
+async def step12_add_chat_routing_support(engine):
+    """Создание chat registry и backfill объектных связей."""
+    async with engine.begin() as conn:
+        await conn.run_sync(lambda c: TelegramChat.__table__.create(c, checkfirst=True))
+        await conn.execute(text("ALTER TABLE objects ADD COLUMN IF NOT EXISTS admin_chat_id BIGINT"))
+        await conn.execute(text("ALTER TABLE guest_parking_requests ADD COLUMN IF NOT EXISTS object_id INTEGER"))
+        await conn.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.table_constraints
+                        WHERE table_name = 'objects'
+                          AND constraint_name = 'fk_objects_admin_chat_id_telegram_chats'
+                    ) THEN
+                        ALTER TABLE objects
+                        ADD CONSTRAINT fk_objects_admin_chat_id_telegram_chats
+                        FOREIGN KEY (admin_chat_id) REFERENCES telegram_chats(chat_id)
+                        ON DELETE SET NULL;
+                    END IF;
+                END $$;
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.table_constraints
+                        WHERE table_name = 'guest_parking_requests'
+                          AND constraint_name = 'fk_guest_parking_requests_object_id_objects'
+                    ) THEN
+                        ALTER TABLE guest_parking_requests
+                        ADD CONSTRAINT fk_guest_parking_requests_object_id_objects
+                        FOREIGN KEY (object_id) REFERENCES objects(id)
+                        ON DELETE SET NULL;
+                    END IF;
+                END $$;
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                UPDATE service_tickets st
+                SET object_id = u.object_id
+                FROM users u
+                WHERE st.user_id = u.id
+                  AND st.object_id IS NULL
+                  AND u.object_id IS NOT NULL
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                UPDATE guest_parking_requests gpr
+                SET object_id = u.object_id
+                FROM users u
+                WHERE gpr.user_id = u.id
+                  AND gpr.object_id IS NULL
+                  AND u.object_id IS NOT NULL
+                """
+            )
+        )
+    print("  [OK] Chat registry и объектные связи для Telegram-чатов настроены")
+
+
+async def step13_add_service_ticket_feedback_support(engine):
+    """Добавление маршрутизации сервисных отзывов и ref-таблицы feedback <-> ticket."""
+    async with engine.begin() as conn:
+        await conn.run_sync(
+            lambda c: ServiceTicketFeedbackRef.__table__.create(c, checkfirst=True)
+        )
+        await conn.execute(
+            text("CREATE SEQUENCE IF NOT EXISTS service_ticket_feedback_refs_id_seq")
+        )
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE service_ticket_feedback_refs
+                ALTER COLUMN id
+                SET DEFAULT nextval('service_ticket_feedback_refs_id_seq'::regclass)
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                SELECT setval(
+                    'service_ticket_feedback_refs_id_seq',
+                    COALESCE((SELECT MAX(id) FROM service_ticket_feedback_refs), 1),
+                    EXISTS (SELECT 1 FROM service_ticket_feedback_refs)
+                )
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE objects
+                ADD COLUMN IF NOT EXISTS service_feedback_recipient_user_id BIGINT
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.table_constraints
+                        WHERE table_name = 'objects'
+                          AND constraint_name = 'fk_objects_service_feedback_recipient_user_id_users'
+                    ) THEN
+                        ALTER TABLE objects
+                        ADD CONSTRAINT fk_objects_service_feedback_recipient_user_id_users
+                        FOREIGN KEY (service_feedback_recipient_user_id) REFERENCES users(id)
+                        ON DELETE SET NULL;
+                    END IF;
+                END $$;
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE feedbacks
+                ADD COLUMN IF NOT EXISTS feedback_type VARCHAR(50)
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE feedbacks
+                ADD COLUMN IF NOT EXISTS text TEXT
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                UPDATE feedbacks
+                SET feedback_type = 'GENERAL'
+                WHERE feedback_type IS NULL OR feedback_type = ''
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE feedbacks
+                ALTER COLUMN feedback_type SET DEFAULT 'GENERAL'
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_feedbacks_feedback_type
+                ON feedbacks (feedback_type)
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_objects_service_feedback_recipient_user_id
+                ON objects (service_feedback_recipient_user_id)
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_service_ticket_feedback_refs_service_ticket_id
+                ON service_ticket_feedback_refs (service_ticket_id)
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_service_ticket_feedback_refs_feedback_id
+                ON service_ticket_feedback_refs (feedback_id)
+                """
+            )
+        )
+    print("  [OK] Поддержка получателя сервисных отзывов и ref-таблицы настроена")
+
+
 async def run_all():
     url = get_db_url()
     engine = create_async_engine(url, echo=False)
 
     print("\n=== Миграция Nord City: старая → новая версия ===\n")
 
-    print("Шаг 1/5: Создание таблицы guest_parking_requests...")
+    print("Шаг 1/13: Создание таблицы guest_parking_requests...")
     await step1_create_guest_parking(engine)
 
-    print("\nШаг 2/5: Миграция TIMESTAMP → TIMESTAMPTZ...")
+    print("\nШаг 2/13: Миграция TIMESTAMP → TIMESTAMPTZ...")
     await step2_migrate_timestamptz(engine)
 
-    print("\nШаг 3/5: Добавление колонки msid...")
+    print("\nШаг 3/13: Добавление колонки msid...")
     await step3_add_msid(engine)
 
-    print("\nШаг 4/5: Удаление колонки reminder_sent...")
+    print("\nШаг 4/13: Удаление колонки reminder_sent...")
     await step4_drop_reminder_sent(engine)
 
-    print("\nШаг 5/5: Удаление колонки reminder_sent_at (логика в кэше)...")
+    print("\nШаг 5/13: Удаление колонки reminder_sent_at (логика в кэше)...")
     await step5_drop_reminder_sent_at(engine)
+
+    print("\nШаг 6/13: Удаление колонки driver_phone...")
+    await step6_drop_driver_phone(engine)
+
+    print("\nШаг 7/13: Создание таблицы guest_parking_settings...")
+    await step7_create_guest_parking_settings(engine)
+
+    print("\nШаг 8/13: Создание таблицы storage_files...")
+    await step8_create_storage_files(engine)
+
+    print("\nШаг 9/13: Рефакторинг аудита...")
+    await step9_migrate_audit(engine)
+
+    print("\nШаг 10/13: Удаление legacy service_tickets.msid...")
+    await step10_drop_service_ticket_msid(engine)
+
+    print("\nШаг 11/13: Создание DDID-реестра...")
+    await step11_add_dynamic_dialog_bindings(engine)
+
+    print("\nШаг 12/13: Поддержка объектной маршрутизации Telegram-чатов...")
+    await step12_add_chat_routing_support(engine)
+
+    print("\nШаг 13/13: Поддержка сервисных отзывов по заявкам...")
+    await step13_add_service_ticket_feedback_support(engine)
 
     await engine.dispose()
     print("\n=== Миграция успешно завершена ===\n")

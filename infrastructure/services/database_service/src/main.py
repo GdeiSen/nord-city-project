@@ -23,27 +23,39 @@ from shared.schemas.rpc import get_rpc_schema
 from models.user import User
 from models.user_auth import UserAuth
 from models.feedback import Feedback
+from models.service_ticket_feedback_ref import ServiceTicketFeedbackRef
+from models.dynamic_dialog_binding import DynamicDialogBinding
 from models.object import Object
 from models.poll_answer import PollAnswer
 from models.service_ticket import ServiceTicket
 from models.guest_parking_request import GuestParkingRequest
+from models.guest_parking_settings import GuestParkingSettings
 from models.audit_log import AuditLog
+from models.bot_message_ref import BotMessageRef
 from models.space import Space
 from models.space_view import SpaceView
 from models.otp_code import OtpCode
+from models.storage_file import StorageFile
+from models.telegram_chat import TelegramChat
 
 # --- Service Imports for Registration ---
 from services.user_service import UserService
 from services.auth_service import AuthService
 from services.otp_service import OtpService
 from services.feedback_service import FeedbackService
+from services.service_ticket_feedback_ref_service import ServiceTicketFeedbackRefService
+from services.dynamic_dialog_binding_service import DynamicDialogBindingService
 from services.object_service import ObjectService
 from services.poll_service import PollService
 from services.space_service import SpaceService
 from services.service_ticket_service import ServiceTicketService
 from services.guest_parking_service import GuestParkingService
+from services.guest_parking_settings_service import GuestParkingSettingsService
 from services.audit_log_service import AuditLogService
+from services.bot_message_ref_service import BotMessageRefService
 from services.space_view_service import SpaceViewService
+from services.storage_file_service import StorageFileService
+from services.telegram_chat_service import TelegramChatService
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -75,8 +87,9 @@ def _register_resources():
     logger.info("Registering database models and services...")
 
     models_to_register = [
-        User, UserAuth, Feedback, Object, PollAnswer,
-        ServiceTicket, GuestParkingRequest, AuditLog, Space, SpaceView, OtpCode,
+        User, UserAuth, DynamicDialogBinding, Feedback, ServiceTicketFeedbackRef, Object, PollAnswer,
+        ServiceTicket, GuestParkingRequest, GuestParkingSettings, AuditLog, Space, SpaceView, OtpCode,
+        StorageFile, BotMessageRef, TelegramChat,
     ]
     for model in models_to_register:
         db_manager.repositories.register(model)
@@ -84,15 +97,21 @@ def _register_resources():
     services_to_register = {
         "user": UserService,
         "auth": AuthService,
+        "dynamic_dialog_binding": DynamicDialogBindingService,
         "feedback": FeedbackService,
+        "service_ticket_feedback_ref": ServiceTicketFeedbackRefService,
         "object": ObjectService,
         "poll": PollService,
         "space": SpaceService,
         "service_ticket": ServiceTicketService,
         "guest_parking": GuestParkingService,
+        "guest_parking_settings": GuestParkingSettingsService,
         "audit_log": AuditLogService,
+        "bot_message_ref": BotMessageRefService,
+        "telegram_chat": TelegramChatService,
         "space_view": SpaceViewService,
         "otp": OtpService,
+        "storage_file": StorageFileService,
     }
     for name, service_class in services_to_register.items():
         db_manager.services.register(name, service_class(db_manager))
@@ -175,7 +194,8 @@ async def _rpc_handler(request: dict) -> dict:
 
 from contextlib import asynccontextmanager
 
-from shared.clients.media_client import media_client
+from shared.clients.audit_client import audit_client
+from shared.clients.storage_client import storage_client
 
 
 @asynccontextmanager
@@ -183,20 +203,26 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Database Service (HTTP)...")
     await db_manager.initialize_db()
     _register_resources()
+    try:
+        audit_client.set_local_append_writer(db_manager.services.get("audit_log").append_event)
+        logger.info("Audit client configured with local transactional writer.")
+    except Exception as e:
+        logger.warning("Audit client local writer setup failed: %s", e)
     await _ensure_default_object()
     try:
         await db_manager.services.get("guest_parking").init_reminder_cache()
     except Exception as e:
         logger.warning("Guest parking reminder cache init failed: %s", e)
     try:
-        await media_client.connect()
-        logger.info("Media client connected for cleanup.")
+        await storage_client.connect()
+        logger.info("Storage client connected for cleanup.")
     except Exception as e:
-        logger.warning("Media client not available (cleanup will be skipped): %s", e)
+        logger.warning("Storage client not available (cleanup will be skipped): %s", e)
     logger.info("Database Service ready.")
     yield
     logger.info("Shutting down Database Service...")
-    await media_client.disconnect()
+    audit_client.set_local_append_writer(None)
+    await storage_client.disconnect()
     await db_manager.db_connection.close()
     logger.info("Database Service stopped.")
 

@@ -11,12 +11,19 @@ const AUDIT_ENTITY_TYPES = [
   { value: "Space", label: "Помещение" },
   { value: "SpaceView", label: "Просмотр помещения" },
   { value: "PollAnswer", label: "Ответ опроса" },
+  { value: "GuestParkingSettings", label: "Настройки парковки" },
+  { value: "StorageFile", label: "Файл" },
 ]
 
 const AUDIT_ACTIONS = [
-  { value: "create", label: "Создание" },
-  { value: "update", label: "Изменение" },
-  { value: "delete", label: "Удаление" },
+  { value: "create", label: "create" },
+  { value: "update", label: "update" },
+  { value: "edit", label: "edit" },
+  { value: "delete", label: "delete" },
+  { value: "send", label: "send" },
+  { value: "sync", label: "sync" },
+  { value: "reroute", label: "reroute" },
+  { value: "pin", label: "pin" },
 ]
 
 export const auditLogColumns: TableColumnConfig[] = [
@@ -32,6 +39,7 @@ export const auditLogColumns: TableColumnConfig[] = [
     id: "entity_id",
     label: "ID сущности",
     type: "number",
+    filterDbColumn: "entity_id",
     searchDbColumns: ["entity_id"],
   },
   {
@@ -42,10 +50,16 @@ export const auditLogColumns: TableColumnConfig[] = [
     filterSelect: AUDIT_ACTIONS,
   },
   {
-    id: "assignee_display",
-    label: "Исполнитель",
+    id: "actor_display",
+    label: "Кто изменил",
     type: "string",
     searchDbColumns: [],
+  },
+  {
+    id: "source_service",
+    label: "Источник",
+    type: "string",
+    searchDbColumns: ["source_service"],
   },
   {
     id: "created",

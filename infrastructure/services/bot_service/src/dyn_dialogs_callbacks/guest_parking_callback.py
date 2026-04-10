@@ -1,6 +1,6 @@
 """
 Callback для диалога гостевой парковки.
-Валидация даты, времени (9:00-19:00), госномера, телефонов.
+Валидация даты, времени (9:00-19:00), госномера, телефона арендатора.
 Создание заявки, уведомление администраторов, напоминание за 15 мин.
 """
 import re
@@ -162,36 +162,9 @@ async def guest_parking_callback(
             return CallbackResult.retry_current(sequence_id, _idx())
         data["license_plate"] = plate
         bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, data)
-        return CallbackResult.continue_()
-
-    # --- Марка и цвет ---
-    if item_id == 103:
-        car = (answer or "").strip()
-        if not car:
-            set_dialog_position(bot, context, sequence_id, _idx())
-            await bot.send_message(
-                update, context, "guest_parking_car_invalid", dynamic=False
-            )
-            return CallbackResult.retry_current(sequence_id, _idx())
-        data["car_make_color"] = car
-        bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, data)
-        return CallbackResult.continue_()
-
-    # --- Телефон водителя ---
-    if item_id == 104:
-        if not is_valid_belarus_phone(answer or ""):
-            set_dialog_position(bot, context, sequence_id, _idx())
-            await bot.send_message(
-                update, context, "guest_parking_driver_phone_error", dynamic=False
-            )
-            return CallbackResult.retry_current(sequence_id, _idx())
-        data["driver_phone"] = _normalize_phone(answer or "")
-        bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, data)
-
         user_id = bot.get_user_id(update)
         user = await bot.services.user.get_user_by_id(user_id) if user_id else None
         if user and user.phone_number and user.phone_number.strip():
-            # У арендатора уже есть контакт — переходим к финалу
             data["tenant_phone"] = _normalize_phone(user.phone_number)
             bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, data)
             bot.managers.storage.set(context, Variables.ACTIVE_DIALOG_SEQUENCE_ID, 6)
@@ -201,7 +174,7 @@ async def guest_parking_callback(
         return CallbackResult.continue_()
 
     # --- Телефон арендатора ---
-    if item_id == 105:
+    if item_id == 104:
         if not is_valid_belarus_phone(answer or ""):
             set_dialog_position(bot, context, sequence_id, _idx())
             await bot.send_message(
@@ -213,7 +186,14 @@ async def guest_parking_callback(
         user_id = bot.get_user_id(update)
         user = await bot.services.user.get_user_by_id(user_id) if user_id else None
         if user and (not user.phone_number or not user.phone_number.strip()):
-            await bot.services.user.update_user(user_id, {"phone_number": data["tenant_phone"]})
+            await bot.services.user.update_user(
+                user_id,
+                {"phone_number": data["tenant_phone"]},
+                _audit_context=bot.services.user.build_telegram_actor_audit_context(
+                    telegram_user_id=user_id,
+                    reason="profile_phone_updated_from_guest_parking_dialog",
+                ),
+            )
             await bot.send_message(
                 update, context, "profile_phone_saved", dynamic=False
             )
@@ -240,6 +220,7 @@ async def _finalize_and_show_summary(
     user_id = bot.get_user_id(update)
     if not user_id:
         return
+    user = await bot.services.user.get_user_by_id(user_id)
 
     arrival_date = data.get("arrival_date")
     arrival_time = data.get("arrival_time", "")
@@ -261,16 +242,20 @@ async def _finalize_and_show_summary(
     arrival_dt_save = arrival_dt if arrival_dt.tzinfo else arrival_dt.replace(tzinfo=SYSTEM_TIMEZONE)
 
     from shared.schemas import GuestParkingSchema
+    audit_context = bot.services.notification.build_telegram_actor_audit_context(
+        telegram_user_id=user_id,
+        reason="guest_parking_created_via_dialog",
+    )
     result = await bot.managers.database.guest_parking.create(
         model_data={
             "user_id": user_id,
+            "object_id": getattr(user, "object_id", None) if user else None,
             "arrival_date": arrival_dt_save.isoformat(),
             "license_plate": data.get("license_plate", ""),
-            "car_make_color": data.get("car_make_color", ""),
-            "driver_phone": data.get("driver_phone", ""),
             "tenant_phone": data.get("tenant_phone"),
         },
         model_class=GuestParkingSchema,
+        _audit_context=audit_context,
     )
     if not result.get("success"):
         await bot.send_message(
@@ -281,15 +266,30 @@ async def _finalize_and_show_summary(
     saved = result.get("data")
     req_id = saved.id if saved else None
 
-    await bot.services.notification.notify_guest_parking_request(
+    await bot.services.notification.notify_new_guest_parking(
         req_id=req_id,
-        data=data,
-        user_id=user_id,
+        _audit_context=audit_context,
     )
     await bot.services.notification.schedule_guest_parking_reminder(
         req_id=req_id,
         data=data,
     )
+
+    route_images: list[str] = []
+    try:
+        from shared.schemas import GuestParkingSettingsSchema
+
+        settings_resp = await bot.managers.database.guest_parking_settings.get_settings(
+            model_class=GuestParkingSettingsSchema
+        )
+        if settings_resp.get("success") and settings_resp.get("data") is not None:
+            settings = settings_resp["data"]
+            if isinstance(settings, dict):
+                route_images = list(settings.get("route_images") or [])
+            else:
+                route_images = list(getattr(settings, "route_images", []) or [])
+    except Exception:
+        route_images = []
 
     # Формируем итоговый текст для финального экрана
     date_str = arrival_dt.strftime("%d.%m.%Y") if arrival_date else ""
@@ -301,11 +301,9 @@ async def _finalize_and_show_summary(
             time_str,
             data.get("license_plate", ""),
             data.get("car_make_color", ""),
-            data.get("driver_phone", ""),
         ],
     )
     final_item = dialog.items.get(106)
     if final_item:
         final_item.text = summary
-        # Заглушки для скриншотов — заменить на реальные URL
-        final_item.images = []  # TODO: добавить URL скриншотов по схеме проезда
+        final_item.images = route_images[:2]

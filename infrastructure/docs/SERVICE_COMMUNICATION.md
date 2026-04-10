@@ -3,11 +3,11 @@
 ## Архитектура
 
 ```
-┌─────────────────┐     HTTP RPC      ┌─────────────────────┐     HTTP RPC      ┌──────────────────┐
-│   web_service   │ ◄───────────────► │  database_service   │                   │  media_service   │
-│   (FastAPI)     │                   │  (FastAPI)          │ ◄───────────────► │  (FastAPI)       │
-│   :8000         │                   │  :8001              │                   │  :8004           │
-└────────┬────────┘                   └─────────────────────┘                   └──────────────────┘
+┌─────────────────┐     HTTP RPC      ┌─────────────────────┐     HTTP RPC      ┌───────────────────┐
+│   web_service   │ ◄───────────────► │  database_service   │                   │  storage_service  │
+│   (FastAPI)     │                   │  (FastAPI)          │ ◄───────────────► │  (FastAPI)        │
+│   :8000         │                   │  :8001              │                   │  :8004            │
+└────────┬────────┘                   └─────────────────────┘                   └───────────────────┘
          │                                       ▲
          │ HTTP RPC                              │ HTTP RPC
          ▼                                       │
@@ -56,17 +56,23 @@ payload = {
 
 ```python
 db_client.user           # CRUD + get_by_username, get_by_ids
-db_client.service_ticket # CRUD + get_stats, get_by_msid
+db_client.dynamic_dialog_binding # CRUD + get_by_ddid, ensure_binding
+db_client.service_ticket # CRUD + get_stats
 db_client.object         # CRUD + get_by_ids
 db_client.space          # CRUD + get_by_object_id
 db_client.feedback       # CRUD
 db_client.poll           # CRUD
 db_client.guest_parking  # CRUD
-db_client.audit_log      # CRUD + find_by_entity
+db_client.audit_log      # CRUD + find_by_entity + append_event + purge
+db_client.bot_message_ref # Telegram/admin chat message refs
 db_client.space_view     # CRUD
 db_client.otp            # verify_code, invalidate_user_codes, create
 db_client.auth           # CRUD (auth records)
 ```
+
+Для межсервисной работы с аудитом используйте отдельный `audit_client`
+(`shared/clients/audit_client.py`). `db_client.audit_log` — это низкоуровневый
+storage-layer, который нужен самому `audit_service`.
 
 ### Передача данных с моделями (схемами)
 
@@ -211,12 +217,13 @@ bot_client.telegram_auth.send_otp_code(user_id=456)
 
 ---
 
-## 6. MediaClient — вызовы media_service
+## 6. StorageClient — вызовы storage_service
 
-**Файл:** `shared/clients/media_client.py`
+**Файл:** `shared/clients/storage_client.py`
 
-- Загрузка файла: base64 в params
-- Ответ: `{path, url}`
+- Создание presigned upload session: RPC `create_upload_session`
+- Завершение upload: RPC `complete_upload`
+- Удаление файла: RPC `delete`
 
 Доменные модели не участвуют.
 

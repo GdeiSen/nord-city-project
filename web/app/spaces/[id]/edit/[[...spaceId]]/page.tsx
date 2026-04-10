@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/breadcrumb"
 import { RentalSpace } from "@/types"
 import { rentalSpaceApi, rentalObjectApi } from "@/lib/api"
-import { MediaUploader } from "@/components/media-uploader"
+import { StorageUploader } from "@/components/storage-uploader"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -172,7 +172,7 @@ export default function SpaceEditPage() {
             </BreadcrumbList>
           </Breadcrumb>
 
-          <div className="max-w-2xl space-y-6">
+          <div className="w-full min-w-0 max-w-2xl space-y-6">
             <div>
               <h1 className="text-2xl font-semibold">{isEdit ? "Редактирование помещения" : "Новое помещение"}</h1>
               <p className="text-sm text-muted-foreground mt-1">
@@ -185,7 +185,7 @@ export default function SpaceEditPage() {
                   <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
                 </div>
               ) : (
-                <div className="grid gap-6">
+                <div className="grid min-w-0 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="floor">Этаж</Label>
                     <Input
@@ -233,11 +233,13 @@ export default function SpaceEditPage() {
                       rows={4}
                     />
                   </div>
-                  <MediaUploader
+                  <StorageUploader
                     label="Фото и видео"
-                    description="Загрузите фотографии или короткие видео помещения."
+                    description="Загрузите фотографии или короткие видео помещения. Файлы хранятся в системе storage."
                     value={formData.photos ?? []}
                     onChange={handlePhotosChange}
+                    acceptedKinds={["image", "video"]}
+                    category="DEFAULT"
                   />
 
                   <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end pt-4">

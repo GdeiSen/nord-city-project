@@ -75,9 +75,12 @@ export function FilterValueEditor({
         <Input
           placeholder="Значение..."
           value={value}
-          onChange={(e) => onChange({ value: e.target.value })}
+          onChange={(e) =>
+            onChange({ value: e.target.value.replace(/[^\d-]/g, "") })
+          }
           className="h-8 w-full"
-          type="number"
+          type="text"
+          inputMode="numeric"
         />
       )
 

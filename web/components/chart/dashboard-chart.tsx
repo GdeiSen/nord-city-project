@@ -327,9 +327,14 @@ export function DashboardChart({
               />
               <Tooltip
                 contentStyle={{
+                  backgroundColor: "hsl(var(--popover))",
+                  color: "hsl(var(--popover-foreground))",
                   borderRadius: "var(--radius)",
                   border: "1px solid hsl(var(--border))",
+                  boxShadow: "0 10px 30px rgba(0, 0, 0, 0.12)",
                 }}
+                itemStyle={{ color: "hsl(var(--popover-foreground))" }}
+                labelStyle={{ color: "hsl(var(--popover-foreground))" }}
                 formatter={(value: number | undefined) => [value ?? 0, "Значение"]}
                 labelFormatter={(label) => `Период: ${label}`}
               />

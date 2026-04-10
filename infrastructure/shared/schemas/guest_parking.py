@@ -11,11 +11,11 @@ class GuestParkingSchema(BaseModel):
 
     id: Optional[int] = None
     user_id: int = 0
+    object_id: Optional[int] = None
     msid: Optional[int] = None
     arrival_date: Optional[datetime] = None
     license_plate: str = ""
     car_make_color: str = ""
-    driver_phone: str = ""
     tenant_phone: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

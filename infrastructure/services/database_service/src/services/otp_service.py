@@ -42,7 +42,7 @@ class OtpService(BaseService):
 
         if otp:
             otp.is_used = True
-            await session.commit()
+            await session.flush()
             await session.refresh(otp)
             logger.info(f"OTP code verified for user_id={user_id}")
 
@@ -72,7 +72,7 @@ class OtpService(BaseService):
             count += 1
 
         if count > 0:
-            await session.commit()
+            await session.flush()
             logger.info(f"Invalidated {count} OTP codes for user_id={user_id}")
 
         return count

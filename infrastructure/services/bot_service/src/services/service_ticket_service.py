@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, List, Optional, Dict, Any
 from .base_service import BaseService
 from shared.schemas import ServiceTicketSchema
+from shared.constants import AuditActorType
 if TYPE_CHECKING:
     from bot import Bot
 
@@ -13,11 +14,18 @@ class ServiceTicketService(BaseService):
     async def initialize(self) -> None:
         pass
 
-    async def create_service_ticket(self, service_ticket: ServiceTicketSchema) -> Optional[ServiceTicketSchema]:
+    async def create_service_ticket(
+        self,
+        service_ticket: ServiceTicketSchema,
+        *,
+        _audit_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[ServiceTicketSchema]:
+        ctx = dict(_audit_context or {})
+        ctx.setdefault("source", "bot_service")
         result = await self.bot.managers.database.service_ticket.create(
             model_instance=service_ticket,
             model_class=ServiceTicketSchema,
-            _audit_context={"source": "bot_service"},
+            _audit_context=ctx,
         )
         if result["success"]:
             created_ticket = result["data"]
@@ -27,12 +35,6 @@ class ServiceTicketService(BaseService):
 
     async def get_service_ticket_by_id(self, service_ticket_id: int) -> Optional[ServiceTicketSchema]:
         result = await self.bot.managers.database.service_ticket.get_by_id(entity_id=service_ticket_id, model_class=ServiceTicketSchema)
-        if result["success"]:
-            return result["data"]
-        return None
-
-    async def get_service_ticket_by_msid(self, msid: int) -> Optional[ServiceTicketSchema]:
-        result = await self.bot.managers.database.service_ticket.get_by_msid(msid=msid, model_class=ServiceTicketSchema)
         if result["success"]:
             return result["data"]
         return None
@@ -58,43 +60,59 @@ class ServiceTicketService(BaseService):
             _audit_context=ctx,
         )
         if result["success"]:
-            return result["data"]
+            updated_ticket = result["data"]
+            await self.bot.managers.event.emit("service_ticket_updated", updated_ticket)
+            return updated_ticket
         return None
 
     async def update_service_ticket_status(
         self,
         service_ticket_id: int,
         status: str,
-        msid: int,
+        reply_message_id: int,
         user_id: int,
         assignee: Optional[str] = None,
     ) -> Optional[ServiceTicketSchema]:
-        """Update ticket status with meta (msid, assignee). BaseService writes audit.
+        """Update ticket status with actor metadata. BaseService writes audit.
         ASSIGNED: status stays ASSIGNED, meta records who it was assigned to.
         IN_PROGRESS: set when 'принято'."""
         try:
-            meta: Dict[str, Any] = {"msid": msid, "user_id": user_id}
+            meta: Dict[str, Any] = {"reply_message_id": reply_message_id, "user_id": user_id}
             if assignee:
                 meta["assignee"] = assignee
+                meta["assignee_display"] = assignee
             result = await self.bot.managers.database.service_ticket.update(
                 entity_id=service_ticket_id,
                 update_data={"status": status},
                 model_class=ServiceTicketSchema,
                 _audit_context={
                     "source": "bot_service",
-                    "assignee_id": user_id,
+                    "actor_id": user_id,
+                    "actor_type": AuditActorType.TELEGRAM_USER,
                     "meta": meta,
                 },
             )
-            return result.get("data") if result.get("success") else None
+            if result.get("success") and result.get("data") is not None:
+                updated_ticket = result["data"]
+                await self.bot.managers.event.emit("service_ticket_updated", updated_ticket)
+                return updated_ticket
+            return None
         except Exception:
             return None
 
-    async def delete_service_ticket(self, service_ticket_id: int) -> bool:
+    async def delete_service_ticket(
+        self,
+        service_ticket_id: int,
+        *,
+        _audit_context: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        ctx = dict(_audit_context or {})
+        ctx.setdefault("source", "bot_service")
         result = await self.bot.managers.database.service_ticket.delete(
             entity_id=service_ticket_id,
-            _audit_context={"source": "bot_service"},
+            _audit_context=ctx,
         )
         if result["success"]:
+            await self.bot.managers.event.emit("service_ticket_deleted", {"id": service_ticket_id})
             return result["data"]
         return False

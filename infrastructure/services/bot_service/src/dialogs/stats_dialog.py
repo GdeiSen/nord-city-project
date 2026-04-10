@@ -1,3 +1,4 @@
+import logging
 from typing import TYPE_CHECKING
 from shared.constants import Dialogs, Actions
 
@@ -5,6 +6,9 @@ if TYPE_CHECKING:
     from telegram import Update
     from telegram.ext import ContextTypes
     from bot import Bot
+
+
+logger = logging.getLogger(__name__)
 
 
 async def start_stats_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYPE", bot: "Bot") -> int:
@@ -43,5 +47,5 @@ async def start_stats_dialog(update: "Update", context: "ContextTypes.DEFAULT_TY
         return Dialogs.MENU
         
     except Exception as e:
-        print(f"Error in start_stats_dialog: {e}")
+        logger.exception("Error in start_stats_dialog for user_id=%s: %s", bot.get_user_id(update), e)
         return Actions.END

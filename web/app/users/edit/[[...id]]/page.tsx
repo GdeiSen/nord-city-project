@@ -46,12 +46,7 @@ export default function UserEditPage() {
     Number(userId) === currentUser.id
 
   const roleOptions = Object.entries(USER_ROLES)
-    .filter(([_, roleValue]) => {
-      if (currentUser?.role === USER_ROLES.ADMIN && roleValue === USER_ROLES.SUPER_ADMIN) {
-        return false
-      }
-      return true
-    })
+    .filter(([_, roleValue]) => roleValue !== USER_ROLES.SUPER_ADMIN)
     .map(([_, roleValue]) => ({
       value: String(roleValue),
       label: ROLE_LABELS[roleValue as keyof typeof ROLE_LABELS],
@@ -93,6 +88,9 @@ export default function UserEditPage() {
       delete payload.created_at
       delete payload.updated_at
       delete payload.object
+      if (payload.role === USER_ROLES.SUPER_ADMIN) {
+        delete payload.role
+      }
 
       if (isEdit) {
         await userApi.update(Number(userId!), payload)
@@ -141,7 +139,7 @@ export default function UserEditPage() {
             </BreadcrumbList>
           </Breadcrumb>
 
-          <div className="max-w-2xl space-y-6">
+          <div className="w-full min-w-0 max-w-2xl space-y-6">
             <div>
               <h1 className="text-2xl font-semibold">{isEdit ? "Редактирование пользователя" : "Новый пользователь"}</h1>
               <p className="text-sm text-muted-foreground mt-1">

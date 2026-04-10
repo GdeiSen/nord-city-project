@@ -13,3 +13,9 @@ class ServiceTicketsStatsSchema(BaseModel):
     new_tickets: List[int] = []
     in_progress_tickets: List[int] = []
     completed_tickets: List[int] = []
+
+
+class ObjectServiceTicketsStatsSchema(ServiceTicketsStatsSchema):
+    """Per-object service ticket statistics."""
+
+    object_id: int

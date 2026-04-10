@@ -13,8 +13,9 @@ from fastapi.responses import HTMLResponse, JSONResponse
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../../'))
 
 from shared.clients.database_client import db_client
+from shared.clients.audit_client import audit_client
 from shared.clients.bot_client import bot_client
-from shared.clients.media_client import media_client
+from shared.clients.storage_client import storage_client
 from config import get_config
 from api.routers import (
     users_router,
@@ -24,10 +25,16 @@ from api.routers import (
     poll_router,
     service_tickets_router,
     guest_parking_router,
+    guest_parking_settings_router,
     audit_log_router,
     rental_spaces_router,
     space_views_router,
-    media_router,
+    storage_router,
+    notifications_router,
+    storage_files_router,
+    localization_router,
+    bot_settings_router,
+    telegram_chats_router,
 )
 
 # Configure logging
@@ -48,19 +55,25 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.critical(f"Failed to connect database client during startup: {e}", exc_info=True)
     try:
+        await audit_client.connect()
+        logger.info("Audit client connected via HTTP.")
+    except Exception as e:
+        logger.warning(f"Failed to connect audit client during startup: {e}", exc_info=True)
+    try:
         await bot_client.connect()
         logger.info("Bot client connected via HTTP.")
     except Exception as e:
         logger.warning(f"Failed to connect bot client during startup: {e}", exc_info=True)
     try:
-        await media_client.connect()
-        logger.info("Media client connected.")
+        await storage_client.connect()
+        logger.info("Storage client connected.")
     except Exception as e:
-        logger.warning(f"Failed to connect media client during startup: {e}", exc_info=True)
+        logger.warning(f"Failed to connect storage client during startup: {e}", exc_info=True)
     yield
     logger.info("WebService shutting down...")
-    await media_client.disconnect()
+    await storage_client.disconnect()
     await bot_client.disconnect()
+    await audit_client.disconnect()
     await db_client.disconnect()
     logger.info("Clients disconnected.")
 
@@ -112,10 +125,16 @@ app.include_router(rental_objects_router, prefix=API_PREFIX)
 app.include_router(poll_router, prefix=API_PREFIX)
 app.include_router(service_tickets_router, prefix=API_PREFIX)
 app.include_router(guest_parking_router, prefix=API_PREFIX)
+app.include_router(guest_parking_settings_router, prefix=API_PREFIX)
 app.include_router(audit_log_router, prefix=API_PREFIX)
 app.include_router(rental_spaces_router, prefix=API_PREFIX)
 app.include_router(space_views_router, prefix=API_PREFIX)
-app.include_router(media_router, prefix=API_PREFIX)
+app.include_router(storage_router, prefix=API_PREFIX)
+app.include_router(notifications_router, prefix=API_PREFIX)
+app.include_router(storage_files_router, prefix=API_PREFIX)
+app.include_router(localization_router, prefix=API_PREFIX)
+app.include_router(bot_settings_router, prefix=API_PREFIX)
+app.include_router(telegram_chats_router, prefix=API_PREFIX)
 
 
 # --- Service-level endpoints (outside /api/v1) ---
@@ -132,10 +151,12 @@ async def root():
 async def health_check():
     """Health check for the web service and its database client connection."""
     is_connected = db_client._connected
+    audit_connected = audit_client._connected
     return {
-        "status": "healthy" if is_connected else "degraded",
+        "status": "healthy" if (is_connected and audit_connected) else "degraded",
         "service": "web_service",
         "database_client_connected": is_connected,
+        "audit_client_connected": audit_connected,
     }
 
 

@@ -14,8 +14,17 @@ class PollService(BaseService):
     async def initialize(self) -> None:
         pass
 
-    async def create_poll(self, poll: PollAnswerSchema) -> Optional[PollAnswerSchema]:
-        result = await self.bot.managers.database.poll.create(model_instance=poll, model_class=PollAnswerSchema)
+    async def create_poll(
+        self,
+        poll: PollAnswerSchema,
+        *,
+        _audit_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[PollAnswerSchema]:
+        result = await self.bot.managers.database.poll.create(
+            model_instance=poll,
+            model_class=PollAnswerSchema,
+            _audit_context=_audit_context,
+        )
         if result["success"]:
             return result["data"]
         return None
@@ -32,14 +41,33 @@ class PollService(BaseService):
             return result["data"]
         return []
 
-    async def update_poll(self, poll_id: int, update_data: Dict[str, Any]) -> Optional[PollAnswerSchema]:
-        result = await self.bot.managers.database.poll.update(entity_id=poll_id, update_data=update_data, model_class=PollAnswerSchema)
+    async def update_poll(
+        self,
+        poll_id: int,
+        update_data: Dict[str, Any],
+        *,
+        _audit_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[PollAnswerSchema]:
+        result = await self.bot.managers.database.poll.update(
+            entity_id=poll_id,
+            update_data=update_data,
+            model_class=PollAnswerSchema,
+            _audit_context=_audit_context,
+        )
         if result["success"]:
             return result["data"]
         return None
 
-    async def delete_poll(self, poll_id: int) -> bool:
-        result = await self.bot.managers.database.poll.delete(entity_id=poll_id)
+    async def delete_poll(
+        self,
+        poll_id: int,
+        *,
+        _audit_context: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        result = await self.bot.managers.database.poll.delete(
+            entity_id=poll_id,
+            _audit_context=_audit_context,
+        )
         if result["success"]:
             return result["data"]
         return False

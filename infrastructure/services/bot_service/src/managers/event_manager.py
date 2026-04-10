@@ -1,8 +1,12 @@
+import logging
 from typing import Dict, List, Callable, Any, Coroutine, TYPE_CHECKING
 from .base_manager import BaseManager
 
 if TYPE_CHECKING:
     from bot import Bot
+
+
+logger = logging.getLogger(__name__)
 
 
 class EventManager(BaseManager):
@@ -16,7 +20,7 @@ class EventManager(BaseManager):
     
     async def initialize(self) -> None:
         """Инициализация менеджера событий"""
-        print("EventManager initialized")
+        logger.info("EventManager initialized")
     
     def on(self, event_name: str, handler: Callable[..., Coroutine[Any, Any, Any]]) -> None:
         """
@@ -74,7 +78,7 @@ class EventManager(BaseManager):
                     result = await handler(*args, **kwargs)
                     results.append(result)
                 except Exception as e:
-                    print(f"Error in event handler for '{event_name}': {e}")
+                    logger.exception("Error in event handler for '%s': %s", event_name, e)
         return results
     
     def register_input_handler(self, user_id: int, dialog_type: int, handler: Callable[..., Coroutine[Any, Any, Any]]) -> None:

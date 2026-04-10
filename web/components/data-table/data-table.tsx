@@ -45,6 +45,7 @@ import { useServerParamsSync } from "@/hooks/data-table/use-server-params-sync"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { MarqueeText } from "@/components/marquee-text"
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -86,6 +87,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import {
@@ -126,6 +128,14 @@ function getColumnLabel(column: Column<unknown, unknown>): string {
   const meta = (column.columnDef as { meta?: DataTableColumnMeta })?.meta
   if (meta?.headerLabel) return meta.headerLabel
   return column.id
+}
+
+function renderDataTableCellValue(content: React.ReactNode) {
+  if (typeof content === "string" || typeof content === "number") {
+    return <MarqueeText text={String(content)} maxWidthPx={340} />
+  }
+
+  return content
 }
 
 /**
@@ -194,6 +204,7 @@ export function DataTable<TData>({
   filterPickerData,
   exportConfig,
   getRowClassName,
+  emptyState,
 }: {
   data: TData[]
   columns: ColumnDef<TData>[]
@@ -215,6 +226,7 @@ export function DataTable<TData>({
     filename?: string
   }
   getRowClassName?: (row: Row<TData>) => string | undefined
+  emptyState?: React.ReactNode
 }) {
   const pageSizeFromParams = serverParams?.pageSize ?? 10
   const isCardsView = view === "cards"
@@ -240,6 +252,9 @@ export function DataTable<TData>({
   const isMobile = useIsMobile()
 
   const deleteDialog = useDeleteDialog<Row<TData>>()
+  const [bulkDeleteOpen, setBulkDeleteOpen] = React.useState(false)
+  const [bulkDeleteRows, setBulkDeleteRows] = React.useState<Row<TData>[]>([])
+  const [bulkDeleteInProgress, setBulkDeleteInProgress] = React.useState(false)
 
   const onClearAllFilters = React.useCallback(() => {
     setColumnFilters([])
@@ -431,6 +446,82 @@ export function DataTable<TData>({
     },
   })
 
+  const selectedRows = table.getFilteredSelectedRowModel().rows as Row<TData>[]
+  const selectedRowsCount = selectedRows.length
+
+  const handleCopyRows = React.useCallback(
+    async (rowsToCopy: Row<TData>[]) => {
+      const payload = rowsToCopy
+        .map((row) => {
+          const customText = contextMenuActions?.getCopyText?.(row)
+          if (customText) return String(customText).trim()
+          try {
+            return JSON.stringify(row.original, null, 2).trim()
+          } catch {
+            return String(row.id ?? "").trim()
+          }
+        })
+        .filter(Boolean)
+        .join("\n\n")
+        .trim()
+
+      if (!payload) {
+        toast.error("Нет данных для копирования")
+        return
+      }
+
+      try {
+        await navigator.clipboard.writeText(payload)
+        if (rowsToCopy.length > 1) {
+          toast.success(`Скопировано строк: ${rowsToCopy.length}`)
+        } else {
+          toast.success("Скопировано в буфер обмена")
+        }
+      } catch {
+        toast.error("Не удалось скопировать в буфер обмена")
+      }
+    },
+    [contextMenuActions?.getCopyText]
+  )
+
+  const requestBulkDelete = React.useCallback(
+    (rowsToDelete: Row<TData>[]) => {
+      if (!contextMenuActions?.onDelete || rowsToDelete.length === 0) return
+      setBulkDeleteRows(rowsToDelete)
+      setBulkDeleteOpen(true)
+    },
+    [contextMenuActions?.onDelete]
+  )
+
+  const confirmBulkDelete = React.useCallback(async () => {
+    const onDelete = contextMenuActions?.onDelete
+    if (!onDelete || bulkDeleteRows.length === 0 || bulkDeleteInProgress) return
+
+    setBulkDeleteInProgress(true)
+    let failedCount = 0
+
+    for (const row of bulkDeleteRows) {
+      try {
+        await Promise.resolve(onDelete(row))
+      } catch {
+        failedCount += 1
+      }
+    }
+
+    setBulkDeleteInProgress(false)
+    setBulkDeleteOpen(false)
+    setBulkDeleteRows([])
+    setRowSelection({})
+
+    const successCount = Math.max(0, bulkDeleteRows.length - failedCount)
+    if (successCount > 0) {
+      toast.success(`Удалено записей: ${successCount}`)
+    }
+    if (failedCount > 0) {
+      toast.error(`Не удалось удалить записей: ${failedCount}`)
+    }
+  }, [bulkDeleteRows, bulkDeleteInProgress, contextMenuActions?.onDelete])
+
   const availableColumns = React.useMemo(() => {
     return table.getAllColumns()
       .filter(col => col.id !== 'select' && col.id !== 'actions')
@@ -571,6 +662,24 @@ export function DataTable<TData>({
     serverFilters,
   ])
 
+  const defaultEmptyState = (
+    <Empty className="w-full">
+      <EmptyHeader>
+        <EmptyTitle>Нет данных</EmptyTitle>
+        <EmptyDescription>
+          Данные отсутствуют или не соответствуют текущим фильтрам.
+        </EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <Button variant="outline" size="sm" onClick={clearAllFilters}>
+          Сбросить фильтры
+        </Button>
+      </EmptyContent>
+    </Empty>
+  )
+
+  const emptyStateContent = emptyState ?? defaultEmptyState
+
   useServerParamsSync({
     serverPagination,
     onServerParamsChange,
@@ -621,19 +730,7 @@ export function DataTable<TData>({
             ))
           ) : (
             <div className="col-span-full">
-              <Empty className="w-full">
-                <EmptyHeader>
-                  <EmptyTitle>Нет данных</EmptyTitle>
-                  <EmptyDescription>
-                    Данные отсутствуют или не соответствуют текущим фильтрам.
-                  </EmptyDescription>
-                </EmptyHeader>
-                <EmptyContent>
-                  <Button variant="outline" size="sm" onClick={clearAllFilters}>
-                    Сбросить фильтры
-                  </Button>
-                </EmptyContent>
-              </Empty>
+              {emptyStateContent}
             </div>
           )}
         </div>
@@ -806,11 +903,17 @@ export function DataTable<TData>({
                         onRowClick(row as Row<TData>)
                       } : undefined}
                     >
-                      {row.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id}>
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </TableCell>
-                      ))}
+                      {row.getVisibleCells().map((cell) => {
+                        const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())
+
+                        return (
+                          <TableCell key={cell.id}>
+                            <div className="min-w-0 overflow-hidden">
+                              {renderDataTableCellValue(rendered)}
+                            </div>
+                          </TableCell>
+                        )
+                      })}
                     </TableRow>
                   )
                   if (hasContextMenu) {
@@ -824,14 +927,10 @@ export function DataTable<TData>({
                               Изменить
                             </ContextMenuItem>
                           )}
-                          {contextMenuActions?.getCopyText && (
+                          {hasContextMenu && (
                             <ContextMenuItem
                               onClick={() => {
-                                const text = contextMenuActions.getCopyText?.(row as Row<TData>)
-                                if (text) {
-                                  navigator.clipboard.writeText(text)
-                                  toast.success("Скопировано в буфер обмена")
-                                }
+                                void handleCopyRows([row as Row<TData>])
                               }}
                             >
                               <IconCopy className="h-4 w-4" />
@@ -847,6 +946,28 @@ export function DataTable<TData>({
                               Удалить
                             </ContextMenuItem>
                           )}
+                          {selectedRowsCount > 1 && (
+                            <ContextMenuSeparator />
+                          )}
+                          {selectedRowsCount > 1 && (
+                            <ContextMenuItem
+                              onClick={() => {
+                                void handleCopyRows(selectedRows)
+                              }}
+                            >
+                              <IconCopy className="h-4 w-4" />
+                              Скопировать выбранные ({selectedRowsCount})
+                            </ContextMenuItem>
+                          )}
+                          {contextMenuActions?.onDelete && selectedRowsCount > 1 && (
+                            <ContextMenuItem
+                              variant="destructive"
+                              onClick={() => requestBulkDelete(selectedRows)}
+                            >
+                              <IconTrash className="h-4 w-4" />
+                              Удалить выбранные ({selectedRowsCount})
+                            </ContextMenuItem>
+                          )}
                         </ContextMenuContent>
                       </ContextMenu>
                     )
@@ -859,19 +980,7 @@ export function DataTable<TData>({
                     colSpan={columns.length}
                     className="h-24 text-center"
                   >
-                    <Empty className="w-full">
-                      <EmptyHeader>
-                        <EmptyTitle>Нет данных</EmptyTitle>
-                        <EmptyDescription>
-                          Данные отсутствуют или не соответствуют текущим фильтрам.
-                        </EmptyDescription>
-                      </EmptyHeader>
-                      <EmptyContent>
-                        <Button variant="outline" size="sm" onClick={clearAllFilters}>
-                          Сбросить фильтры
-                        </Button>
-                      </EmptyContent>
-                    </Empty>
+                    {emptyStateContent}
                   </TableCell>
                 </TableRow>
               )}
@@ -905,22 +1014,60 @@ export function DataTable<TData>({
               </AlertDialogContent>
             </AlertDialog>
           )}
+          {hasContextMenu && contextMenuActions?.onDelete && (
+            <AlertDialog
+              open={bulkDeleteOpen}
+              onOpenChange={(open) => {
+                if (bulkDeleteInProgress) return
+                setBulkDeleteOpen(open)
+                if (!open) {
+                  setBulkDeleteRows([])
+                }
+              }}
+            >
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Удалить выбранные записи?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Будет удалено записей: {bulkDeleteRows.length}. Это действие нельзя отменить.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={bulkDeleteInProgress}>Отмена</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    disabled={bulkDeleteInProgress}
+                    onClick={() => {
+                      void confirmBulkDelete()
+                    }}
+                  >
+                    {bulkDeleteInProgress ? "Удаление..." : "Удалить"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
         </div>
       )}
       {!isCardsView && (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex-1 text-sm text-muted-foreground">
             {serverPagination
-              ? `${table.getFilteredSelectedRowModel().rows.length} of ${totalRowCount} row(s) selected.`
-              : `${table.getFilteredSelectedRowModel().rows.length} of ${table.getFilteredRowModel().rows.length} row(s) selected.`}
+              ? `Выбрано: ${selectedRowsCount} из ${totalRowCount}`
+              : `Выбрано: ${selectedRowsCount} из ${table.getFilteredRowModel().rows.length}`}
           </div>
-          <div className="flex items-center justify-end space-x-4 h-9">
+          <div className="flex h-9 items-center justify-end gap-2">
             {exportConfig && serverPagination && (
               <Dialog open={exportModalOpen} onOpenChange={setExportModalOpen}>
                 <DialogTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-9">
-                    <IconDownload className="h-4 w-4 mr-2" />
-                    Export
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="size-9"
+                    aria-label="Экспорт"
+                    title="Экспорт"
+                  >
+                    <IconDownload className="h-4 w-4" />
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-md">

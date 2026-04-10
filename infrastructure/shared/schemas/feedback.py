@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
+from shared.constants import FeedbackTypes
 
 
 class FeedbackSchema(BaseModel):
@@ -12,6 +13,8 @@ class FeedbackSchema(BaseModel):
     id: Optional[int] = None
     user_id: int = 0
     ddid: str = ""
+    feedback_type: str = FeedbackTypes.GENERAL
     answer: str = ""
+    text: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

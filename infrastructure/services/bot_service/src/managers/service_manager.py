@@ -1,10 +1,14 @@
 # ./managers/service_manager.py
+import logging
 from typing import Dict, List, TYPE_CHECKING
 import re
 
 if TYPE_CHECKING:
     from bot import Bot
     from services.base_service import BaseService
+
+
+logger = logging.getLogger(__name__)
 
 
 class ServiceManager:
@@ -36,7 +40,7 @@ class ServiceManager:
             class_name = class_name[:-7]
         name = camel_to_snake(class_name)
         if name in self._services:
-            print(f"Warning: Service '{name}' is already registered. Overwriting.")
+            logger.warning("Service '%s' is already registered. Overwriting.", name)
         self._services[name] = service
         setattr(self, name, service)
 
@@ -64,14 +68,14 @@ class ServiceManager:
 
     async def initialize_all(self) -> None:
         """Initializes all registered services by calling their 'initialize' method."""
-        print("Initializing services...")
+        logger.info("Initializing services...")
         for name, service in self._services.items():
             try:
                 await service.initialize()
-                print(f"Service '{name}' initialized successfully.")
+                logger.info("Service '%s' initialized successfully.", name)
             except Exception as e:
-                print(f"Error initializing service '{name}': {e}")
-        print("All services initialized.")
+                logger.exception("Error initializing service '%s': %s", name, e)
+        logger.info("All services initialized.")
 
     def __getattr__(self, name: str) -> "BaseService":
         """

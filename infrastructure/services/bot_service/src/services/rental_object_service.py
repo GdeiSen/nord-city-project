@@ -14,8 +14,17 @@ class RentalObjectService(BaseService):
     async def initialize(self) -> None:
         pass
 
-    async def create_object(self, object: ObjectSchema) -> Optional[ObjectSchema]:
-        result = await self.bot.managers.database.object.create(model_instance=object, model_class=ObjectSchema)
+    async def create_object(
+        self,
+        object: ObjectSchema,
+        *,
+        _audit_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[ObjectSchema]:
+        result = await self.bot.managers.database.object.create(
+            model_instance=object,
+            model_class=ObjectSchema,
+            _audit_context=_audit_context,
+        )
         if result["success"]:
             return result["data"]
         return None
@@ -41,14 +50,33 @@ class RentalObjectService(BaseService):
                 result.append(obj)
         return result
 
-    async def update_object(self, object_id: int, update_data: Dict[str, Any]) -> Optional[ObjectSchema]:
-        result = await self.bot.managers.database.object.update(entity_id=object_id, update_data=update_data, model_class=ObjectSchema)
+    async def update_object(
+        self,
+        object_id: int,
+        update_data: Dict[str, Any],
+        *,
+        _audit_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[ObjectSchema]:
+        result = await self.bot.managers.database.object.update(
+            entity_id=object_id,
+            update_data=update_data,
+            model_class=ObjectSchema,
+            _audit_context=_audit_context,
+        )
         if result["success"]:
             return result["data"]
         return None
 
-    async def delete_object(self, object_id: int) -> bool:
-        result = await self.bot.managers.database.object.delete(entity_id=object_id)
+    async def delete_object(
+        self,
+        object_id: int,
+        *,
+        _audit_context: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        result = await self.bot.managers.database.object.delete(
+            entity_id=object_id,
+            _audit_context=_audit_context,
+        )
         if result["success"]:
             return result["data"]
         return False

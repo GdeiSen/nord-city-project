@@ -1,12 +1,15 @@
 import json
 import logging
+import re
 from functools import wraps
 from typing import Type, TypeVar, Any, Optional, List, Dict
 
 from sqlalchemy.orm import DeclarativeBase
 from database.database_manager import DatabaseManager
+from shared.clients.audit_client import audit_client
 from shared.utils.converter import Converter
 from shared.utils.audit_diff import compute_smart_diff
+from shared.utils.ddid_utils import normalize_ddid
 
 from shared.constants import (
     AUDITED_ENTITY_TYPES,
@@ -16,11 +19,21 @@ from shared.constants import (
     AUDIT_MODE_HEAVY,
     AUDIT_SKIP_UPDATE_FIELDS,
     AUDIT_HEAVY_MAX_JSON_BYTES,
+    AUDIT_ENTITY_RETENTION_CLASS,
+    AuditActorType,
+    AuditEventCategory,
+    AuditRetentionClass,
 )
+from shared.utils.audit_context import normalize_audit_context
 
 ModelType = TypeVar('ModelType', bound=DeclarativeBase)
 
 logger = logging.getLogger(__name__)
+
+DDID_REGISTRY_MODEL_NAME = "DynamicDialogBinding"
+DDID_PLACEHOLDER = "0000-0000-0000"
+_FIRST_CAP_RE = re.compile(r"(.)([A-Z][a-z]+)")
+_ALL_CAP_RE = re.compile(r"([a-z0-9])([A-Z])")
 
 def db_session_manager(func):
     """
@@ -32,12 +45,26 @@ def db_session_manager(func):
         if not hasattr(self, 'db_manager') or not isinstance(self.db_manager, DatabaseManager):
             raise TypeError(f"Object {self.__class__.__name__} needs a 'db_manager' to use @db_session_manager.")
 
-        # Ensure session is not passed manually
-        kwargs.pop('session', None)
+        existing_session = kwargs.get("session")
+        if existing_session is not None:
+            try:
+                return await func(self, *args, **kwargs)
+            except Exception as e:
+                logger.error(
+                    f"Exception in service method '{self.__class__.__name__}.{func.__name__}': {e}",
+                    exc_info=True,
+                )
+                raise
 
         try:
             async with self.db_manager.get_session() as session:
-                return await func(self, *args, session=session, **kwargs)
+                try:
+                    result = await func(self, *args, session=session, **kwargs)
+                    await session.commit()
+                    return result
+                except Exception:
+                    await session.rollback()
+                    raise
         except Exception as e:
             logger.error(
                 f"Exception in service method '{self.__class__.__name__}.{func.__name__}': {e}",
@@ -67,8 +94,80 @@ class BaseService:
         self.repository = self.db_manager.repositories.get(self.model_class)
 
     def _get_audit_context(self, kwargs: dict) -> Optional[dict]:
-        """Extract and remove _audit_context from kwargs (assignee_id, source, meta, ...)."""
+        """Extract and remove _audit_context from kwargs (actor_id/source/meta/request ids)."""
         return kwargs.pop("_audit_context", None)
+
+    async def _ensure_ddid_binding_for_instance(self, *, session, model_instance: ModelType) -> None:
+        if self.model_class.__name__ == DDID_REGISTRY_MODEL_NAME:
+            return
+        if not hasattr(model_instance, "ddid"):
+            return
+        ddid_value = getattr(model_instance, "ddid", None)
+        if ddid_value is None:
+            return
+        ddid_text = str(ddid_value).strip() or DDID_PLACEHOLDER
+        try:
+            ddid_service = self.db_manager.services.get("dynamic_dialog_binding")
+        except KeyError as exc:
+            raise RuntimeError("dynamic_dialog_binding service is not registered") from exc
+        normalized = normalize_ddid(ddid_text)
+        setattr(model_instance, "ddid", normalized)
+        await ddid_service.ensure_binding(session=session, ddid=normalized)
+
+    async def _ensure_ddid_binding_for_update_data(self, *, session, update_data: Dict[str, Any]) -> Dict[str, Any]:
+        if self.model_class.__name__ == DDID_REGISTRY_MODEL_NAME:
+            return update_data
+        if "ddid" not in update_data:
+            return update_data
+        ddid_value = update_data.get("ddid")
+        if ddid_value is None:
+            return update_data
+        ddid_text = str(ddid_value).strip() or DDID_PLACEHOLDER
+        try:
+            ddid_service = self.db_manager.services.get("dynamic_dialog_binding")
+        except KeyError as exc:
+            raise RuntimeError("dynamic_dialog_binding service is not registered") from exc
+        normalized = normalize_ddid(ddid_text)
+        update_data = dict(update_data)
+        update_data["ddid"] = normalized
+        await ddid_service.ensure_binding(session=session, ddid=normalized)
+        return update_data
+
+    def _normalize_audit_context(self, audit_context: Optional[dict]) -> dict:
+        ctx = dict(audit_context or {})
+        actor_id = ctx.get("actor_id", ctx.get("assignee_id", ctx.get("user_id")))
+        actor_external_id = ctx.get("actor_external_id")
+        meta = ctx.get("meta") if isinstance(ctx.get("meta"), dict) else {}
+        return normalize_audit_context(
+            ctx,
+            source_service=str(ctx.get("source") or ctx.get("source_service") or "database_service"),
+            actor_id=actor_id,
+            actor_external_id=actor_external_id,
+            actor_type=str(ctx.get("actor_type") or "").upper() or None,
+            actor_origin=ctx.get("actor_origin"),
+            request_id=ctx.get("request_id"),
+            correlation_id=ctx.get("correlation_id"),
+            operation_id=ctx.get("operation_id"),
+            causation_id=ctx.get("causation_id"),
+            reason=ctx.get("reason"),
+            meta=meta,
+        )
+
+    def _to_snake_case(self, value: str) -> str:
+        step1 = _FIRST_CAP_RE.sub(r"\1_\2", value or "")
+        return _ALL_CAP_RE.sub(r"\1_\2", step1).lower()
+
+    def _build_entity_event_name(
+        self,
+        *,
+        action: str,
+        event_type: str,
+        stored_new: Optional[dict],
+    ) -> str:
+        entity_name = self._to_snake_case(self.model_class.__name__)
+        if event_type == "STATE_CHANGE" and isinstance(stored_new, dict) and "status" in stored_new:
+            return f"{entity_name}.status_changed"
+        return f"{entity_name}.{action}"
 
     def _limit_audit_json_size(self, data: Optional[dict]) -> Optional[dict]:
         """Limit JSON size for heavy audit; replace with placeholder if exceeded."""
@@ -117,32 +216,52 @@ class BaseService:
         """Write audit log entry if entity is audited."""
         if self.model_class.__name__ not in AUDITED_ENTITY_TYPES:
             return
-        audit_svc = self.db_manager.services.get("audit_log")
-        if audit_svc is None or not hasattr(audit_svc, "append"):
-            return
         mode = AUDIT_ENTITY_MODES.get(self.model_class.__name__, AUDIT_MODE_FAST)
         stored_old, stored_new = self._resolve_audit_data(action, mode, old_data, new_data)
-        assignee_id = (audit_context.get("assignee_id") or audit_context.get("user_id")) if audit_context else None
-        meta = audit_context.get("meta") if audit_context else {}
-        if not isinstance(meta, dict):
-            meta = {}
-        meta = dict(meta)
-        if "source" not in meta and audit_context and audit_context.get("source"):
-            meta["source"] = audit_context["source"]
+        if action == "update" and mode == AUDIT_MODE_SMART and stored_old is None and stored_new is None:
+            return
+        normalized_ctx = self._normalize_audit_context(audit_context)
+        meta = normalized_ctx["meta"]
+        if "source" not in meta and normalized_ctx["source_service"]:
+            meta["source"] = normalized_ctx["source_service"]
         try:
-            await audit_svc.append(
+            event_type = "ENTITY_CHANGE"
+            if action == "update" and isinstance(stored_new, dict) and "status" in stored_new:
+                event_type = "STATE_CHANGE"
+            await audit_client.append_event(
                 session=session,
                 entity_type=self.model_class.__name__,
                 entity_id=entity_id,
+                event_type=event_type,
+                event_category=AuditEventCategory.DATA_CHANGE,
+                event_name=self._build_entity_event_name(
+                    action=action,
+                    event_type=event_type,
+                    stored_new=stored_new,
+                ),
                 action=action,
+                actor_id=normalized_ctx["actor_id"],
+                actor_external_id=normalized_ctx.get("actor_external_id"),
+                actor_type=normalized_ctx["actor_type"],
+                actor_origin=normalized_ctx.get("actor_origin"),
+                source_service=normalized_ctx["source_service"],
+                retention_class=AUDIT_ENTITY_RETENTION_CLASS.get(
+                    self.model_class.__name__,
+                    AuditRetentionClass.OPERATIONAL,
+                ),
+                request_id=normalized_ctx["request_id"],
+                correlation_id=normalized_ctx["correlation_id"],
+                operation_id=normalized_ctx.get("operation_id"),
+                causation_id=normalized_ctx.get("causation_id"),
+                reason=normalized_ctx["reason"],
                 old_data=stored_old,
                 new_data=stored_new,
                 meta=meta if meta else {},
-                assignee_id=assignee_id,
                 audit_type=mode,
             )
         except Exception as e:
-            logger.warning("Failed to write audit log: %s", e)
+            logger.error("Failed to write audit log: %s", e)
+            raise
 
     @db_session_manager
     async def create(self, *, session, model_instance: ModelType, **kwargs) -> Optional[ModelType]:
@@ -154,6 +273,8 @@ class BaseService:
         # Если model_instance — dict, преобразуем в модель
         if isinstance(model_instance, dict):
             model_instance = Converter.from_dict(self.model_class, model_instance)
+
+        await self._ensure_ddid_binding_for_instance(session=session, model_instance=model_instance)
 
         created_instance = await self.repository.create(session=session, obj_in=model_instance)
         if created_instance is None:
@@ -178,6 +299,11 @@ class BaseService:
     async def get_all(self, *, session) -> List[ModelType]:
         """Retrieves all entities of this type."""
         return await self.repository.get_all(session=session)
+
+    @db_session_manager
+    async def get_by_ids(self, *, session, ids: List[Any]) -> List[ModelType]:
+        """Batch-fetch entities by primary key."""
+        return await self.repository.get_by_ids(session=session, ids=ids or [])
 
     @db_session_manager
     async def get_paginated(
@@ -213,6 +339,7 @@ class BaseService:
             return None
 
         update_data = Converter.normalize_for_model(self.model_class, update_data)
+        update_data = await self._ensure_ddid_binding_for_update_data(session=session, update_data=update_data)
         old_data = Converter.to_dict(existing_model)
 
         # Apply updates from the dictionary to the model instance

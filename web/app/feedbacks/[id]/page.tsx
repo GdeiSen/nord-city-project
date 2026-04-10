@@ -7,9 +7,10 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { IconEdit } from "@tabler/icons-react"
-import { Feedback } from "@/types"
-import { feedbackApi, userApi } from "@/lib/api"
+import { Feedback, FEEDBACK_TYPES, FEEDBACK_TYPE_LABELS_RU } from "@/types"
+import { feedbackApi } from "@/lib/api"
 import { formatDate } from "@/lib/date-utils"
 import { useLoading, useRouteId } from "@/hooks"
 import { useCanEdit } from "@/hooks"
@@ -34,20 +35,13 @@ export default function FeedbackDetailPage() {
   useEffect(() => {
     if (!feedbackId || Number.isNaN(feedbackId)) return
     withLoading(async () => {
-      const [feedbackData, users] = await Promise.all([
-        feedbackApi.getById(Number(feedbackId)),
-        userApi.getAll(),
-      ])
-      const user = users.find((u) => u.id === feedbackData.user_id)
-      setFeedback({
-        ...feedbackData,
-        user: user || ({ first_name: "", last_name: "", username: "" } as any),
-      })
+      const feedbackData = await feedbackApi.getById(Number(feedbackId))
+      setFeedback(feedbackData)
     }).catch((err: any) => {
       toast.error("Не удалось загрузить отзыв", { description: err?.message })
       router.push("/feedbacks")
     })
-  }, [feedbackId])
+  }, [feedbackId, router, withLoading])
 
   if (feedbackId == null || (typeof feedbackId === "number" && Number.isNaN(feedbackId))) {
     return (
@@ -88,7 +82,7 @@ export default function FeedbackDetailPage() {
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
-            {canEdit && (
+            {canEdit && feedback?.feedback_type !== FEEDBACK_TYPES.SERVICE_TICKET && (
               <Button asChild size="default" className="shrink-0">
                 <Link href={`/feedbacks/edit/${feedbackId}`} className="gap-2">
                   <IconEdit className="h-4 w-4" />
@@ -115,12 +109,39 @@ export default function FeedbackDetailPage() {
               </div>
               <div className="space-y-6">
                 <div className="space-y-2">
-                  <div className="text-sm font-medium text-muted-foreground">Пользователь</div>
-                  <p className="text-sm font-medium">
-                    {feedback.user?.last_name} {feedback.user?.first_name}{" "}
-                    {feedback.user?.username ? `(@${feedback.user.username})` : ""}
-                  </p>
+                  <div className="text-sm font-medium text-muted-foreground">Тип</div>
+                  <Badge variant={feedback.feedback_type === FEEDBACK_TYPES.SERVICE_TICKET ? "default" : "secondary"}>
+                    {FEEDBACK_TYPE_LABELS_RU[feedback.feedback_type ?? FEEDBACK_TYPES.GENERAL] ?? feedback.feedback_type}
+                  </Badge>
                 </div>
+                <div className="space-y-2">
+                  <div className="text-sm font-medium text-muted-foreground">Пользователь</div>
+                  {feedback.user_id ? (
+                    <Link
+                      href={`/users/${feedback.user_id}`}
+                      className="text-sm font-medium text-primary hover:underline"
+                    >
+                      {[feedback.user?.last_name, feedback.user?.first_name].filter(Boolean).join(" ").trim()
+                        || (feedback.user?.username ? `@${feedback.user.username}` : `#${feedback.user_id}`)}
+                    </Link>
+                  ) : (
+                    <p className="text-sm font-medium">—</p>
+                  )}
+                </div>
+                {feedback.service_ticket_id && (
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium text-muted-foreground">Заявка</div>
+                    <Link
+                      href={`/service-tickets/${feedback.service_ticket_id}`}
+                      className="text-sm font-medium text-primary hover:underline"
+                    >
+                      #{feedback.service_ticket_id}
+                    </Link>
+                    {feedback.service_ticket?.description && (
+                      <p className="text-sm text-muted-foreground">{feedback.service_ticket.description}</p>
+                    )}
+                  </div>
+                )}
                 <div className="space-y-2">
                   <div className="text-sm font-medium text-muted-foreground">Ответ</div>
                   <p className="text-sm">{feedback.answer || "—"}</p>

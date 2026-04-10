@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Optional, Dict, Any
 
 from telegram.constants import ParseMode
 
-from shared.constants import Roles
+from shared.constants import AuditRetentionClass, Roles
 from .base_service import BaseService
 
 if TYPE_CHECKING:
@@ -48,7 +48,11 @@ class TelegramAuthService(BaseService):
         """Initialize the authentication service."""
         logger.info("TelegramAuthService initialized")
 
-    async def send_otp_code(self, user_id: int) -> Dict[str, Any]:
+    async def send_otp_code(
+        self,
+        user_id: int,
+        _audit_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """
         Generate and send an OTP code to the specified user via Telegram.
 
@@ -96,6 +100,31 @@ class TelegramAuthService(BaseService):
                 chat_id=user_id,
                 text=message_text,
                 parse_mode=ParseMode.HTML
+            )
+
+            await self.append_business_audit_event(
+                entity_type="User",
+                entity_id=int(user_id),
+                event_type="OTP_ISSUED",
+                event_name="user.otp_issued",
+                action="send",
+                audit_context=self.derive_audit_context(
+                    _audit_context,
+                    source_service="bot_service",
+                    reason="otp_issued",
+                    meta_updates={
+                        "auth_flow": "otp",
+                        "otp_delivery_channel": "telegram",
+                        "otp_ttl_minutes": OTP_CODE_TTL_MINUTES,
+                    },
+                ),
+                reason="otp_issued",
+                retention_class=AuditRetentionClass.CRITICAL,
+                meta={
+                    "auth_flow": "otp",
+                    "otp_delivery_channel": "telegram",
+                    "otp_ttl_minutes": OTP_CODE_TTL_MINUTES,
+                },
             )
 
             logger.info(f"OTP code sent to user {user_id}")

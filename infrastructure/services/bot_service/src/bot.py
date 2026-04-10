@@ -35,6 +35,7 @@ from dyn_dialogs_callbacks.service_feedback_callback import service_feedback_cal
 from dyn_dialogs_callbacks.spaces_callback import spaces_callback
 from dyn_dialogs_callbacks.guest_parking_callback import guest_parking_callback
 from dialogs import (
+    show_main_menu,
     start_app_dialog,
     start_dyn_dialog,
     start_feedback_dialog,
@@ -59,6 +60,7 @@ from managers.service_manager import ServiceManager
 
 # Import new services
 from services.notification_service import NotificationService
+from services.chat_routing_service import ChatRoutingService
 from services.service_tickets_stats_service import StatsService
 from services.user_service import UserService
 from services.feedback_service import FeedbackService
@@ -67,10 +69,14 @@ from services.rental_object_service import RentalObjectService
 from services.rental_space_service import RentalSpaceService
 from services.service_ticket_service import ServiceTicketService
 from services.telegram_auth_service import TelegramAuthService
+from services.bot_settings_service import BotSettingsService
+from services.localization_service import LocalizationService
+from services.media_service import MediaService
 
 # Telegram-related imports
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, Message
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -79,17 +85,27 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+try:
+    from telegram.ext import ChatMemberHandler
+except ImportError:  # pragma: no cover - fallback for older PTB versions
+    ChatMemberHandler = None
+try:
+    from telegram.request import HTTPXRequest
+except ImportError:  # pragma: no cover - fallback for older PTB versions
+    HTTPXRequest = None
 from shared.entities.dialog import Dialog
 
 # Logging setup (remains the same)
 logging.basicConfig(
-    level=logging.WARNING,
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
         logging.FileHandler('bot.log')
     ]
 )
+
+logger = logging.getLogger(__name__)
 
 # Utils and DynDialogHandlersManager classes (remain the same)
 class Utils:
@@ -159,6 +175,7 @@ class Bot:
         Services represent a higher level of abstraction and contain business logic.
         """
         # Register services that were converted from managers
+        self.services.register_service(ChatRoutingService(self))
         self.services.register_service(NotificationService(self))
         self.services.register_service(StatsService(self))
         
@@ -170,10 +187,20 @@ class Bot:
         self.services.register_service(RentalSpaceService(self))
         self.services.register_service(ServiceTicketService(self))
         self.services.register_service(TelegramAuthService(self))
+        self.services.register_service(BotSettingsService(self))
+        self.services.register_service(LocalizationService(self))
+        self.services.register_service(MediaService(self))
 
     async def handle_error(self, code: int, message: str):
         """Simple error handler"""
-        print(f"Error {code}: {message}")
+        logger.error("Bot operation error code=%s: %s", code, message)
+
+    async def handle_application_error(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        logger.exception(
+            "Application error update=%s exception=%s",
+            update,
+            context.error,
+        )
 
     def get_user_id(self, update: Update) -> int | None:
         if update.message and update.message.from_user:
@@ -213,6 +240,27 @@ class Bot:
                 keyboard_row.append(InlineKeyboardButton(text, callback_data=callback_data))
             keyboard.append(keyboard_row)
         return InlineKeyboardMarkup(keyboard)
+
+    def clear_active_dialog_state(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        self.managers.storage.set(context, Variables.ACTIVE_DYN_DIALOG, None)
+        self.managers.storage.set(context, Variables.ACTIVE_DIALOG_SEQUENCE_ID, None)
+        self.managers.storage.set(context, Variables.ACTIVE_DIALOG_SEQUENCE_ITEM_INDEX, None)
+        self.managers.storage.set(context, Variables.HANDLED_DATA, None)
+        self.managers.storage.set(context, Variables.GUEST_PARKING_DATA, None)
+        self.managers.storage.set(context, Variables.USER_SERVICE_TICKET, None)
+
+    async def handle_disabled_feature(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        feature_key: str,
+    ) -> int:
+        user_id = self.get_user_id(update)
+        if user_id is not None:
+            self.managers.event.remove_input_handler(user_id)
+        self.clear_active_dialog_state(context)
+        self.managers.navigator.clear(context)
+        return await show_main_menu(update, context, self)
 
     async def start_async(self):
         """Async method to start the bot with proper event loop handling"""
@@ -255,9 +303,13 @@ class Bot:
         self.application.add_handler(CommandHandler("stats", self.handle_command))
         self.application.add_handler(CommandHandler("test", self.handle_command))
         self.application.add_handler(CallbackQueryHandler(self.handle_callback))
+        if ChatMemberHandler is not None:
+            self.application.add_handler(ChatMemberHandler(self.handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+        self.application.add_error_handler(self.handle_application_error)
         
         # Initialize and start the application
+        logger.info("Initializing Telegram application")
         await self.application.initialize()
         
         # Initialize managers and services immediately after application initialization
@@ -265,14 +317,17 @@ class Bot:
         
         await self.application.start()
         await self.application.updater.start_polling()
+        logger.info("Telegram bot polling started")
         
         # Keep running indefinitely
         try:
             while True:
                 await asyncio.sleep(1)
         except (KeyboardInterrupt, asyncio.CancelledError):
+            logger.info("Stopping Telegram bot polling")
             await self.application.stop()
             await self.application.shutdown()
+            logger.info("Telegram bot shutdown completed")
         
     def start(self):
         """Legacy sync method for backward compatibility."""
@@ -316,7 +371,10 @@ class Bot:
         self.application.add_handler(CommandHandler("stats", self.handle_command))
         self.application.add_handler(CommandHandler("test", self.handle_command))
         self.application.add_handler(CallbackQueryHandler(self.handle_callback))
+        if ChatMemberHandler is not None:
+            self.application.add_handler(ChatMemberHandler(self.handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+        self.application.add_error_handler(self.handle_application_error)
         
         self.application.post_init = self._post_init_hook
         self.application.run_polling()
@@ -324,7 +382,12 @@ class Bot:
 
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
-            await update.callback_query.answer()
+            try:
+                await update.callback_query.answer()
+            except BadRequest as exc:
+                err = str(exc).lower()
+                if "query is too old" not in err and "query id is invalid" not in err:
+                    raise
             callback_data = update.callback_query.data
             user_id = self.get_user_id(update)
             handler, dialog_type = self.managers.event.get_input_handler(user_id)
@@ -357,7 +420,12 @@ class Bot:
                     context.user_data['callback_params'] = params
                 await self.managers.navigator.execute(action_id, update, context)
         except Exception as e:
-            print(f"Error handling callback: {e}")
+            logger.exception(
+                "Error handling callback user_id=%s callback_data=%s: %s",
+                self.get_user_id(update),
+                getattr(getattr(update, "callback_query", None), "data", None),
+                e,
+            )
             await self.send_message(update, context, self.get_text("error_processing_request"))
             await self.managers.navigator.execute(Dialogs.MENU, update, context)
             raise e
@@ -365,6 +433,8 @@ class Bot:
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user_id = self.get_user_id(update)
         chat_id = update.message.chat.id if update.message else None
+
+        await self.services.chat_routing.observe_message(update)
         
         # --- Debug logging remains the same ---
         
@@ -380,17 +450,39 @@ class Bot:
         else:
             # --- Refactoring Change: Use NotificationService ---
             # Check if this is a message in the admin chat replying to a ticket
-            if chat_id and self.services.notification.is_admin_chat(chat_id) and update.message.reply_to_message:
+            if chat_id and await self.services.notification.is_admin_chat(chat_id) and update.message.reply_to_message:
                 try:
                     await self.services.notification.handle_admin_reply(update, context)
-                except Exception:
-                    import traceback
-                    traceback.print_exc()
+                except Exception as exc:
+                    logger.exception(
+                        "Error handling admin reply chat_id=%s user_id=%s message_id=%s: %s",
+                        chat_id,
+                        user_id,
+                        getattr(update.message, "message_id", None),
+                        exc,
+                    )
+
+    async def handle_my_chat_member(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        await self.services.chat_routing.observe_chat_member_update(update)
 
     async def handle_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # --- This command handling logic remains the same ---
         try:
-            command = update.message.text[1:]
+            if update.message is None or not update.message.text:
+                return
+
+            raw_text = update.message.text.strip()
+            if not raw_text.startswith("/"):
+                return
+
+            command_token = raw_text.split()[0]
+            command = command_token[1:].split("@", 1)[0]
+
+            if command == "start":
+                start_payload = " ".join(getattr(context, "args", [])).strip()
+                if context.user_data is not None:
+                    context.user_data["start_payload"] = start_payload
+
             dialog_map = {
                 "start": Dialogs.START,
                 "menu": Dialogs.MENU,
@@ -406,11 +498,20 @@ class Bot:
             }
             if command in dialog_map:
                 dialog_id = dialog_map[command]
+                feature_key = self.services.bot_settings.get_feature_key_for_route(dialog_id, context)
+                if feature_key and not self.services.bot_settings.is_feature_enabled(feature_key):
+                    await self.handle_disabled_feature(update, context, feature_key)
+                    return
                 self.managers.navigator.clear(context)
                 self.managers.navigator.set_entry_point(context, dialog_id)
                 await self.managers.navigator.execute(dialog_id, update, context)
         except Exception as e:
-            print(f"Error handling command: {e}")
+            logger.exception(
+                "Error handling command user_id=%s text=%s: %s",
+                self.get_user_id(update),
+                getattr(getattr(update, "message", None), "text", None),
+                e,
+            )
             await self.managers.navigator.execute(Dialogs.MENU, update, context)
 
     def register_input_handler(self, user_id: int, dialog_type: int, handler: Callable[..., Coroutine[Any, Any, Any]]) -> None:
@@ -422,18 +523,16 @@ class Bot:
         """
         # --- Refactoring Change: New initialization order ---
         try:
-            print("Initializing bot managers...")
+            logger.info("Initializing bot managers")
             await self.managers.initialize_all()
-            print("All managers initialized successfully.")
+            logger.info("All bot managers initialized successfully")
 
-            print("Initializing bot services...")
+            logger.info("Initializing bot services")
             await self.services.initialize_all()
-            print("All services initialized successfully.")
+            logger.info("All bot services initialized successfully")
             
         except Exception as e:
-            print(f"FATAL: Error during post-initialization: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.exception("Fatal error during bot post-initialization: %s", e)
             # In a real scenario, you might want to stop the bot if initialization fails
             # For now, we'll just log the error.
             raise
@@ -443,13 +542,28 @@ class Agent:
         self.application: Application | None = None
         self.bot: Bot | None = None
 
-    async def start_async(self, token: str, db_url: str, admin_chat_id: str, chief_engineer_chat_id: str = None):
-        self.application = Application.builder().token(token).build()
+    @staticmethod
+    def _build_application(token: str) -> Application:
+        builder = Application.builder().token(token)
+        if HTTPXRequest is not None:
+            request = HTTPXRequest(
+                connect_timeout=10.0,
+                read_timeout=30.0,
+                write_timeout=30.0,
+                pool_timeout=10.0,
+                connection_pool_size=100,
+            )
+            builder = builder.request(request)
+        return builder.build()
+
+    async def start_async(self, token: str, db_url: str, admin_chat_id: str | None = None, chief_engineer_chat_id: str = None):
+        self.application = self._build_application(token)
         
         headers_data = {
-            "ADMIN_CHAT_ID": admin_chat_id,
             "DB_URL": db_url # Pass DB URL via headers
         }
+        if admin_chat_id:
+            headers_data["ADMIN_CHAT_ID"] = admin_chat_id
         if chief_engineer_chat_id:
             headers_data["CHIEF_ENGINEER_CHAT_ID"] = chief_engineer_chat_id
             
@@ -460,14 +574,15 @@ class Agent:
         )
         await self.bot.start_async()
         
-    def start(self, token: str, db_url: str, admin_chat_id: str, chief_engineer_chat_id: str = None):
+    def start(self, token: str, db_url: str, admin_chat_id: str | None = None, chief_engineer_chat_id: str = None):
         """Legacy sync method for backward compatibility"""
-        self.application = Application.builder().token(token).build()
+        self.application = self._build_application(token)
         
         headers_data = {
-            "ADMIN_CHAT_ID": admin_chat_id,
             "DB_URL": db_url # Pass DB URL via headers
         }
+        if admin_chat_id:
+            headers_data["ADMIN_CHAT_ID"] = admin_chat_id
         if chief_engineer_chat_id:
             headers_data["CHIEF_ENGINEER_CHAT_ID"] = chief_engineer_chat_id
             
@@ -514,8 +629,6 @@ def main() -> None:
     chief_engineer_chat_id = args.chief_engineer_chat_id or os.getenv("CHIEF_ENGINEER_CHAT_ID")
     if not token:
         parser.error("Bot token must be provided via --token argument or BOT_TOKEN environment variable")
-    if not admin_chat_id:
-        parser.error("Admin chat ID must be provided via --admin-chat-id argument or ADMIN_CHAT_ID environment variable")
     agent = Agent()
     agent.start(token, db_url, admin_chat_id, chief_engineer_chat_id)
 

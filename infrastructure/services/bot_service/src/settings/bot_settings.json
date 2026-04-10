@@ -1,0 +1,22 @@
+{
+  "features": {
+    "profile": {
+      "enabled": true
+    },
+    "service": {
+      "enabled": true
+    },
+    "poll": {
+      "enabled": true
+    },
+    "feedback": {
+      "enabled": true
+    },
+    "guest_parking": {
+      "enabled": true
+    },
+    "spaces": {
+      "enabled": true
+    }
+  }
+}

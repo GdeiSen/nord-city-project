@@ -44,7 +44,14 @@ class User(Base):
     poll_answers: Mapped[List["PollAnswer"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
-    object: Mapped["Object"] = relationship(back_populates="users")
+    object: Mapped["Object"] = relationship(
+        back_populates="users",
+        foreign_keys=[object_id],
+    )
+    feedback_recipient_for_objects: Mapped[List["Object"]] = relationship(
+        back_populates="service_feedback_recipient_user",
+        foreign_keys="Object.service_feedback_recipient_user_id",
+    )
     auth: Mapped["UserAuth"] = relationship(
         back_populates="user", cascade="all, delete-orphan", uselist=False
     )

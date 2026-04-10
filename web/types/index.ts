@@ -13,6 +13,7 @@ export const USER_ROLES = {
   GUEST: 0,
   USER_LPR: 10011,
   USER_MA: 20122,
+  MANAGER: 10014,
   ADMIN: 10012,
   SUPER_ADMIN: 10013,
 } as const
@@ -23,6 +24,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   [USER_ROLES.GUEST]: 'Guest',
   [USER_ROLES.USER_LPR]: 'User LPR',
   [USER_ROLES.USER_MA]: 'User MA',
+  [USER_ROLES.MANAGER]: 'Manager',
   [USER_ROLES.ADMIN]: 'Administrator',
   [USER_ROLES.SUPER_ADMIN]: 'Super Admin',
 } as const
@@ -31,6 +33,7 @@ export const ROLE_BADGE_VARIANTS: Record<UserRole, 'destructive' | 'default' | '
   [USER_ROLES.GUEST]: 'outline',
   [USER_ROLES.USER_LPR]: 'default',
   [USER_ROLES.USER_MA]: 'secondary',
+  [USER_ROLES.MANAGER]: 'secondary',
   [USER_ROLES.ADMIN]: 'destructive',
   [USER_ROLES.SUPER_ADMIN]: 'destructive',
 } as const
@@ -77,6 +80,35 @@ export const TICKET_PRIORITY_LABELS_RU: Record<TicketPriority, string> = {
   [TICKET_PRIORITY.HIGH]: 'Высокий',
   [TICKET_PRIORITY.CRITICAL]: 'Критический',
 } as const
+
+export const FEEDBACK_TYPES = {
+  GENERAL: "GENERAL",
+  SERVICE_TICKET: "SERVICE_TICKET",
+} as const
+
+export type FeedbackType = typeof FEEDBACK_TYPES[keyof typeof FEEDBACK_TYPES]
+
+export const FEEDBACK_TYPE_LABELS_RU: Record<FeedbackType, string> = {
+  [FEEDBACK_TYPES.GENERAL]: "Общий отзыв",
+  [FEEDBACK_TYPES.SERVICE_TICKET]: "Отзыв на заявку",
+} as const
+
+export const STORAGE_FILE_KIND = {
+  IMAGE: "IMAGE",
+  VIDEO: "VIDEO",
+  DOCUMENT: "DOCUMENT",
+  OTHER: "OTHER",
+} as const
+
+export type StorageFileKind = typeof STORAGE_FILE_KIND[keyof typeof STORAGE_FILE_KIND]
+
+export const STORAGE_FILE_CATEGORY = {
+  DEFAULT: "DEFAULT",
+  SYSTEM: "SYSTEM",
+  TEMP: "TEMP",
+} as const
+
+export type StorageFileCategory = typeof STORAGE_FILE_CATEGORY[keyof typeof STORAGE_FILE_CATEGORY]
 
 /**
  * Base interface for entities with timestamps
@@ -139,10 +171,27 @@ export interface RentalObject extends BaseEntity {
   photos: string[];
   /** Rental object status (ACTIVE, INACTIVE, etc.) */
   status: string;
+  /** Linked Telegram admin chat */
+  admin_chat_id?: number;
+  admin_chat?: TelegramChat;
+  /** Explicit recipient for completion feedback on service tickets */
+  service_feedback_recipient_user_id?: number;
+  service_feedback_recipient_user?: User;
   /** Associated spaces/offices */
   spaces?: RentalSpace[];
   /** Users associated with this object */
   users?: User[];
+}
+
+export interface TelegramChat {
+  chat_id: number
+  title: string
+  chat_type: string
+  is_active: boolean
+  bot_status?: string
+  last_seen_at?: string
+  created_at?: string
+  updated_at?: string
 }
 
 /**
@@ -195,12 +244,31 @@ export interface RentalSpaceView extends BaseEntity {
 export interface GuestParkingRequest extends BaseEntity {
   id: number
   user_id: number
+  object_id?: number
   arrival_date: string
   license_plate: string
   car_make_color: string
-  driver_phone: string
   tenant_phone?: string
   user?: User
+}
+
+export interface GuestParkingSettings extends BaseEntity {
+  id: number
+  route_images: string[]
+}
+
+export interface StorageFile extends BaseEntity {
+  storage_path: string
+  public_url: string
+  original_name: string
+  content_type?: string
+  extension?: string
+  size_bytes: number
+  kind: StorageFileKind
+  category: StorageFileCategory
+  entity_type?: string
+  entity_id?: number
+  meta?: Record<string, unknown>
 }
 
 /**
@@ -219,6 +287,8 @@ export interface ServiceTicket extends BaseEntity {
   location?: string;
   /** Image URL for the ticket */
   image?: string;
+  /** Attached files uploaded through storage service */
+  attachment_urls?: string[];
   /** Ticket status (NEW, ACCEPTED, ASSIGNED, COMPLETED) */
   status: TicketStatus;
   /** Dialog ID format: 0000-0000-0000 */
@@ -231,6 +301,8 @@ export interface ServiceTicket extends BaseEntity {
   priority: TicketPriority;
   /** Ticket category */
   category?: string;
+  /** Additional metadata JSON */
+  meta?: string | Record<string, unknown>;
   /** Associated user */
   user?: User;
   /** Associated rental object (from object_id) */
@@ -239,27 +311,62 @@ export interface ServiceTicket extends BaseEntity {
   audit_logs?: AuditLogEntry[];
 }
 
+export interface ServiceTicketSummary {
+  id: number;
+  status: string;
+  description?: string;
+  object?: { id: number; name: string };
+}
+
 /**
  * Universal audit log entry for tracking data changes across all entities
  *
  * @interface AuditLogEntry
- * @extends BaseEntity
  */
-export interface AuditLogEntry extends BaseEntity {
+export interface AuditLogEntry {
+  id: number;
+  created_at: string;
   /** Entity type (e.g. ServiceTicket, User) */
   entity_type: string;
   /** Entity ID */
   entity_id: number;
+  /** Event type: ENTITY_CHANGE, STATE_CHANGE, etc. */
+  event_type: string;
   /** Action: create, update, delete */
   action: string;
+  /** Actor/user/service that caused the change */
+  actor_id?: number;
+  actor_type?: "USER" | "TELEGRAM_USER" | "SYSTEM" | "SERVICE";
+  actor_external_id?: string;
+  actor_origin?: string;
+  actor_display?: string;
+  actor?: {
+    kind: "user" | "telegram_user" | "system" | "service" | "unknown";
+    label: string;
+    href?: string;
+    user_id?: number;
+    user?: Pick<User, "id" | "first_name" | "last_name" | "middle_name" | "username" | "object_id">;
+    external_id?: string;
+    actor_type?: string;
+    actor_origin?: string;
+    source_service?: string;
+  };
+  source_service?: string;
+  retention_class?: "CRITICAL" | "OPERATIONAL" | "TECHNICAL";
+  audit_type?: "fast" | "smart" | "heavy" | string;
+  request_id?: string;
+  correlation_id?: string;
+  operation_id?: string;
+  causation_id?: string;
+  event_category?: string;
+  event_name?: string;
+  reason?: string;
   /** Previous state (for update/delete) */
   old_data?: Record<string, unknown>;
   /** New state (for create/update) */
   new_data?: Record<string, unknown>;
-  /** Domain-specific metadata (msid, assignee, type, etc.) */
+  /** Domain-specific metadata */
   meta?: Record<string, unknown>;
-  /** Assignee: user id, 1=system, or service identifier */
-  assignee_id?: number;
 }
 
 /**
@@ -273,10 +380,15 @@ export interface Feedback extends BaseEntity {
   user_id: number;
   /** Dialog ID format: 0000-0000-0000 */
   ddid: string;
+  /** Feedback source type */
+  feedback_type: FeedbackType;
   /** Feedback answer/response */
   answer: string;
   /** Additional feedback text */
   text?: string;
+  /** Linked service ticket for SERVICE_TICKET feedback */
+  service_ticket_id?: number;
+  service_ticket?: ServiceTicketSummary;
   /** Associated user */
   user?: User;
 }

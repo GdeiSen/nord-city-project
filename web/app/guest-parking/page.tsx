@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
-import { IconPlus } from "@tabler/icons-react"
+import { Button } from "@/components/ui/button"
+import { IconPlus, IconSettings } from "@tabler/icons-react"
 import { GuestParkingRequest } from "@/types"
 import { guestParkingApi } from "@/lib/api"
 import { Toaster } from "@/components/ui/sonner"
@@ -14,7 +15,6 @@ import { ColumnDef } from "@tanstack/react-table"
 import { DataTable, createSelectColumn } from "@/components/data-table"
 import { guestParkingColumnMeta } from "@/lib/table-configs/guest-parking"
 import { formatDate } from "@/lib/date-utils"
-import { PageHeader } from "@/components/page-header"
 import {
   useServerPaginatedData,
   useFilterPickerData,
@@ -79,11 +79,6 @@ export default function GuestParkingPage() {
       meta: guestParkingColumnMeta.car_make_color,
     },
     {
-      accessorKey: "driver_phone",
-      header: "Телефон водителя",
-      meta: guestParkingColumnMeta.driver_phone,
-    },
-    {
       accessorKey: "user",
       header: "Арендатор",
       meta: guestParkingColumnMeta.user,
@@ -124,13 +119,29 @@ export default function GuestParkingPage() {
       <SidebarInset>
         <SiteHeader />
         <div className="flex-1 min-w-0 space-y-4 p-4 md:p-8 pt-6">
-          <PageHeader
-            title="Заявки на гостевую парковку"
-            description="Управление заявками на гостевые парковочные места"
-            buttonText={canEdit ? "Создать заявку" : undefined}
-            onButtonClick={canEdit ? () => router.push("/guest-parking/edit") : undefined}
-            buttonIcon={canEdit ? <IconPlus className="h-4 w-4" /> : undefined}
-          />
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="space-y-1">
+              <h2 className="text-3xl font-bold tracking-tight">Заявки на гостевую парковку</h2>
+              <p className="text-muted-foreground">Управление заявками на гостевые парковочные места</p>
+            </div>
+            {canEdit && (
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => router.push("/guest-parking/settings")}
+                  aria-label="Настройки гостевой парковки"
+                >
+                  <IconSettings className="h-4 w-4" />
+                </Button>
+                <Button type="button" onClick={() => router.push("/guest-parking/edit")}>
+                  <IconPlus className="h-4 w-4" />
+                  Создать заявку
+                </Button>
+              </div>
+            )}
+          </div>
 
           <DataTable
             data={requests}
