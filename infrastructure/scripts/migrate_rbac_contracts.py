@@ -59,9 +59,9 @@ LEGACY_ROLE_TITLES = {
     "lpr": "User LPR",
     "ma": "User MA",
     "manager": "Manager",
-    ADMIN_ROLE_CODE: "Admin",
-    SUPER_ADMIN_ROLE_CODE: "Super Admin",
-    EVERYONE_ROLE_CODE: "Everyone",
+    ADMIN_ROLE_CODE: "Администратор",
+    SUPER_ADMIN_ROLE_CODE: "Супер администратор",
+    EVERYONE_ROLE_CODE: "Все пользователи",
 }
 
 

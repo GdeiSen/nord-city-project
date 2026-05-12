@@ -176,9 +176,9 @@ async def _ensure_rbac_defaults():
     from sqlalchemy import text
 
     role_names = {
-        EVERYONE_ROLE_CODE: "Everyone",
-        ADMIN_ROLE_CODE: "Admin",
-        SUPER_ADMIN_ROLE_CODE: "Super Admin",
+        EVERYONE_ROLE_CODE: "Все пользователи",
+        ADMIN_ROLE_CODE: "Администратор",
+        SUPER_ADMIN_ROLE_CODE: "Супер администратор",
     }
     role_permissions = {
         EVERYONE_ROLE_CODE: EVERYONE_DEFAULT_PERMISSIONS,
