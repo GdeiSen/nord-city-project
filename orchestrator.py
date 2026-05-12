@@ -271,6 +271,8 @@ def _update_ports_from_env():
         if key in SERVICES:
             port_str = os.getenv(env_var, default)
             SERVICES[key].port = int(port_str)
+            if key == "site":
+                SERVICES[key].command = ["npm", "start", "--", "-p", port_str]
             if SERVICES[key].health_url:
                 SERVICES[key].health_url = f"http://127.0.0.1:{port_str}/health"
 
@@ -1048,7 +1050,7 @@ def run_single_service(alias: str, env_file: Optional[Path] = None):
 
     if alias == "site":
         os.chdir(info.working_dir)
-        os.execvp("npm", ["npm", "start"])
+        os.execvp("npm", info.command)
     else:
         os.environ["PYTHONPATH"] = str(INFRASTRUCTURE_ROOT)
         os.environ["PYTHONUNBUFFERED"] = "1"
