@@ -8,6 +8,7 @@ set -euo pipefail
 
 TARGET_USERNAME="${1:-gordey_senuta}"
 SUPER_ADMIN_ROLE_CODE="super_admin"
+EVERYONE_ROLE_CODE="everyone"
 
 if [[ -f ".env" ]]; then
   # shellcheck disable=SC1091
@@ -56,11 +57,24 @@ target_role AS (
   FROM roles
   WHERE code = '$SUPER_ADMIN_ROLE_CODE'
 ),
+everyone_role AS (
+  SELECT id
+  FROM roles
+  WHERE code = '$EVERYONE_ROLE_CODE'
+),
 inserted AS (
   INSERT INTO user_roles (user_id, role_id)
   SELECT target_user.id, target_role.id
   FROM target_user
   CROSS JOIN target_role
+  ON CONFLICT DO NOTHING
+  RETURNING user_id
+),
+everyone_inserted AS (
+  INSERT INTO user_roles (user_id, role_id)
+  SELECT target_user.id, everyone_role.id
+  FROM target_user
+  CROSS JOIN everyone_role
   ON CONFLICT DO NOTHING
   RETURNING user_id
 )

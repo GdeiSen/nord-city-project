@@ -95,6 +95,33 @@ class UserService(BaseService):
         users = await self.repository.get_all(session=session)
         return [await self._serialize_user_with_links(session=session, user=user) for user in users]
 
+    @db_session_manager
+    async def get_paginated(
+        self,
+        *,
+        session,
+        page: int = 1,
+        page_size: int = 10,
+        sort: Optional[List[Dict[str, Any]]] = None,
+        filters: Optional[List[Dict[str, Any]]] = None,
+        search: Optional[str] = None,
+        search_columns: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        data = await self.repository.get_paginated(
+            session=session,
+            page=page,
+            page_size=page_size,
+            sort=sort,
+            filters=filters,
+            search=search,
+            search_columns=search_columns,
+        )
+        items = [
+            await self._serialize_user_with_links(session=session, user=user)
+            for user in data.get("items", [])
+        ]
+        return {"items": items, "total": data.get("total", 0)}
+
     async def _replace_user_roles(self, *, session, user_id: int, role_ids: list[int] | None) -> None:
         if role_ids is None:
             return

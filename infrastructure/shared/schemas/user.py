@@ -21,6 +21,8 @@ class UserSchema(BaseModel):
     phone_number: Optional[str] = None
     email: Optional[str] = None
     role_ids: list[int] = []
+    roles: list[dict] = []
     contract_number: Optional[str] = None
+    contracts: list[dict] = []
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

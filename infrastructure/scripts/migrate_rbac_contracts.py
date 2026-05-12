@@ -39,6 +39,13 @@ from shared.permissions import (  # noqa: E402
     DEFAULT_PERMISSIONS,
     EVERYONE_DEFAULT_PERMISSIONS,
     EVERYONE_ROLE_CODE,
+    GUEST_ROLE_CODE,
+    LPR_DEFAULT_PERMISSIONS,
+    LPR_ROLE_CODE,
+    MA_DEFAULT_PERMISSIONS,
+    MA_ROLE_CODE,
+    MANAGER_DEFAULT_PERMISSIONS,
+    MANAGER_ROLE_CODE,
     SUPER_ADMIN_ROLE_CODE,
 )
 
@@ -46,22 +53,42 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 LEGACY_ROLE_CODE_BY_ID = {
-    0: "guest",
-    10011: "lpr",
-    20122: "ma",
-    10014: "manager",
+    0: GUEST_ROLE_CODE,
+    10011: LPR_ROLE_CODE,
+    20122: MA_ROLE_CODE,
+    10014: MANAGER_ROLE_CODE,
     10012: ADMIN_ROLE_CODE,
     10013: SUPER_ADMIN_ROLE_CODE,
 }
 
 LEGACY_ROLE_TITLES = {
-    "guest": "Guest",
-    "lpr": "User LPR",
-    "ma": "User MA",
-    "manager": "Manager",
+    GUEST_ROLE_CODE: "Гость",
+    LPR_ROLE_CODE: "LPR",
+    MA_ROLE_CODE: "MA",
+    MANAGER_ROLE_CODE: "Менеджер",
     ADMIN_ROLE_CODE: "Администратор",
     SUPER_ADMIN_ROLE_CODE: "Супер администратор",
     EVERYONE_ROLE_CODE: "Все пользователи",
+}
+
+STANDARD_ROLE_CODES = (
+    EVERYONE_ROLE_CODE,
+    GUEST_ROLE_CODE,
+    LPR_ROLE_CODE,
+    MA_ROLE_CODE,
+    MANAGER_ROLE_CODE,
+    ADMIN_ROLE_CODE,
+    SUPER_ADMIN_ROLE_CODE,
+)
+
+ROLE_DEFAULT_PERMISSIONS = {
+    EVERYONE_ROLE_CODE: EVERYONE_DEFAULT_PERMISSIONS,
+    GUEST_ROLE_CODE: set(),
+    LPR_ROLE_CODE: LPR_DEFAULT_PERMISSIONS,
+    MA_ROLE_CODE: MA_DEFAULT_PERMISSIONS,
+    MANAGER_ROLE_CODE: MANAGER_DEFAULT_PERMISSIONS,
+    ADMIN_ROLE_CODE: ADMIN_DEFAULT_PERMISSIONS,
+    SUPER_ADMIN_ROLE_CODE: {item["code"] for item in DEFAULT_PERMISSIONS},
 }
 
 
@@ -75,6 +102,18 @@ def get_db_url() -> str:
 
 
 async def _create_schema(conn) -> None:
+    users_table = await conn.execute(
+        text(
+            """
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_name = 'users'
+            """
+        )
+    )
+    if users_table.first() is None:
+        raise RuntimeError("Таблица users не найдена. Сначала запустите базовую инициализацию database_service.")
+
     await conn.execute(text("CREATE SEQUENCE IF NOT EXISTS roles_id_seq"))
     await conn.execute(text("CREATE SEQUENCE IF NOT EXISTS permissions_id_seq"))
     await conn.execute(text("CREATE SEQUENCE IF NOT EXISTS contracts_id_seq"))
@@ -185,8 +224,7 @@ async def _seed_roles_and_permissions(conn) -> None:
             {**item, "description": item.get("description")},
         )
 
-    role_codes = [EVERYONE_ROLE_CODE, "guest", "lpr", "ma", "manager", ADMIN_ROLE_CODE, SUPER_ADMIN_ROLE_CODE]
-    for code in role_codes:
+    for code in STANDARD_ROLE_CODES:
         await conn.execute(
             text(
                 """
@@ -207,9 +245,8 @@ async def _seed_roles_and_permissions(conn) -> None:
             },
         )
 
-    await _grant_permissions(conn, EVERYONE_ROLE_CODE, EVERYONE_DEFAULT_PERMISSIONS)
-    await _grant_permissions(conn, ADMIN_ROLE_CODE, ADMIN_DEFAULT_PERMISSIONS)
-    await _grant_permissions(conn, SUPER_ADMIN_ROLE_CODE, {item["code"] for item in DEFAULT_PERMISSIONS})
+    for role_code, permission_codes in ROLE_DEFAULT_PERMISSIONS.items():
+        await _grant_permissions(conn, role_code, permission_codes)
 
 
 async def _grant_permissions(conn, role_code: str, permission_codes: set[str]) -> None:
@@ -230,6 +267,31 @@ async def _grant_permissions(conn, role_code: str, permission_codes: set[str]) -
 
 
 async def _migrate_users(conn) -> None:
+    users_table = await conn.execute(
+        text(
+            """
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_name = 'users'
+            """
+        )
+    )
+    if users_table.first() is None:
+        raise RuntimeError("Таблица users не найдена. Сначала запустите базовую инициализацию database_service.")
+
+    await conn.execute(
+        text(
+            """
+            INSERT INTO user_roles (user_id, role_id)
+            SELECT u.id, r.id
+            FROM users u
+            JOIN roles r ON r.code = :everyone_role_code
+            ON CONFLICT DO NOTHING
+            """
+        ),
+        {"everyone_role_code": EVERYONE_ROLE_CODE},
+    )
+
     role_column = await conn.execute(
         text(
             """
@@ -240,7 +302,7 @@ async def _migrate_users(conn) -> None:
         )
     )
     if role_column.first() is None:
-        logger.info("users.role already removed; skipping legacy role transfer.")
+        logger.info("users.role already removed; ensured everyone role for all users.")
         return
 
     for legacy_role_id, role_code in LEGACY_ROLE_CODE_BY_ID.items():
@@ -258,18 +320,6 @@ async def _migrate_users(conn) -> None:
             {"legacy_role_id": legacy_role_id, "role_code": role_code},
         )
 
-    await conn.execute(
-        text(
-            """
-            INSERT INTO user_roles (user_id, role_id)
-            SELECT u.id, r.id
-            FROM users u
-            JOIN roles r ON r.code = 'guest'
-            WHERE u.id NOT IN (SELECT user_id FROM user_roles)
-            ON CONFLICT DO NOTHING
-            """
-        )
-    )
     await conn.execute(text("ALTER TABLE users DROP COLUMN IF EXISTS role"))
 
 

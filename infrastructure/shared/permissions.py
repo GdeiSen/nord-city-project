@@ -21,6 +21,10 @@ class PermissionCodes:
 SUPER_ADMIN_ROLE_CODE = "super_admin"
 ADMIN_ROLE_CODE = "admin"
 EVERYONE_ROLE_CODE = "everyone"
+GUEST_ROLE_CODE = "guest"
+LPR_ROLE_CODE = "lpr"
+MA_ROLE_CODE = "ma"
+MANAGER_ROLE_CODE = "manager"
 
 
 DEFAULT_PERMISSIONS: tuple[dict[str, str], ...] = (
@@ -118,6 +122,22 @@ EVERYONE_DEFAULT_PERMISSIONS = {
     PermissionCodes.BOT_FEATURE_SPACES,
 }
 
+LPR_DEFAULT_PERMISSIONS = {
+    PermissionCodes.BOT_FEATURE_PROFILE,
+    PermissionCodes.BOT_FEATURE_SERVICE,
+    PermissionCodes.BOT_FEATURE_POLL,
+    PermissionCodes.BOT_FEATURE_FEEDBACK,
+    PermissionCodes.BOT_FEATURE_GUEST_PARKING,
+    PermissionCodes.BOT_FEATURE_SPACES,
+}
+
+MA_DEFAULT_PERMISSIONS = {
+    PermissionCodes.BOT_FEATURE_PROFILE,
+    PermissionCodes.BOT_FEATURE_SERVICE,
+    PermissionCodes.BOT_FEATURE_GUEST_PARKING,
+    PermissionCodes.BOT_FEATURE_SPACES,
+}
+
 ADMIN_DEFAULT_PERMISSIONS = {
     PermissionCodes.SITE_ACCESS,
     PermissionCodes.USERS_MANAGE,
@@ -133,3 +153,5 @@ ADMIN_DEFAULT_PERMISSIONS = {
     PermissionCodes.BOT_FEATURE_GUEST_PARKING,
     PermissionCodes.BOT_FEATURE_SPACES,
 }
+
+MANAGER_DEFAULT_PERMISSIONS = ADMIN_DEFAULT_PERMISSIONS

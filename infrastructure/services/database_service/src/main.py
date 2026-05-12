@@ -24,6 +24,13 @@ from shared.permissions import (
     DEFAULT_PERMISSIONS,
     EVERYONE_DEFAULT_PERMISSIONS,
     EVERYONE_ROLE_CODE,
+    GUEST_ROLE_CODE,
+    LPR_DEFAULT_PERMISSIONS,
+    LPR_ROLE_CODE,
+    MA_DEFAULT_PERMISSIONS,
+    MA_ROLE_CODE,
+    MANAGER_DEFAULT_PERMISSIONS,
+    MANAGER_ROLE_CODE,
     SUPER_ADMIN_ROLE_CODE,
 )
 
@@ -177,11 +184,19 @@ async def _ensure_rbac_defaults():
 
     role_names = {
         EVERYONE_ROLE_CODE: "Все пользователи",
+        GUEST_ROLE_CODE: "Гость",
+        LPR_ROLE_CODE: "LPR",
+        MA_ROLE_CODE: "MA",
+        MANAGER_ROLE_CODE: "Менеджер",
         ADMIN_ROLE_CODE: "Администратор",
         SUPER_ADMIN_ROLE_CODE: "Супер администратор",
     }
     role_permissions = {
         EVERYONE_ROLE_CODE: EVERYONE_DEFAULT_PERMISSIONS,
+        GUEST_ROLE_CODE: set(),
+        LPR_ROLE_CODE: LPR_DEFAULT_PERMISSIONS,
+        MA_ROLE_CODE: MA_DEFAULT_PERMISSIONS,
+        MANAGER_ROLE_CODE: MANAGER_DEFAULT_PERMISSIONS,
         ADMIN_ROLE_CODE: ADMIN_DEFAULT_PERMISSIONS,
         SUPER_ADMIN_ROLE_CODE: {item["code"] for item in DEFAULT_PERMISSIONS},
     }
@@ -215,10 +230,10 @@ async def _ensure_rbac_defaults():
                 text(
                     """
                     INSERT INTO roles (code, name, is_system, is_default)
-                    VALUES (:code, :name, TRUE, :is_default)
+                    VALUES (:code, :name, :is_system, :is_default)
                     ON CONFLICT (code) DO UPDATE
                     SET name = EXCLUDED.name,
-                        is_system = TRUE,
+                        is_system = EXCLUDED.is_system,
                         is_default = EXCLUDED.is_default,
                         updated_at = now()
                     """
@@ -226,6 +241,7 @@ async def _ensure_rbac_defaults():
                 {
                     "code": role_code,
                     "name": role_name,
+                    "is_system": role_code in {EVERYONE_ROLE_CODE, ADMIN_ROLE_CODE, SUPER_ADMIN_ROLE_CODE},
                     "is_default": role_code == EVERYONE_ROLE_CODE,
                 },
             )
@@ -246,9 +262,22 @@ async def _ensure_rbac_defaults():
                     {"role_code": role_code, "permission_code": permission_code},
                 )
 
+        await session.execute(
+            text(
+                """
+                INSERT INTO user_roles (user_id, role_id)
+                SELECT u.id, r.id
+                FROM users u
+                JOIN roles r ON r.code = :everyone_role_code
+                ON CONFLICT DO NOTHING
+                """
+            ),
+            {"everyone_role_code": EVERYONE_ROLE_CODE},
+        )
+
         await session.commit()
 
-    logger.info("RBAC defaults ensured: everyone, admin, super_admin.")
+    logger.info("RBAC defaults ensured: everyone, guest, lpr, ma, manager, admin, super_admin.")
 
 
 async def _rpc_handler(request: dict) -> dict:
