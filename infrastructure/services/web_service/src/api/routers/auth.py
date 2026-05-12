@@ -31,9 +31,19 @@ JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "480"))
 
 
 def _create_access_token(user_id: int, access_profile: UserAccessSchema) -> str:
+    roles = [
+        {
+            "id": role.id,
+            "code": role.code,
+            "name": role.name,
+            "is_system": role.is_system,
+            "is_default": role.is_default,
+        }
+        for role in access_profile.roles
+    ]
     payload = {
         "sub": str(user_id),
-        "roles": [role.model_dump() for role in access_profile.roles],
+        "roles": roles,
         "permissions": access_profile.permissions,
         "is_super_admin": access_profile.is_super_admin,
         "iat": datetime.now(timezone.utc),
