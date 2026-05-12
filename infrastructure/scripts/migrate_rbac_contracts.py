@@ -160,6 +160,12 @@ async def _create_schema(conn) -> None:
             """
         )
     )
+    await conn.execute(text("ALTER TABLE roles ALTER COLUMN id SET DEFAULT nextval('roles_id_seq'::regclass)"))
+    await conn.execute(text("ALTER TABLE permissions ALTER COLUMN id SET DEFAULT nextval('permissions_id_seq'::regclass)"))
+    await conn.execute(text("ALTER TABLE contracts ALTER COLUMN id SET DEFAULT nextval('contracts_id_seq'::regclass)"))
+    await conn.execute(text("SELECT setval('roles_id_seq', COALESCE((SELECT MAX(id) FROM roles), 0) + 1, false)"))
+    await conn.execute(text("SELECT setval('permissions_id_seq', COALESCE((SELECT MAX(id) FROM permissions), 0) + 1, false)"))
+    await conn.execute(text("SELECT setval('contracts_id_seq', COALESCE((SELECT MAX(id) FROM contracts), 0) + 1, false)"))
 
 
 async def _seed_roles_and_permissions(conn) -> None:
