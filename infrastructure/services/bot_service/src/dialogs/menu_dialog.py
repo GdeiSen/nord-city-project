@@ -40,9 +40,7 @@ async def _build_menu_message(bot: "Bot", user) -> str:
 
 async def _build_menu_keyboard(bot: "Bot", user):
     if not _is_profile_complete(user):
-        if await bot.services.user.has_permission(int(user.id), "bot.feature.profile"):
-            return bot.create_keyboard([[("login", Dialogs.PROFILE)]])
-        return None
+        return bot.create_keyboard([[("login", Dialogs.PROFILE)]])
 
     rows = await bot.services.bot_settings.get_enabled_menu_layout(int(user.id))
     if not rows:

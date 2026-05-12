@@ -44,12 +44,26 @@ class BotSettingsService(BaseService):
     def get_feature_by_key(self, feature_key: str):
         return BOT_FEATURES_BY_KEY.get(feature_key)
 
+    @staticmethod
+    def _is_profile_complete(user: Any) -> bool:
+        return bool(
+            user
+            and user.last_name
+            and user.first_name
+            and user.middle_name
+            and user.legal_entity
+        )
+
     async def is_feature_allowed_for_user(self, feature_key: str, user_id: int | None) -> bool:
         feature = BOT_FEATURES_BY_KEY.get(feature_key)
         if feature is None:
             return True
         if user_id is None:
             return False
+        if feature_key == "profile":
+            user = await self.bot.services.user.get_user_by_id(int(user_id))
+            if user is not None and not self._is_profile_complete(user):
+                return True
         return await self.bot.services.user.has_permission(int(user_id), feature.permission_code)
 
     def get_feature_key_for_route(
