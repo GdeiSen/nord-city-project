@@ -35,5 +35,8 @@ class GuestParkingRequest(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
-    user: Mapped["User"] = relationship(back_populates="guest_parking_requests")
+    user: Mapped["User"] = relationship(
+        back_populates="guest_parking_requests",
+        foreign_keys=[user_id],
+    )
     object: Mapped[Optional["Object"]] = relationship()

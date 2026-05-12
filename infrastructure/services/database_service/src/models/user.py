@@ -60,7 +60,9 @@ class User(Base):
         back_populates="user", cascade="all, delete-orphan"
     )
     guest_parking_requests: Mapped[List["GuestParkingRequest"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
+        back_populates="user",
+        cascade="all, delete-orphan",
+        foreign_keys="GuestParkingRequest.user_id",
     )
     user_roles: Mapped[List["UserRole"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
