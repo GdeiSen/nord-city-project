@@ -7,6 +7,8 @@ from pydantic import BaseModel
 
 from shared.clients.database_client import db_client
 from shared.permissions import PermissionCodes
+from shared.role_deep_links import create_role_start_payload, is_role_deep_link_configured
+from shared.schemas.role import RoleSchema
 from shared.schemas.user import UserSchema
 from api.dependencies import get_current_user, get_audit_context, require_permission
 from api.schemas.common import MessageResponse, PaginatedResponse, parse_sort_param
@@ -58,37 +60,36 @@ def _normalize_bot_username(username: str) -> str:
 
 
 async def _build_role_links_payload() -> UserRoleLinksResponse:
+    if not is_role_deep_link_configured():
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Не задан защищенный секрет BOT_DEEP_LINK_SECRET или JWT_SECRET_KEY.",
+        )
     bot_username = _normalize_bot_username(_get_env_required("BOT_USERNAME"))
-    lpr_token = _get_env_required("BOT_DEEP_LINK_LPR_TOKEN", "lpr")
-    ma_token = _get_env_required("BOT_DEEP_LINK_MA_TOKEN", "ma")
-    lpr_role = (await db_client.role.get_by_code(code="lpr")).get("data") or {}
-    ma_role = (await db_client.role.get_by_code(code="ma")).get("data") or {}
+    roles_response = await db_client.role.get_all(model_class=RoleSchema)
+    if not roles_response.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=roles_response.get("error", "Не удалось загрузить роли."),
+        )
+    roles = sorted(
+        roles_response.get("data") or [],
+        key=lambda role: (not bool(role.is_system), role.name.casefold(), int(role.id or 0)),
+    )
 
     return UserRoleLinksResponse(
         bot_username=bot_username,
         links=[
             UserRoleLinkItem(
-                role_code="LPR",
-                role_id=int(lpr_role.get("id", 0) if isinstance(lpr_role, dict) else getattr(lpr_role, "id", 0)),
-                token=lpr_token,
-                title="Ссылка LPR",
-                description=(
-                    "Выдает роль LPR для арендаторов: полный пользовательский сценарий "
-                    "бота (заявки, опросы, обратная связь и профиль)."
-                ),
-                url=f"https://t.me/{bot_username}?start={lpr_token}",
-            ),
-            UserRoleLinkItem(
-                role_code="MA",
-                role_id=int(ma_role.get("id", 0) if isinstance(ma_role, dict) else getattr(ma_role, "id", 0)),
-                token=ma_token,
-                title="Ссылка MA",
-                description=(
-                    "Выдает роль MA с сокращенным пользовательским меню "
-                    "(профиль, обслуживание, гостевая парковка, свободные площади)."
-                ),
-                url=f"https://t.me/{bot_username}?start={ma_token}",
-            ),
+                role_code=role.code,
+                role_id=int(role.id),
+                token=(token := create_role_start_payload(int(role.id))),
+                title=role.name,
+                description=role.description or f"Выдает пользователю роль «{role.name}» при запуске бота.",
+                url=f"https://t.me/{bot_username}?start={token}",
+            )
+            for role in roles
+            if role.id is not None
         ],
     )
 
@@ -204,7 +205,7 @@ async def export_users(
 
 @router.get("/role-links", response_model=UserRoleLinksResponse)
 async def get_user_role_links(current_user: dict = Depends(get_current_user)):
-    require_permission(current_user, PermissionCodes.USERS_MANAGE)
+    require_permission(current_user, PermissionCodes.ROLES_MANAGE)
     return await _build_role_links_payload()
 
 

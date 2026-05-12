@@ -4,7 +4,7 @@ import Link from "next/link"
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { IconPlus } from "@tabler/icons-react"
+import { IconLink, IconPlus } from "@tabler/icons-react"
 import { ColumnDef } from "@tanstack/react-table"
 
 import { AppSidebar } from "@/components/app-sidebar"
@@ -75,12 +75,20 @@ export default function RolesPage() {
             title="Роли и права"
             description="Классы пользователей и доступ к функциям сайта и бота"
             actions={
-              <Button asChild>
-                <Link href="/roles/new">
-                  <IconPlus className="h-4 w-4" />
-                  Новая роль
-                </Link>
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" asChild>
+                  <Link href="/users/role-links">
+                    <IconLink className="h-4 w-4" />
+                    Ссылки
+                  </Link>
+                </Button>
+                <Button asChild>
+                  <Link href="/roles/new">
+                    <IconPlus className="h-4 w-4" />
+                    Новая роль
+                  </Link>
+                </Button>
+              </div>
             }
           />
 

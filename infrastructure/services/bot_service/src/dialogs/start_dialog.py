@@ -1,8 +1,8 @@
-import os
 from typing import TYPE_CHECKING
 
 from shared.schemas import UserSchema
 from shared.constants import Dialogs, Actions, Variables
+from shared.role_deep_links import verify_role_start_payload
 
 if TYPE_CHECKING:
     from telegram import Update
@@ -18,35 +18,22 @@ def _normalize_start_payload(payload: str | None) -> str:
     return (payload or "").strip()
 
 
-def _get_start_role_code_from_context(context: "ContextTypes.DEFAULT_TYPE") -> str | None:
+def _get_start_role_id_from_context(context: "ContextTypes.DEFAULT_TYPE") -> int | None:
     raw_start_payload = context.user_data.get(START_PAYLOAD_CTX_KEY) if context.user_data is not None else ""
     start_payload = _normalize_start_payload(raw_start_payload)
-    return _resolve_role_code_from_start_payload(start_payload)
-
-
-def _resolve_role_code_from_start_payload(payload: str) -> str | None:
-    normalized_payload = payload.casefold()
-    if not normalized_payload:
+    try:
+        return verify_role_start_payload(start_payload)
+    except RuntimeError:
         return None
 
-    lpr_token = os.getenv("BOT_DEEP_LINK_LPR_TOKEN", "lpr").strip().casefold()
-    ma_token = os.getenv("BOT_DEEP_LINK_MA_TOKEN", "ma").strip().casefold()
 
-    if lpr_token and normalized_payload == lpr_token:
-        return "lpr"
-    if ma_token and normalized_payload == ma_token:
-        return "ma"
-    return None
-
-
-async def _resolve_role_id(bot: "Bot", role_code: str | None) -> int | None:
-    if not role_code:
+async def _resolve_role_id(bot: "Bot", role_id: int | None) -> int | None:
+    if role_id is None:
         return None
-    result = await bot.managers.database.role.get_by_code(code=role_code)
+    result = await bot.managers.database.role.get_by_id(entity_id=int(role_id))
     if not result.get("success") or not result.get("data"):
         return None
-    role = result["data"]
-    return int(role.get("id") if isinstance(role, dict) else role.id)
+    return int(role_id)
 
 
 async def _can_apply_start_role(bot: "Bot", user_id: int) -> bool:
@@ -85,8 +72,7 @@ async def _handle_consent_callback(
     )
 
     if handled_data == CONSENT_AGREE_CALLBACK:
-        start_role_code = _get_start_role_code_from_context(context)
-        start_role_id = await _resolve_role_id(bot, start_role_code) or await _resolve_role_id(bot, "lpr")
+        start_role_id = await _resolve_role_id(bot, _get_start_role_id_from_context(context))
         if user is None:
             telegram_user = update.effective_user
             new_user = UserSchema(
@@ -174,8 +160,7 @@ async def start_app_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYPE
     if user_id is None:
         return Actions.END
 
-    start_role_code = _get_start_role_code_from_context(context)
-    start_role_id = await _resolve_role_id(bot, start_role_code)
+    start_role_id = await _resolve_role_id(bot, _get_start_role_id_from_context(context))
     user = await bot.services.user.get_user_by_id(user_id)
     if user is None or not user.data_processing_consent:
         keyboard = bot.create_keyboard(
@@ -191,7 +176,7 @@ async def start_app_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYPE
             _audit_context=bot.services.user.build_telegram_actor_audit_context(
                 telegram_user_id=user_id,
                 reason="user_role_updated_from_start_payload",
-                meta_updates={"start_role_code": start_role_code},
+                meta_updates={"start_role_id": start_role_id},
             ),
         )
         if updated_user is not None:

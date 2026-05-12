@@ -94,7 +94,7 @@ export default function UserRoleLinksPage() {
           <div className="space-y-1">
             <h2 className="text-3xl font-bold tracking-tight">Ссылки ролей пользователей</h2>
             <p className="text-muted-foreground">
-              Ссылки для автоприсвоения роли при первом запуске бота через deep-link.
+              Защищенные ссылки для автоприсвоения роли при запуске бота через deep-link.
             </p>
           </div>
 
@@ -107,14 +107,14 @@ export default function UserRoleLinksPage() {
                   <IconLink className="h-5 w-5" />
                 </EmptyMedia>
                 <EmptyTitle>Загрузка ссылок</EmptyTitle>
-                <EmptyDescription>Получаем параметры deep-link из конфигурации.</EmptyDescription>
+                <EmptyDescription>Генерируем подписанные ссылки для доступных ролей.</EmptyDescription>
               </EmptyHeader>
             </Empty>
           ) : !roleLinks?.links?.length ? (
             <Empty className="w-full border py-8">
               <EmptyHeader>
                 <EmptyTitle>Ссылки не настроены</EmptyTitle>
-                <EmptyDescription>Проверьте BOT_USERNAME и токены deep-link в .env.</EmptyDescription>
+                <EmptyDescription>Проверьте BOT_USERNAME и BOT_DEEP_LINK_SECRET в .env.</EmptyDescription>
               </EmptyHeader>
             </Empty>
           ) : (
