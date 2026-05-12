@@ -80,6 +80,9 @@ async function fetchAllPages<T>(
     const res = await apiFetch<PaginatedResponse<T>>(
       `${path}${sep}page=${page}&page_size=${pageSize}`
     )
+    if (Array.isArray(res)) {
+      return res
+    }
     const items = res?.items ?? []
     total = res?.total ?? 0
     all.push(...items)
