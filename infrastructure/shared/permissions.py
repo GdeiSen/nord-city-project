@@ -24,20 +24,90 @@ EVERYONE_ROLE_CODE = "everyone"
 
 
 DEFAULT_PERMISSIONS: tuple[dict[str, str], ...] = (
-    {"code": PermissionCodes.SITE_ACCESS, "scope": "site", "name": "Доступ к сайту"},
-    {"code": PermissionCodes.ROLES_MANAGE, "scope": "roles", "name": "Управление ролями"},
-    {"code": PermissionCodes.USERS_MANAGE, "scope": "users", "name": "Управление пользователями"},
-    {"code": PermissionCodes.LOCALIZATION_MANAGE, "scope": "localization", "name": "Управление локализацией"},
-    {"code": PermissionCodes.NOTIFICATIONS_SEND, "scope": "notifications", "name": "Отправка оповещений"},
-    {"code": PermissionCodes.BOT_FEATURE_PROFILE, "scope": "bot", "name": "Бот: профиль"},
-    {"code": PermissionCodes.BOT_FEATURE_SERVICE, "scope": "bot", "name": "Бот: обслуживание"},
-    {"code": PermissionCodes.BOT_FEATURE_POLL, "scope": "bot", "name": "Бот: опросы"},
-    {"code": PermissionCodes.BOT_FEATURE_FEEDBACK, "scope": "bot", "name": "Бот: обратная связь"},
-    {"code": PermissionCodes.BOT_FEATURE_GUEST_PARKING, "scope": "bot", "name": "Бот: гостевая парковка"},
-    {"code": PermissionCodes.BOT_FEATURE_SPACES, "scope": "bot", "name": "Бот: свободные площади"},
-    {"code": PermissionCodes.SERVICE_TICKETS_MANAGE, "scope": "service_tickets", "name": "Управление заявками"},
-    {"code": PermissionCodes.PARKING_MANAGE, "scope": "parking", "name": "Управление парковкой"},
-    {"code": PermissionCodes.PARKING_APPROVE, "scope": "parking", "name": "Подтверждение парковки"},
+    {
+        "code": PermissionCodes.SITE_ACCESS,
+        "scope": "site",
+        "name": "Доступ к сайту",
+        "description": "Позволяет входить в административную панель.",
+    },
+    {
+        "code": PermissionCodes.ROLES_MANAGE,
+        "scope": "roles",
+        "name": "Управление ролями",
+        "description": "Позволяет создавать роли и изменять наборы прав.",
+    },
+    {
+        "code": PermissionCodes.USERS_MANAGE,
+        "scope": "users",
+        "name": "Управление пользователями",
+        "description": "Позволяет просматривать, создавать и редактировать пользователей.",
+    },
+    {
+        "code": PermissionCodes.LOCALIZATION_MANAGE,
+        "scope": "localization",
+        "name": "Управление локализацией",
+        "description": "Позволяет изменять тексты и настройки сообщений бота.",
+    },
+    {
+        "code": PermissionCodes.NOTIFICATIONS_SEND,
+        "scope": "notifications",
+        "name": "Отправка оповещений",
+        "description": "Позволяет отправлять массовые уведомления пользователям.",
+    },
+    {
+        "code": PermissionCodes.BOT_FEATURE_PROFILE,
+        "scope": "bot",
+        "name": "Бот: профиль",
+        "description": "Открывает пользователю профиль и первичную авторизацию в боте.",
+    },
+    {
+        "code": PermissionCodes.BOT_FEATURE_SERVICE,
+        "scope": "bot",
+        "name": "Бот: обслуживание",
+        "description": "Открывает создание заявок на обслуживание через бота.",
+    },
+    {
+        "code": PermissionCodes.BOT_FEATURE_POLL,
+        "scope": "bot",
+        "name": "Бот: опросы",
+        "description": "Открывает пользователю раздел опросов в боте.",
+    },
+    {
+        "code": PermissionCodes.BOT_FEATURE_FEEDBACK,
+        "scope": "bot",
+        "name": "Бот: обратная связь",
+        "description": "Открывает отправку обратной связи через бота.",
+    },
+    {
+        "code": PermissionCodes.BOT_FEATURE_GUEST_PARKING,
+        "scope": "bot",
+        "name": "Бот: гостевая парковка",
+        "description": "Открывает оформление заявок на гостевую парковку через бота.",
+    },
+    {
+        "code": PermissionCodes.BOT_FEATURE_SPACES,
+        "scope": "bot",
+        "name": "Бот: свободные площади",
+        "description": "Открывает просмотр свободных площадей через бота.",
+    },
+    {
+        "code": PermissionCodes.SERVICE_TICKETS_MANAGE,
+        "scope": "service_tickets",
+        "name": "Управление заявками",
+        "description": "Позволяет обрабатывать и администрировать заявки на обслуживание.",
+    },
+    {
+        "code": PermissionCodes.PARKING_MANAGE,
+        "scope": "parking",
+        "name": "Управление парковкой",
+        "description": "Позволяет просматривать и настраивать гостевую парковку.",
+    },
+    {
+        "code": PermissionCodes.PARKING_APPROVE,
+        "scope": "parking",
+        "name": "Подтверждение парковки",
+        "description": "Позволяет подтверждать и отклонять заявки на гостевую парковку.",
+    },
 )
 
 

@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge"
 import { Toaster } from "@/components/ui/sonner"
 import { roleApi, type RoleResponse } from "@/lib/api"
 import { DataTable, createSelectColumn } from "@/components/data-table"
+import { PageHeader } from "@/components/page-header"
 
 const SYSTEM_ROLE_LABELS: Record<string, string> = {
   everyone: "Все пользователи",
@@ -62,33 +63,6 @@ export default function RolesPage() {
         </div>
       ),
     },
-    {
-      accessorKey: "type",
-      accessorFn: (role) => [role.is_system ? "Системная" : "Пользовательская", role.is_default ? "Everyone" : ""].join(" "),
-      header: "Тип",
-      meta: {
-        type: "string",
-        headerLabel: "Тип",
-        filterSelect: [
-          { value: "Системная", label: "Системная" },
-          { value: "Пользовательская", label: "Пользовательская" },
-          { value: "Everyone", label: "Everyone" },
-        ],
-      },
-      cell: ({ row }) => (
-        <div className="flex flex-wrap gap-1">
-          {row.original.is_system ? <Badge>Системная</Badge> : <Badge variant="outline">Пользовательская</Badge>}
-          {row.original.is_default && <Badge variant="secondary">Everyone</Badge>}
-        </div>
-      ),
-    },
-    {
-      accessorKey: "permissions",
-      accessorFn: (role) => String(role.permission_ids.length),
-      header: "Права",
-      meta: { type: "number", headerLabel: "Права" },
-      cell: ({ row }) => <span>{row.original.permission_ids.length}</span>,
-    },
   ]
 
   return (
@@ -96,19 +70,19 @@ export default function RolesPage() {
       <AppSidebar />
       <SidebarInset>
         <SiteHeader />
-        <div className="flex-1 min-w-0 space-y-5 p-4 pt-6 md:p-8">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h1 className="text-2xl font-semibold">Роли и права</h1>
-              <p className="mt-1 text-sm text-muted-foreground">Классы пользователей и доступ к функциям сайта и бота.</p>
-            </div>
-            <Button asChild>
-              <Link href="/roles/new">
-                <IconPlus className="h-4 w-4" />
-                Новая роль
-              </Link>
-            </Button>
-          </div>
+        <div className="flex-1 min-w-0 space-y-4 p-4 pt-6 md:p-8">
+          <PageHeader
+            title="Роли и права"
+            description="Классы пользователей и доступ к функциям сайта и бота"
+            actions={
+              <Button asChild>
+                <Link href="/roles/new">
+                  <IconPlus className="h-4 w-4" />
+                  Новая роль
+                </Link>
+              </Button>
+            }
+          />
 
           {loading ? (
             <div className="text-sm text-muted-foreground">Загрузка...</div>

@@ -15,6 +15,14 @@ import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Toaster } from "@/components/ui/sonner"
 import { roleApi, type PermissionResponse, type RoleResponse } from "@/lib/api"
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb"
 
 const SYSTEM_ROLE_LABELS: Record<string, string> = {
   everyone: "Все пользователи",
@@ -67,12 +75,18 @@ export default function RoleDetailPage() {
       })
   }, [isNew, roleId, router])
 
-  const sortedPermissions = useMemo(() => {
-    return [...permissions].sort((left, right) => {
+  const groupedPermissions = useMemo(() => {
+    const sorted = [...permissions].sort((left, right) => {
       const leftScope = getPermissionScopeLabel(left.scope)
       const rightScope = getPermissionScopeLabel(right.scope)
       return leftScope.localeCompare(rightScope, "ru") || left.name.localeCompare(right.name, "ru")
     })
+    const groups = new Map<string, PermissionResponse[]>()
+    for (const permission of sorted) {
+      const scope = getPermissionScopeLabel(permission.scope)
+      groups.set(scope, [...(groups.get(scope) ?? []), permission])
+    }
+    return Array.from(groups.entries())
   }, [permissions])
 
   const selectedIds = new Set(role.permission_ids ?? [])
@@ -115,14 +129,23 @@ export default function RoleDetailPage() {
       <SidebarInset>
         <SiteHeader />
         <div className="flex-1 min-w-0 space-y-5 p-4 pt-6 md:p-8">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h1 className="text-2xl font-semibold">{isNew ? "Новая роль" : getRoleName(role)}</h1>
-              <p className="mt-1 text-sm text-muted-foreground">Настройка прав доступа для класса пользователей.</p>
-            </div>
-            <Button variant="outline" asChild>
-              <Link href="/roles">К списку</Link>
-            </Button>
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild>
+                  <Link href="/roles">Роли и права</Link>
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>{isNew ? "Новая роль" : getRoleName(role)}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+
+          <div>
+            <h1 className="text-2xl font-semibold">{isNew ? "Новая роль" : getRoleName(role)}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Настройка прав доступа для класса пользователей.</p>
           </div>
 
           <div className="grid max-w-3xl gap-4">
@@ -155,33 +178,29 @@ export default function RoleDetailPage() {
             </div>
           </div>
 
-          <div className="max-w-5xl rounded-md border">
-            <div className="grid grid-cols-[minmax(0,1fr)_42px] gap-3 border-b bg-muted/40 px-4 py-2 text-sm font-medium text-muted-foreground sm:grid-cols-[minmax(0,1fr)_180px_42px]">
-              <span>Право</span>
-              <span className="hidden sm:block">Раздел</span>
-              <span className="text-right">Вкл.</span>
-            </div>
-            <div className="divide-y">
-              {sortedPermissions.map((permission) => (
-                <label
-                  key={permission.id}
-                  className="grid cursor-pointer grid-cols-[minmax(0,1fr)_42px] items-center gap-3 px-4 py-3 text-sm hover:bg-muted/30 sm:grid-cols-[minmax(0,1fr)_180px_42px]"
-                >
-                  <span className="min-w-0">
-                    <span className="block font-medium">{permission.name}</span>
-                    <span className="block truncate text-muted-foreground">{permission.code}</span>
-                    <span className="block text-muted-foreground sm:hidden">{getPermissionScopeLabel(permission.scope)}</span>
-                  </span>
-                  <span className="hidden text-muted-foreground sm:block">{getPermissionScopeLabel(permission.scope)}</span>
-                  <span className="flex justify-end">
-                    <Checkbox
-                      checked={selectedIds.has(permission.id)}
-                      onCheckedChange={(checked) => togglePermission(permission.id, checked === true)}
-                    />
-                  </span>
-                </label>
-              ))}
-            </div>
+          <div className="max-w-5xl space-y-6">
+            {groupedPermissions.map(([scope, items]) => (
+              <section key={scope} className="space-y-3">
+                <h2 className="text-base font-semibold">{scope}</h2>
+                <div className="divide-y rounded-md border">
+                  {items.map((permission) => (
+                    <label key={permission.id} className="flex cursor-pointer items-start gap-3 px-4 py-3 hover:bg-muted/30">
+                      <Checkbox
+                        className="mt-0.5"
+                        checked={selectedIds.has(permission.id)}
+                        onCheckedChange={(checked) => togglePermission(permission.id, checked === true)}
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium">{permission.name}</span>
+                        <span className="block text-sm text-muted-foreground">
+                          {permission.description || permission.code}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </section>
+            ))}
           </div>
 
           <div className="flex justify-end">
