@@ -1,17 +1,22 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select, func, or_
+from sqlalchemy import delete, select, func, or_
+from sqlalchemy.orm import selectinload
 
 from database.database_manager import DatabaseManager
+from models.contract import Contract, UserContract
 from models.feedback import Feedback
 from models.guest_parking_request import GuestParkingRequest
+from models.permission import Permission
 from models.poll_answer import PollAnswer
+from models.role import Role, RolePermission
 from models.service_ticket import ServiceTicket
 from models.space_view import SpaceView
 from models.user import User
+from models.user_role import UserRole
 from shared.clients.bot_client import bot_client
-from shared.constants import Roles
+from shared.permissions import EVERYONE_ROLE_CODE, SUPER_ADMIN_ROLE_CODE, PermissionCodes
 from shared.utils.converter import Converter
 
 from .base_service import BaseService, db_session_manager
@@ -33,6 +38,47 @@ class UserService(BaseService):
     def __init__(self, db_manager: DatabaseManager):
         super().__init__(db_manager)
 
+    async def _get_default_role_ids(self, *, session) -> list[int]:
+        result = await session.execute(select(Role.id).where(Role.is_default == True))  # noqa: E712
+        return [int(item) for item in result.scalars().all()]
+
+    async def _serialize_user_with_links(self, *, session, user: User | None) -> dict | None:
+        if user is None:
+            return None
+        data = Converter.to_dict(user)
+        role_result = await session.execute(
+            select(Role)
+            .join(UserRole, UserRole.role_id == Role.id)
+            .where(UserRole.user_id == int(user.id))
+            .order_by(Role.name.asc(), Role.id.asc())
+        )
+        roles = list(role_result.scalars().all())
+        data["roles"] = Converter.to_dict(roles)
+        data["role_ids"] = [int(role.id) for role in roles]
+
+        contract_result = await session.execute(
+            select(Contract, UserContract.is_primary)
+            .join(UserContract, UserContract.contract_id == Contract.id)
+            .where(UserContract.user_id == int(user.id))
+            .order_by(UserContract.is_primary.desc(), Contract.number.asc())
+        )
+        contracts = []
+        primary_number = None
+        for contract, is_primary in contract_result.all():
+            item = Converter.to_dict(contract)
+            item["is_primary"] = bool(is_primary)
+            contracts.append(item)
+            if primary_number is None:
+                primary_number = contract.number
+        data["contracts"] = contracts
+        data["contract_number"] = primary_number
+        return data
+
+    @db_session_manager
+    async def get_by_id(self, *, session, entity_id: Any) -> dict | None:
+        user = await self.repository.get_by_id(session=session, entity_id=entity_id)
+        return await self._serialize_user_with_links(session=session, user=user)
+
     @db_session_manager
     async def get_by_username(self, *, session, username: str):
         """Find user by username (case-insensitive). Telegram usernames are case-insensitive."""
@@ -41,14 +87,127 @@ class UserService(BaseService):
         normalized = username.strip().lstrip("@")
         stmt = select(User).where(func.lower(User.username) == func.lower(normalized))
         result = await session.execute(stmt)
-        return result.scalars().first()
+        user = result.scalars().first()
+        return await self._serialize_user_with_links(session=session, user=user)
+
+    @db_session_manager
+    async def get_all(self, *, session) -> List[dict]:
+        users = await self.repository.get_all(session=session)
+        return [await self._serialize_user_with_links(session=session, user=user) for user in users]
+
+    async def _replace_user_roles(self, *, session, user_id: int, role_ids: list[int] | None) -> None:
+        if role_ids is None:
+            return
+        normalized_ids = sorted({int(item) for item in role_ids})
+        if not normalized_ids:
+            normalized_ids = await self._get_default_role_ids(session=session)
+        if normalized_ids:
+            existing = await session.execute(select(Role.id).where(Role.id.in_(normalized_ids)))
+            valid_ids = {int(item) for item in existing.scalars().all()}
+        else:
+            valid_ids = set()
+        await session.execute(delete(UserRole).where(UserRole.user_id == int(user_id)))
+        for role_id in sorted(valid_ids):
+            session.add(UserRole(user_id=int(user_id), role_id=role_id))
+
+    async def _replace_primary_contract(self, *, session, user_id: int, contract_number: str | None) -> None:
+        if contract_number is None:
+            return
+        normalized = str(contract_number or "").strip()
+        await session.execute(
+            delete(UserContract).where(
+                UserContract.user_id == int(user_id),
+                UserContract.is_primary == True,  # noqa: E712
+            )
+        )
+        if not normalized:
+            return
+        contract_service = self.db_manager.services.get("contract")
+        contract = await contract_service.ensure_contract(session=session, number=normalized)
+        if contract is not None:
+            session.add(UserContract(user_id=int(user_id), contract_id=int(contract.id), is_primary=True))
+
+    @db_session_manager
+    async def create(self, *, session, model_instance: Any, **kwargs) -> Optional[dict]:
+        raw_data = dict(model_instance) if isinstance(model_instance, dict) else Converter.to_dict(model_instance)
+        role_ids = raw_data.pop("role_ids", None)
+        contract_number = raw_data.pop("contract_number", None)
+        raw_data.pop("roles", None)
+        raw_data.pop("contracts", None)
+        created = await super().create(
+            session=session,
+            model_instance=Converter.from_dict(User, raw_data),
+            **kwargs,
+        )
+        if created is None:
+            return None
+        if role_ids is None:
+            role_ids = await self._get_default_role_ids(session=session)
+        await self._replace_user_roles(session=session, user_id=int(created.id), role_ids=role_ids)
+        await self._replace_primary_contract(session=session, user_id=int(created.id), contract_number=contract_number)
+        await session.flush()
+        return await self._serialize_user_with_links(session=session, user=created)
+
+    @db_session_manager
+    async def update(self, *, session, entity_id: Any, update_data: Dict[str, Any], **kwargs) -> Optional[dict]:
+        update_data = dict(update_data or {})
+        role_ids = update_data.pop("role_ids", None)
+        contract_number = update_data.pop("contract_number", None)
+        update_data.pop("roles", None)
+        update_data.pop("contracts", None)
+        updated = await super().update(session=session, entity_id=entity_id, update_data=update_data, **kwargs)
+        if updated is None:
+            return None
+        await self._replace_user_roles(session=session, user_id=int(entity_id), role_ids=role_ids)
+        await self._replace_primary_contract(session=session, user_id=int(entity_id), contract_number=contract_number)
+        await session.flush()
+        return await self._serialize_user_with_links(session=session, user=updated)
+
+    @db_session_manager
+    async def get_access_profile(self, *, session, user_id: int) -> dict:
+        role_stmt = (
+            select(Role)
+            .outerjoin(UserRole, UserRole.role_id == Role.id)
+            .where(or_(UserRole.user_id == int(user_id), Role.code == EVERYONE_ROLE_CODE, Role.is_default == True))  # noqa: E712
+            .options(selectinload(Role.role_permissions).selectinload(RolePermission.permission))
+            .order_by(Role.name.asc(), Role.id.asc())
+        )
+        role_result = await session.execute(role_stmt)
+        roles = []
+        seen_role_ids = set()
+        permissions = set()
+        for role in role_result.scalars().all():
+            if role.id in seen_role_ids:
+                continue
+            seen_role_ids.add(role.id)
+            roles.append(role)
+            for role_permission in role.role_permissions or []:
+                permission = role_permission.permission
+                if permission is not None:
+                    permissions.add(permission.code)
+        is_super_admin = any(role.code == SUPER_ADMIN_ROLE_CODE for role in roles)
+        if is_super_admin:
+            all_permissions = await session.execute(select(Permission.code))
+            permissions = {str(item) for item in all_permissions.scalars().all()}
+        return {
+            "user_id": int(user_id),
+            "roles": Converter.to_dict(roles),
+            "permissions": sorted(permissions),
+            "is_super_admin": is_super_admin,
+        }
+
+    @db_session_manager
+    async def has_permission(self, *, session, user_id: int, permission_code: str) -> bool:
+        access = await self.get_access_profile(session=session, user_id=user_id)
+        return bool(access.get("is_super_admin") or permission_code in set(access.get("permissions") or []))
 
     @db_session_manager
     async def get_by_ids(self, *, session, ids: List[int]) -> List[User]:
         """Batch-fetch users by IDs. Returns list of User (order not guaranteed)."""
         if not ids:
             return []
-        return await self.repository.get_by_ids(session=session, ids=ids)
+        users = await self.repository.get_by_ids(session=session, ids=ids)
+        return [await self._serialize_user_with_links(session=session, user=user) for user in users]
 
     @db_session_manager
     async def get_notification_recipients(
@@ -67,7 +226,11 @@ class UserService(BaseService):
         stmt = select(User)
         filters = []
         if normalized_role_ids:
-            filters.append(User.role.in_(normalized_role_ids))
+            filters.append(
+                User.id.in_(
+                    select(UserRole.user_id).where(UserRole.role_id.in_(normalized_role_ids))
+                )
+            )
         if normalized_user_ids:
             filters.append(User.id.in_(normalized_user_ids))
 
@@ -84,7 +247,15 @@ class UserService(BaseService):
         stmt = (
             select(User)
             .where(User.object_id == int(object_id))
-            .where(User.role == Roles.MANAGER)
+            .where(
+                User.id.in_(
+                    select(UserRole.user_id)
+                    .join(Role, Role.id == UserRole.role_id)
+                    .join(RolePermission, RolePermission.role_id == Role.id)
+                    .join(Permission, Permission.id == RolePermission.permission_id)
+                    .where(Permission.code == PermissionCodes.SERVICE_TICKETS_MANAGE)
+                )
+            )
             .order_by(User.last_name.asc(), User.first_name.asc(), User.id.asc())
         )
         result = await session.execute(stmt)

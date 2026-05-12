@@ -7,6 +7,7 @@ import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { IconPlus, IconSettings } from "@tabler/icons-react"
+import { Badge } from "@/components/ui/badge"
 import { GuestParkingRequest } from "@/types"
 import { guestParkingApi } from "@/lib/api"
 import { Toaster } from "@/components/ui/sonner"
@@ -22,6 +23,26 @@ import {
 } from "@/hooks"
 
 /** Заявка в течение 15 минут — подсветка синим полупрозрачным */
+function formatArrivalInterval(request: GuestParkingRequest): string {
+  const start = request.arrival_start_at || request.arrival_date
+  const end = request.arrival_end_at
+  if (!start) return "—"
+  const date = formatDate(start, { includeTime: false })
+  const startTime = formatDate(start, { includeTime: true }).split(" ").pop() || ""
+  const endTime = end ? (formatDate(end, { includeTime: true }).split(" ").pop() || "") : ""
+  return endTime ? `${date} ${startTime} - ${endTime}` : `${date} ${startTime}`
+}
+
+function statusBadge(status: GuestParkingRequest["status"]) {
+  const label = status === "APPROVED" ? "Подтверждена" : status === "REJECTED" ? "Отклонена" : "Ожидает"
+  const colorClass = status === "APPROVED"
+    ? "border-emerald-500 text-emerald-700"
+    : status === "REJECTED"
+      ? "border-red-500 text-red-700"
+      : "border-amber-500 text-amber-700"
+  return <Badge variant="outline" className={colorClass}>{label}</Badge>
+}
+
 function isWithin15Minutes(arrivalDate: string | undefined): boolean {
   if (!arrivalDate) return false
   const now = new Date()
@@ -58,14 +79,20 @@ export default function GuestParkingPage() {
     },
     {
       accessorKey: "arrival",
-      header: "Дата и время заезда",
+      header: "Интервал заезда",
       meta: guestParkingColumnMeta.arrival,
-      accessorFn: (row) => row.arrival_date,
+      accessorFn: (row) => row.arrival_start_at || row.arrival_date,
       cell: ({ row }) => (
         <div className="text-sm">
-          {formatDate(row.original.arrival_date, { includeTime: true })}
+          {formatArrivalInterval(row.original)}
         </div>
       ),
+    },
+    {
+      accessorKey: "status",
+      header: "Статус",
+      meta: guestParkingColumnMeta.status,
+      cell: ({ row }) => statusBadge(row.original.status || "NEW"),
     },
     {
       accessorKey: "license_plate",
@@ -151,7 +178,7 @@ export default function GuestParkingPage() {
             loadingMessage="Загрузка заявок..."
             onRowClick={(row) => router.push(`/guest-parking/${row.original.id}`)}
             getRowClassName={(row) =>
-              isWithin15Minutes(row.original.arrival_date) ? "bg-blue-500/10" : undefined
+              isWithin15Minutes(row.original.arrival_start_at || row.original.arrival_date) ? "bg-blue-500/10" : undefined
             }
             contextMenuActions={{
               onEdit: (row) => router.push(`/guest-parking/edit/${row.original.id}`),
@@ -167,7 +194,7 @@ export default function GuestParkingPage() {
                   }
                 : undefined,
               getCopyText: (row) =>
-                `Заявка #${row.original.id}\nЗаезд: ${row.original.arrival_date}\nГосномер: ${row.original.license_plate}`,
+                `Заявка #${row.original.id}\nЗаезд: ${formatArrivalInterval(row.original)}\nСтатус: ${row.original.status}\nГосномер: ${row.original.license_plate}`,
               deleteTitle: "Удалить заявку?",
               deleteDescription: "Это действие нельзя отменить. Сообщение в чате администраторов будет удалено.",
             }}

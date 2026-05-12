@@ -207,6 +207,55 @@ class _UserProxy(_CRUDProxy):
             object_id=object_id,
         )
 
+    async def get_access_profile(self, *, user_id: int, model_class: Any = None) -> Dict[str, Any]:
+        return await self._call("get_access_profile", _model_class=model_class, user_id=user_id)
+
+    async def has_permission(self, *, user_id: int, permission_code: str, model_class: Any = None) -> Dict[str, Any]:
+        return await self._call(
+            "has_permission",
+            _model_class=model_class,
+            user_id=user_id,
+            permission_code=permission_code,
+        )
+
+
+class _RoleProxy(_CRUDProxy):
+    async def get_by_code(self, *, code: str, model_class: Any = None) -> Dict[str, Any]:
+        return await self._call("get_by_code", _model_class=model_class, code=code)
+
+    async def set_permissions(
+        self,
+        *,
+        role_id: int,
+        permission_ids: List[int],
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "set_permissions",
+            _model_class=model_class,
+            role_id=role_id,
+            permission_ids=permission_ids,
+        )
+
+
+class _ContractProxy(_CRUDProxy):
+    async def get_by_number(self, *, number: str, model_class: Any = None) -> Dict[str, Any]:
+        return await self._call("get_by_number", _model_class=model_class, number=number)
+
+    async def ensure_contract(
+        self,
+        *,
+        number: str,
+        title: str | None = None,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "ensure_contract",
+            _model_class=model_class,
+            number=number,
+            title=title,
+        )
+
 
 class _DynamicDialogBindingProxy(_CRUDProxy):
     """Canonical DDID registry proxy."""
@@ -776,6 +825,9 @@ class DatabaseClient:
         # --- Explicit service proxies ---
         self.user = _UserProxy(self._http, "user")
         self.auth = _CRUDProxy(self._http, "auth")
+        self.role = _RoleProxy(self._http, "role")
+        self.permission = _CRUDProxy(self._http, "permission")
+        self.contract = _ContractProxy(self._http, "contract")
         self.dynamic_dialog_binding = _DynamicDialogBindingProxy(self._http, "dynamic_dialog_binding")
         self.feedback = _FeedbackProxy(self._http, "feedback")
         self.object = _ObjectProxy(self._http, "object")

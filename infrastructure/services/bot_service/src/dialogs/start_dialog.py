@@ -2,7 +2,7 @@ import os
 from typing import TYPE_CHECKING
 
 from shared.schemas import UserSchema
-from shared.constants import Dialogs, Actions, Variables, Roles
+from shared.constants import Dialogs, Actions, Variables
 
 if TYPE_CHECKING:
     from telegram import Update
@@ -18,13 +18,13 @@ def _normalize_start_payload(payload: str | None) -> str:
     return (payload or "").strip()
 
 
-def _get_start_role_from_context(context: "ContextTypes.DEFAULT_TYPE") -> int | None:
+def _get_start_role_code_from_context(context: "ContextTypes.DEFAULT_TYPE") -> str | None:
     raw_start_payload = context.user_data.get(START_PAYLOAD_CTX_KEY) if context.user_data is not None else ""
     start_payload = _normalize_start_payload(raw_start_payload)
-    return _resolve_role_from_start_payload(start_payload)
+    return _resolve_role_code_from_start_payload(start_payload)
 
 
-def _resolve_role_from_start_payload(payload: str) -> int | None:
+def _resolve_role_code_from_start_payload(payload: str) -> str | None:
     normalized_payload = payload.casefold()
     if not normalized_payload:
         return None
@@ -33,14 +33,28 @@ def _resolve_role_from_start_payload(payload: str) -> int | None:
     ma_token = os.getenv("BOT_DEEP_LINK_MA_TOKEN", "ma").strip().casefold()
 
     if lpr_token and normalized_payload == lpr_token:
-        return Roles.LPR
+        return "lpr"
     if ma_token and normalized_payload == ma_token:
-        return Roles.MA
+        return "ma"
     return None
 
 
-def _can_apply_start_role(user_role: int | None) -> bool:
-    return user_role in (None, Roles.GUEST, Roles.LPR, Roles.MA)
+async def _resolve_role_id(bot: "Bot", role_code: str | None) -> int | None:
+    if not role_code:
+        return None
+    result = await bot.managers.database.role.get_by_code(code=role_code)
+    if not result.get("success") or not result.get("data"):
+        return None
+    role = result["data"]
+    return int(role.get("id") if isinstance(role, dict) else role.id)
+
+
+async def _can_apply_start_role(bot: "Bot", user_id: int) -> bool:
+    access = await bot.services.user.get_access_profile(user_id)
+    if access is None:
+        return True
+    role_codes = {role.code for role in access.roles}
+    return not access.is_super_admin and not {"admin", "manager"} & role_codes
 
 
 def _save_user_context(context: "ContextTypes.DEFAULT_TYPE", bot: "Bot", user: UserSchema) -> None:
@@ -71,7 +85,8 @@ async def _handle_consent_callback(
     )
 
     if handled_data == CONSENT_AGREE_CALLBACK:
-        start_role = _get_start_role_from_context(context)
+        start_role_code = _get_start_role_code_from_context(context)
+        start_role_id = await _resolve_role_id(bot, start_role_code) or await _resolve_role_id(bot, "lpr")
         if user is None:
             telegram_user = update.effective_user
             new_user = UserSchema(
@@ -82,7 +97,7 @@ async def _handle_consent_callback(
                 object_id=None,
                 middle_name="",
                 legal_entity="",
-                role=start_role or Roles.LPR,
+                role_ids=[start_role_id] if start_role_id is not None else [],
                 data_processing_consent=True,
             )
             user = await bot.services.user.create_user(
@@ -159,7 +174,8 @@ async def start_app_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYPE
     if user_id is None:
         return Actions.END
 
-    start_role = _get_start_role_from_context(context)
+    start_role_code = _get_start_role_code_from_context(context)
+    start_role_id = await _resolve_role_id(bot, start_role_code)
     user = await bot.services.user.get_user_by_id(user_id)
     if user is None or not user.data_processing_consent:
         keyboard = bot.create_keyboard(
@@ -168,14 +184,14 @@ async def start_app_dialog(update: "Update", context: "ContextTypes.DEFAULT_TYPE
         await bot.send_message(update, context, "user_agreement_input_handler_prompt", keyboard)
         bot.register_input_handler(user_id, Actions.CALLBACK, _build_consent_callback_handler(bot))
         return Actions.END
-    elif start_role is not None and start_role != user.role and _can_apply_start_role(user.role):
+    elif start_role_id is not None and await _can_apply_start_role(bot, user_id):
         updated_user = await bot.services.user.update_user(
             user_id,
-            {"role": start_role},
+            {"role_ids": [start_role_id]},
             _audit_context=bot.services.user.build_telegram_actor_audit_context(
                 telegram_user_id=user_id,
                 reason="user_role_updated_from_start_payload",
-                meta_updates={"start_role": start_role},
+                meta_updates={"start_role_code": start_role_code},
             ),
         )
         if updated_user is not None:

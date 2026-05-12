@@ -25,10 +25,14 @@ def get_optional_current_user(request: Request) -> Optional[dict]:
     if payload is None:
         return None
     user_id = payload.get("sub")
-    role = payload.get("role")
     if not user_id:
         return None
-    return {"user_id": int(user_id), "role": role}
+    return {
+        "user_id": int(user_id),
+        "roles": payload.get("roles") or [],
+        "permissions": payload.get("permissions") or [],
+        "is_super_admin": bool(payload.get("is_super_admin")),
+    }
 
 
 def get_current_user(request: Request) -> dict:
@@ -50,10 +54,25 @@ def get_current_user(request: Request) -> dict:
             detail="Недействительный или истекший токен",
         )
     user_id = payload.get("sub")
-    role = payload.get("role")
     if not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный формат токена",
         )
-    return {"user_id": int(user_id), "role": role}
+    return {
+        "user_id": int(user_id),
+        "roles": payload.get("roles") or [],
+        "permissions": payload.get("permissions") or [],
+        "is_super_admin": bool(payload.get("is_super_admin")),
+    }
+
+
+def require_permission(current_user: dict, permission_code: str) -> None:
+    if current_user.get("is_super_admin"):
+        return
+    if permission_code in set(current_user.get("permissions") or []):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Недостаточно прав для выполнения операции.",
+    )

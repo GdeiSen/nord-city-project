@@ -64,7 +64,7 @@ class NavigatorManager(BaseManager):
         stack = self._get_stack(context)
         route_key = int(route_id) if isinstance(route_id, str) and str(route_id).isdigit() else route_id
         feature_key = self.bot.services.bot_settings.get_feature_key_for_route(route_key, context)
-        if feature_key and not self.bot.services.bot_settings.is_feature_enabled(feature_key):
+        if feature_key and not await self.bot.services.bot_settings.is_feature_allowed_for_user(feature_key, self.bot.get_user_id(update)):
             return await self.bot.handle_disabled_feature(update, context, feature_key)
         stack.push(route_key)
         self._set_stack(context, stack)
@@ -146,7 +146,7 @@ class NavigatorManager(BaseManager):
         """Запуск handler по ключу."""
         route_key = self._parse_route_key(key) if isinstance(key, str) else key
         feature_key = self.bot.services.bot_settings.get_feature_key_for_route(route_key, context)
-        if feature_key and not self.bot.services.bot_settings.is_feature_enabled(feature_key):
+        if feature_key and not await self.bot.services.bot_settings.is_feature_allowed_for_user(feature_key, self.bot.get_user_id(update)):
             return await self.bot.handle_disabled_feature(update, context, feature_key)
         if isinstance(route_key, int) and route_key in self.handlers:
             return await self.handlers[route_key](update, context, self.bot)

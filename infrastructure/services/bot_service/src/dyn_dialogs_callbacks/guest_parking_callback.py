@@ -4,7 +4,7 @@ Callback для диалога гостевой парковки.
 Создание заявки, уведомление администраторов, напоминание за 15 мин.
 """
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from shared.constants import Dialogs, Variables, CallbackResult
@@ -68,6 +68,18 @@ def _parse_time(s: str) -> tuple[int, int] | None:
     return None
 
 
+def _parse_time_interval(s: str) -> tuple[tuple[int, int], tuple[int, int]] | None:
+    text = (s or "").strip().replace("—", "-").replace("–", "-")
+    parts = [part.strip() for part in text.split("-") if part.strip()]
+    if len(parts) != 2:
+        return None
+    start = _parse_time(parts[0])
+    end = _parse_time(parts[1])
+    if start is None or end is None:
+        return None
+    return start, end
+
+
 def _is_time_in_range(hour: int, minute: int) -> bool:
     """Проверка: время в диапазоне 9:00–19:00."""
     if hour < 9:
@@ -117,15 +129,15 @@ async def guest_parking_callback(
 
     # --- Ввод времени ---
     if item_id == 101:
-        parsed = _parse_time(answer or "")
+        parsed = _parse_time_interval(answer or "")
         if not parsed:
             set_dialog_position(bot, context, sequence_id, _idx())
             await bot.send_message(
                 update, context, "guest_parking_time_invalid", dynamic=False
             )
             return CallbackResult.retry_current(sequence_id, _idx())
-        hour, minute = parsed
-        if not _is_time_in_range(hour, minute):
+        (start_hour, start_minute), (end_hour, end_minute) = parsed
+        if not _is_time_in_range(start_hour, start_minute) or not _is_time_in_range(end_hour, end_minute):
             set_dialog_position(bot, context, sequence_id, _idx())
             await bot.send_message(
                 update, context, "guest_parking_time_error", dynamic=False
@@ -133,20 +145,31 @@ async def guest_parking_callback(
             return CallbackResult.retry_current(sequence_id, _idx())
         arrival_date = data.get("arrival_date") or now()
         if isinstance(arrival_date, datetime):
-            arrival_dt = arrival_date.replace(
-                hour=hour, minute=minute, second=0, microsecond=0
+            arrival_start_at = arrival_date.replace(
+                hour=start_hour, minute=start_minute, second=0, microsecond=0
+            )
+            arrival_end_at = arrival_date.replace(
+                hour=end_hour, minute=end_minute, second=0, microsecond=0
             )
         else:
-            arrival_dt = now().replace(hour=hour, minute=minute, second=0, microsecond=0)
+            current = now()
+            arrival_start_at = current.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
+            arrival_end_at = current.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
+        if arrival_end_at <= arrival_start_at or arrival_end_at - arrival_start_at > timedelta(hours=2):
+            set_dialog_position(bot, context, sequence_id, _idx())
+            await bot.send_message(update, context, "guest_parking_time_error", dynamic=False)
+            return CallbackResult.retry_current(sequence_id, _idx())
         from shared.utils.time_utils import SYSTEM_TIMEZONE
-        arrival_dt_cmp = arrival_dt if arrival_dt.tzinfo else arrival_dt.replace(tzinfo=SYSTEM_TIMEZONE)
-        if arrival_dt_cmp <= now():
+        arrival_start_cmp = arrival_start_at if arrival_start_at.tzinfo else arrival_start_at.replace(tzinfo=SYSTEM_TIMEZONE)
+        if arrival_start_cmp <= now():
             set_dialog_position(bot, context, sequence_id, _idx())
             await bot.send_message(
                 update, context, "guest_parking_datetime_past", dynamic=False
             )
             return CallbackResult.retry_current(sequence_id, _idx())
-        data["arrival_time"] = f"{hour:02d}:{minute:02d}"
+        data["arrival_time"] = f"{start_hour:02d}:{start_minute:02d} - {end_hour:02d}:{end_minute:02d}"
+        data["arrival_start_at"] = arrival_start_at
+        data["arrival_end_at"] = arrival_end_at
         data.setdefault("arrival_date", datetime.now())
         bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, data)
         return CallbackResult.continue_()
@@ -161,6 +184,17 @@ async def guest_parking_callback(
             )
             return CallbackResult.retry_current(sequence_id, _idx())
         data["license_plate"] = plate
+        bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, data)
+        return CallbackResult.continue_()
+
+    # --- Марка и цвет ---
+    if item_id == 103:
+        car = (answer or "").strip()
+        if not car:
+            set_dialog_position(bot, context, sequence_id, _idx())
+            await bot.send_message(update, context, "guest_parking_car_invalid", dynamic=False)
+            return CallbackResult.retry_current(sequence_id, _idx())
+        data["car_make_color"] = car
         bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, data)
         user_id = bot.get_user_id(update)
         user = await bot.services.user.get_user_by_id(user_id) if user_id else None
@@ -223,23 +257,16 @@ async def _finalize_and_show_summary(
     user = await bot.services.user.get_user_by_id(user_id)
 
     arrival_date = data.get("arrival_date")
-    arrival_time = data.get("arrival_time", "")
-    if isinstance(arrival_date, datetime):
-        parts = arrival_time.split(":")
-        hour = int(parts[0]) if parts else 9
-        minute = int(parts[1]) if len(parts) > 1 else 0
-        arrival_dt = arrival_date.replace(
-            hour=hour,
-            minute=minute,
-            second=0,
-            microsecond=0,
-        )
-    else:
-        arrival_dt = now()
+    arrival_start_at = data.get("arrival_start_at")
+    arrival_end_at = data.get("arrival_end_at")
+    if not isinstance(arrival_start_at, datetime) or not isinstance(arrival_end_at, datetime):
+        arrival_start_at = now()
+        arrival_end_at = arrival_start_at + timedelta(hours=2)
 
     # TIMESTAMPTZ: naive → Europe/Minsk
     from shared.utils.time_utils import SYSTEM_TIMEZONE
-    arrival_dt_save = arrival_dt if arrival_dt.tzinfo else arrival_dt.replace(tzinfo=SYSTEM_TIMEZONE)
+    arrival_start_save = arrival_start_at if arrival_start_at.tzinfo else arrival_start_at.replace(tzinfo=SYSTEM_TIMEZONE)
+    arrival_end_save = arrival_end_at if arrival_end_at.tzinfo else arrival_end_at.replace(tzinfo=SYSTEM_TIMEZONE)
 
     from shared.schemas import GuestParkingSchema
     audit_context = bot.services.notification.build_telegram_actor_audit_context(
@@ -250,9 +277,13 @@ async def _finalize_and_show_summary(
         model_data={
             "user_id": user_id,
             "object_id": getattr(user, "object_id", None) if user else None,
-            "arrival_date": arrival_dt_save.isoformat(),
+            "arrival_date": arrival_start_save.isoformat(),
+            "arrival_start_at": arrival_start_save.isoformat(),
+            "arrival_end_at": arrival_end_save.isoformat(),
             "license_plate": data.get("license_plate", ""),
+            "car_make_color": data.get("car_make_color", ""),
             "tenant_phone": data.get("tenant_phone"),
+            "status": "NEW",
         },
         model_class=GuestParkingSchema,
         _audit_context=audit_context,
@@ -292,7 +323,7 @@ async def _finalize_and_show_summary(
         route_images = []
 
     # Формируем итоговый текст для финального экрана
-    date_str = arrival_dt.strftime("%d.%m.%Y") if arrival_date else ""
+    date_str = arrival_start_at.strftime("%d.%m.%Y") if arrival_date else ""
     time_str = data.get("arrival_time", "")
     summary = bot.get_text(
         "guest_parking_final_summary",

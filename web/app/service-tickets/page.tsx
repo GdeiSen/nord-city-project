@@ -139,6 +139,12 @@ export default function ServiceTicketsPage() {
       cell: ({ row }) => getStatusBadge(row.original.status),
     },
     {
+      accessorKey: "category",
+      header: "Категория",
+      meta: serviceTicketColumnMeta.category,
+      cell: ({ row }) => row.original.category || <span className="text-muted-foreground">—</span>,
+    },
+    {
       accessorKey: "created",
       header: "Создана",
       meta: serviceTicketColumnMeta.created,

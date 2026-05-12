@@ -8,35 +8,24 @@
 // Re-export filter types for convenience
 export type { FilterOperator, FilterItem, ServerPaginationParams } from "./filters"
 
-// Role constants and types
-export const USER_ROLES = {
-  GUEST: 0,
-  USER_LPR: 10011,
-  USER_MA: 20122,
-  MANAGER: 10014,
-  ADMIN: 10012,
-  SUPER_ADMIN: 10013,
-} as const
+export interface Permission {
+  id: number
+  code: string
+  scope: string
+  name: string
+  description?: string
+}
 
-export type UserRole = typeof USER_ROLES[keyof typeof USER_ROLES]
-
-export const ROLE_LABELS: Record<UserRole, string> = {
-  [USER_ROLES.GUEST]: 'Guest',
-  [USER_ROLES.USER_LPR]: 'User LPR',
-  [USER_ROLES.USER_MA]: 'User MA',
-  [USER_ROLES.MANAGER]: 'Manager',
-  [USER_ROLES.ADMIN]: 'Administrator',
-  [USER_ROLES.SUPER_ADMIN]: 'Super Admin',
-} as const
-
-export const ROLE_BADGE_VARIANTS: Record<UserRole, 'destructive' | 'default' | 'secondary' | 'outline'> = {
-  [USER_ROLES.GUEST]: 'outline',
-  [USER_ROLES.USER_LPR]: 'default',
-  [USER_ROLES.USER_MA]: 'secondary',
-  [USER_ROLES.MANAGER]: 'secondary',
-  [USER_ROLES.ADMIN]: 'destructive',
-  [USER_ROLES.SUPER_ADMIN]: 'destructive',
-} as const
+export interface Role {
+  id: number
+  code: string
+  name: string
+  description?: string
+  is_system: boolean
+  is_default: boolean
+  permission_ids: number[]
+  permissions: Permission[]
+}
 
 // Service ticket statuses and priorities
 export const TICKET_STATUS = {
@@ -130,8 +119,9 @@ export interface User extends BaseEntity {
   id: number;
   /** Telegram username without @ symbol */
   username?: string;
-  /** User role identifier for permissions */
-  role?: number;
+  /** Dynamic RBAC roles */
+  role_ids?: number[];
+  roles?: Role[];
   /** User's first name from Telegram profile */
   first_name?: string;
   /** User's last name from Telegram profile */
@@ -150,6 +140,8 @@ export interface User extends BaseEntity {
   phone_number?: string;
   /** Contact email address */
   email?: string;
+  contract_number?: string;
+  contracts?: Array<{ id: number; number: string; title?: string; status: string; is_primary?: boolean }>;
   /** Associated rental object */
   object?: RentalObject;
 }
@@ -246,9 +238,15 @@ export interface GuestParkingRequest extends BaseEntity {
   user_id: number
   object_id?: number
   arrival_date: string
+  arrival_start_at?: string
+  arrival_end_at?: string
   license_plate: string
   car_make_color: string
   tenant_phone?: string
+  status: "NEW" | "APPROVED" | "REJECTED"
+  reviewed_by_user_id?: number
+  reviewed_at?: string
+  rejection_reason?: string
   user?: User
 }
 

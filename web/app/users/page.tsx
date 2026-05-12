@@ -8,7 +8,7 @@ import { SidebarInset } from "@/components/ui/sidebar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { IconSettings, IconUserPlus } from "@tabler/icons-react"
-import { User, USER_ROLES, ROLE_LABELS, ROLE_BADGE_VARIANTS } from "@/types"
+import { User } from "@/types"
 import { userApi } from "@/lib/api"
 import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
@@ -42,11 +42,18 @@ export default function UsersPage() {
     initialParams: { sort: "created:desc" },
   })
 
-  const getRoleBadge = (role: number | undefined) => {
-    if (role === undefined) return <Badge variant="outline">Неопределен</Badge>
-    const roleKey = Object.values(USER_ROLES).find((r) => r === role)
-    if (!roleKey) return <Badge variant="outline">Неизвестная роль</Badge>
-    return <Badge variant={ROLE_BADGE_VARIANTS[roleKey]}>{ROLE_LABELS[roleKey]}</Badge>
+  const getRoleBadges = (user: User) => {
+    const roles = user.roles ?? []
+    if (!roles.length) return <Badge variant="outline">Без роли</Badge>
+    return (
+      <div className="flex flex-wrap gap-1">
+        {roles.map((role) => (
+          <Badge key={role.id} variant={role.code === "super_admin" ? "destructive" : "secondary"}>
+            {role.name || role.code}
+          </Badge>
+        ))}
+      </div>
+    )
   }
 
   const columns: ColumnDef<User>[] = [
@@ -84,10 +91,10 @@ export default function UsersPage() {
       ),
     },
     {
-      accessorKey: "role",
-      header: "Роль",
-      meta: userColumnMeta.role,
-      cell: ({ row }) => getRoleBadge(row.original.role),
+      accessorKey: "roles",
+      header: "Роли",
+      meta: userColumnMeta.roles,
+      cell: ({ row }) => getRoleBadges(row.original),
     },
     {
       accessorKey: "object",

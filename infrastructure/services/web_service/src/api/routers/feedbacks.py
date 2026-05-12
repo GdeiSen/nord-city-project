@@ -4,9 +4,10 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
 from shared.clients.database_client import db_client
-from shared.constants import FeedbackTypes, Roles
+from shared.constants import FeedbackTypes
+from shared.permissions import PermissionCodes
 from shared.schemas.feedback import FeedbackSchema
-from api.dependencies import get_current_user, get_audit_context
+from api.dependencies import get_current_user, get_audit_context, require_permission
 from api.schemas.common import MessageResponse, PaginatedResponse, parse_sort_param
 from api.schemas.list_params import parse_list_params_from_query
 from api.helpers.paginated_list import create_paginated_list_handler
@@ -62,11 +63,7 @@ async def create_feedback(
     request: Request,
     current_user: dict = Depends(get_current_user),
 ):
-    if current_user.get("role") != Roles.SUPER_ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Только Super Admin может создавать отзывы.",
-        )
+    require_permission(current_user, PermissionCodes.SITE_ACCESS)
     if body.feedback_type == FeedbackTypes.SERVICE_TICKET:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -178,11 +175,7 @@ async def update_feedback(
     request: Request,
     current_user: dict = Depends(get_current_user),
 ):
-    if current_user.get("role") != Roles.SUPER_ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Только Super Admin может редактировать отзывы.",
-        )
+    require_permission(current_user, PermissionCodes.SITE_ACCESS)
     update_data = body.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
@@ -222,11 +215,7 @@ async def delete_feedback(
     request: Request,
     current_user: dict = Depends(get_current_user),
 ):
-    if current_user.get("role") != Roles.SUPER_ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Только Super Admin может удалять отзывы.",
-        )
+    require_permission(current_user, PermissionCodes.SITE_ACCESS)
     existing = await db_client.feedback.get_by_id(entity_id=entity_id, model_class=FeedbackSchema)
     if not existing.get("success"):
         error = existing.get("error", "Feedback not found")

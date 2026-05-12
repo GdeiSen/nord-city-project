@@ -50,7 +50,9 @@ class TokenValidationResponse(BaseModel):
     """Response for token validation check."""
     valid: bool
     user_id: Optional[int] = None
-    role: Optional[int] = None
+    roles: list[dict] = []
+    permissions: list[str] = []
+    is_super_admin: bool = False
     reason: Optional[str] = None
 
 

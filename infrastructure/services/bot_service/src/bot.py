@@ -499,7 +499,7 @@ class Bot:
             if command in dialog_map:
                 dialog_id = dialog_map[command]
                 feature_key = self.services.bot_settings.get_feature_key_for_route(dialog_id, context)
-                if feature_key and not self.services.bot_settings.is_feature_enabled(feature_key):
+                if feature_key and not await self.services.bot_settings.is_feature_allowed_for_user(feature_key, self.get_user_id(update)):
                     await self.handle_disabled_feature(update, context, feature_key)
                     return
                 self.managers.navigator.clear(context)

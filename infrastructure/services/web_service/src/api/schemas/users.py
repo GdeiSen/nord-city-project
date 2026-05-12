@@ -9,7 +9,6 @@ class UserResponse(BaseModel):
     """Response schema for User entity. Matches web/types/index.ts User interface."""
     id: int
     username: Optional[str] = None
-    role: Optional[int] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     middle_name: Optional[str] = None
@@ -20,6 +19,10 @@ class UserResponse(BaseModel):
     legal_entity: Optional[str] = None
     phone_number: Optional[str] = None
     email: Optional[str] = None
+    role_ids: list[int] = []
+    roles: list[dict] = []
+    contract_number: Optional[str] = None
+    contracts: list[dict] = []
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -30,7 +33,6 @@ class CreateUserRequest(BaseModel):
 
     id: int  # Telegram user ID — set by the client, not auto-generated
     username: Optional[str] = None
-    role: Optional[int] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     middle_name: Optional[str] = None
@@ -40,6 +42,8 @@ class CreateUserRequest(BaseModel):
     legal_entity: Optional[str] = None
     phone_number: Optional[str] = None
     email: Optional[str] = None
+    role_ids: list[int] = []
+    contract_number: Optional[str] = None
 
 
 class UpdateUserBody(BaseModel):
@@ -47,7 +51,6 @@ class UpdateUserBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     username: Optional[str] = None
-    role: Optional[int] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     middle_name: Optional[str] = None
@@ -57,3 +60,5 @@ class UpdateUserBody(BaseModel):
     legal_entity: Optional[str] = None
     phone_number: Optional[str] = None
     email: Optional[str] = None
+    role_ids: Optional[list[int]] = None
+    contract_number: Optional[str] = None

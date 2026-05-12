@@ -1,23 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from api.dependencies import get_current_user
+from api.dependencies import get_current_user, require_permission
 from api.helpers.paginated_list import create_paginated_list_handler
 from api.schemas.common import PaginatedResponse
 from api.schemas.storage_files import StorageFileResponse
 from shared.clients.database_client import db_client
-from shared.constants import Roles
+from shared.permissions import PermissionCodes
 from shared.schemas.storage_file import StorageFileSchema
 
 router = APIRouter(prefix="/storage-files", tags=["Storage Files"])
 
 
 def _require_admin(current_user: dict = Depends(get_current_user)) -> dict:
-    role = current_user.get("role")
-    if role not in (Roles.ADMIN, Roles.SUPER_ADMIN):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Доступ только для администраторов.",
-        )
+    require_permission(current_user, PermissionCodes.SITE_ACCESS)
     return current_user
 
 

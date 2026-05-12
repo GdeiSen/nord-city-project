@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -12,8 +12,10 @@ if TYPE_CHECKING:
     from .guest_parking_request import GuestParkingRequest
     from .object import Object
     from .poll_answer import PollAnswer
+    from .contract import UserContract
     from .service_ticket import ServiceTicket
     from .space_view import SpaceView
+    from .user_role import UserRole
 
 
 class User(Base):
@@ -21,7 +23,6 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
     username: Mapped[Optional[str]] = mapped_column(String(150))
-    role: Mapped[Optional[int]] = mapped_column(Integer)
     first_name: Mapped[Optional[str]] = mapped_column(String(50))
     last_name: Mapped[Optional[str]] = mapped_column(String(50))
     middle_name: Mapped[Optional[str]] = mapped_column(String(50))
@@ -59,5 +60,11 @@ class User(Base):
         back_populates="user", cascade="all, delete-orphan"
     )
     guest_parking_requests: Mapped[List["GuestParkingRequest"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    user_roles: Mapped[List["UserRole"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    user_contracts: Mapped[List["UserContract"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )

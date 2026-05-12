@@ -118,16 +118,23 @@ function getPhoneValidationError(phone: string, required: boolean): string | nul
   return null
 }
 
-/** Валидация: дата и время не в прошлом. Гостевая парковка 9:00–19:00. */
-function validateArrivalDateTime(dateStr: string, timeStr: string): string | null {
+/** Валидация: дата и интервал не в прошлом. Гостевая парковка 9:00–19:00, максимум 2 часа. */
+function validateArrivalInterval(dateStr: string, startTime: string, endTime: string): string | null {
   const parsedDate = parseDateInput(dateStr) || (dateStr.match(/^\d{4}-\d{2}-\d{2}$/) ? parseISO(dateStr) : null)
   if (!parsedDate || isNaN(parsedDate.getTime())) return "Укажите корректную дату"
   if (isBefore(parsedDate, startOfDay(new Date()))) return "Указанная дата уже прошла. Выберите сегодня или дату в будущем."
-  const [h, m] = timeStr.split(":").map(Number)
-  if (h < 9 || h > 19 || (h === 19 && m > 0)) return "Время должно быть с 9:00 до 19:00"
-  const arrival = new Date(parsedDate)
-  arrival.setHours(h, m, 0, 0)
-  if (isBefore(arrival, new Date())) return "Указанные дата и время уже прошли. Выберите другое время."
+  const [startHour, startMinute] = startTime.split(":").map(Number)
+  const [endHour, endMinute] = endTime.split(":").map(Number)
+  if ([startHour, startMinute, endHour, endMinute].some((n) => Number.isNaN(n))) return "Укажите корректный интервал"
+  const isOutOfRange = (h: number, m: number) => h < 9 || h > 19 || (h === 19 && m > 0)
+  if (isOutOfRange(startHour, startMinute) || isOutOfRange(endHour, endMinute)) return "Интервал должен быть с 9:00 до 19:00"
+  const start = new Date(parsedDate)
+  start.setHours(startHour, startMinute, 0, 0)
+  const end = new Date(parsedDate)
+  end.setHours(endHour, endMinute, 0, 0)
+  if (end <= start) return "Окончание интервала должно быть позже начала"
+  if (end.getTime() - start.getTime() > 2 * 60 * 60 * 1000) return "Интервал не может превышать 2 часа"
+  if (isBefore(start, new Date())) return "Указанные дата и время уже прошли. Выберите другое время."
   return null
 }
 
@@ -140,22 +147,26 @@ export default function GuestParkingEditPage() {
   const [formData, setFormData] = useState<{
     user_id: number | null
     arrival_date: string
-    arrival_time: string
+    arrival_start_time: string
+    arrival_end_time: string
     license_plate: string
     car_make_color: string
     tenant_phone: string
   }>({
     user_id: null,
     arrival_date: "",
-    arrival_time: "09:00",
+    arrival_start_time: "09:00",
+    arrival_end_time: "11:00",
     license_plate: "",
     car_make_color: "",
     tenant_phone: "",
   })
   const [saving, setSaving] = useState(false)
   const [dateInputDisplay, setDateInputDisplay] = useState("")
-  const [hourDisplay, setHourDisplay] = useState("09")
-  const [minuteDisplay, setMinuteDisplay] = useState("00")
+  const [startHourDisplay, setStartHourDisplay] = useState("09")
+  const [startMinuteDisplay, setStartMinuteDisplay] = useState("00")
+  const [endHourDisplay, setEndHourDisplay] = useState("11")
+  const [endMinuteDisplay, setEndMinuteDisplay] = useState("00")
   const [tenantPhoneError, setTenantPhoneError] = useState("")
 
   useEffect(() => {
@@ -164,19 +175,27 @@ export default function GuestParkingEditPage() {
       setUsers(allUsers)
       if (isEdit && reqId) {
         const req = await guestParkingApi.getById(Number(reqId))
-        const { date, time } = splitDateTime(req.arrival_date)
-        const [h, m] = parseTime(time)
+        const startSource = req.arrival_start_at || req.arrival_date
+        const fallbackEnd = new Date(startSource)
+        fallbackEnd.setHours(fallbackEnd.getHours() + 2)
+        const startParts = splitDateTime(startSource)
+        const endParts = splitDateTime(req.arrival_end_at || fallbackEnd.toISOString())
+        const [startH, startM] = parseTime(startParts.time)
+        const [endH, endM] = parseTime(endParts.time)
         setFormData({
           user_id: req.user_id,
-          arrival_date: date,
-          arrival_time: time,
+          arrival_date: startParts.date,
+          arrival_start_time: startParts.time,
+          arrival_end_time: endParts.time,
           license_plate: req.license_plate ?? "",
           car_make_color: req.car_make_color ?? "",
           tenant_phone: req.tenant_phone ?? "",
         })
-        setDateInputDisplay(date ? format(parseISO(date), "dd.MM.yyyy", { locale: ru }) : "")
-        setHourDisplay(h || "09")
-        setMinuteDisplay(m || "00")
+        setDateInputDisplay(startParts.date ? format(parseISO(startParts.date), "dd.MM.yyyy", { locale: ru }) : "")
+        setStartHourDisplay(startH || "09")
+        setStartMinuteDisplay(startM || "00")
+        setEndHourDisplay(endH || "11")
+        setEndMinuteDisplay(endM || "00")
         setTenantPhoneError("")
       } else {
         const now = new Date()
@@ -184,11 +203,14 @@ export default function GuestParkingEditPage() {
         setFormData((prev) => ({
           ...prev,
           arrival_date: dateStr,
-          arrival_time: "09:00",
+          arrival_start_time: "09:00",
+          arrival_end_time: "11:00",
         }))
         setDateInputDisplay(format(now, "dd.MM.yyyy", { locale: ru }))
-        setHourDisplay("09")
-        setMinuteDisplay("00")
+        setStartHourDisplay("09")
+        setStartMinuteDisplay("00")
+        setEndHourDisplay("11")
+        setEndMinuteDisplay("00")
         setTenantPhoneError("")
       }
     }
@@ -222,18 +244,20 @@ export default function GuestParkingEditPage() {
       toast.error(tenantPhoneError)
       return
     }
-    const dateTimeError = validateArrivalDateTime(formData.arrival_date, formData.arrival_time)
+    const dateTimeError = validateArrivalInterval(formData.arrival_date, formData.arrival_start_time, formData.arrival_end_time)
     if (dateTimeError) {
       toast.error(dateTimeError)
       return
     }
     setSaving(true)
     try {
-      const arrivalDate = toISOString(formData.arrival_date, formData.arrival_time)
+      const arrivalStartAt = toISOString(formData.arrival_date, formData.arrival_start_time)
+      const arrivalEndAt = toISOString(formData.arrival_date, formData.arrival_end_time)
       if (isEdit && reqId) {
         await guestParkingApi.update(Number(reqId), {
           user_id: formData.user_id,
-          arrival_date: arrivalDate,
+          arrival_start_at: arrivalStartAt,
+          arrival_end_at: arrivalEndAt,
           license_plate: formData.license_plate.trim(),
           car_make_color: formData.car_make_color.trim(),
           tenant_phone: formData.tenant_phone.trim() || undefined,
@@ -243,7 +267,8 @@ export default function GuestParkingEditPage() {
       } else {
         const created = await guestParkingApi.create({
           user_id: formData.user_id,
-          arrival_date: arrivalDate,
+          arrival_start_at: arrivalStartAt,
+          arrival_end_at: arrivalEndAt,
           license_plate: formData.license_plate.trim(),
           car_make_color: formData.car_make_color.trim(),
           tenant_phone: formData.tenant_phone.trim() || undefined,
@@ -371,53 +396,103 @@ export default function GuestParkingEditPage() {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label>Время заезда (9:00–19:00)</Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        id="arrival_hour"
-                        inputMode="numeric"
-                        placeholder="09"
-                        maxLength={2}
-                        value={hourDisplay}
-                        onChange={(e) => {
-                          const v = e.target.value.replace(/\D/g, "").slice(0, 2)
-                          setHourDisplay(v)
-                          setFormData((prev) => ({
-                            ...prev,
-                            arrival_time: buildTimeString(v, minuteDisplay),
-                          }))
-                        }}
-                        onBlur={() => {
-                          const normalized = hourDisplay ? String(Math.min(23, Math.max(0, parseInt(hourDisplay, 10) || 9))).padStart(2, "0") : "09"
-                          setHourDisplay(normalized)
-                          setFormData((prev) => ({ ...prev, arrival_time: buildTimeString(normalized, minuteDisplay) }))
-                        }}
-                        className="w-14 text-center"
-                        aria-label="Часы"
-                      />
-                      <span className="text-muted-foreground">:</span>
-                      <Input
-                        id="arrival_minute"
-                        inputMode="numeric"
-                        placeholder="00"
-                        maxLength={2}
-                        value={minuteDisplay}
-                        onChange={(e) => {
-                          const v = e.target.value.replace(/\D/g, "").slice(0, 2)
-                          setMinuteDisplay(v)
-                          setFormData((prev) => ({
-                            ...prev,
-                            arrival_time: buildTimeString(hourDisplay, v),
-                          }))
-                        }}
-                        onBlur={() => {
-                          const normalized = minuteDisplay ? String(Math.min(59, Math.max(0, parseInt(minuteDisplay, 10) || 0))).padStart(2, "0") : "00"
-                          setMinuteDisplay(normalized)
-                          setFormData((prev) => ({ ...prev, arrival_time: buildTimeString(hourDisplay, normalized) }))
-                        }}
-                        className="w-14 text-center"
-                        aria-label="Минуты"
-                      />
+                    <Label>Интервал заезда (9:00-19:00)</Label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex items-center gap-1">
+                        <Input
+                          id="arrival_start_hour"
+                          inputMode="numeric"
+                          placeholder="09"
+                          maxLength={2}
+                          value={startHourDisplay}
+                          onChange={(e) => {
+                            const v = e.target.value.replace(/\D/g, "").slice(0, 2)
+                            setStartHourDisplay(v)
+                            setFormData((prev) => ({
+                              ...prev,
+                              arrival_start_time: buildTimeString(v, startMinuteDisplay),
+                            }))
+                          }}
+                          onBlur={() => {
+                            const normalized = startHourDisplay ? String(Math.min(23, Math.max(0, parseInt(startHourDisplay, 10) || 9))).padStart(2, "0") : "09"
+                            setStartHourDisplay(normalized)
+                            setFormData((prev) => ({ ...prev, arrival_start_time: buildTimeString(normalized, startMinuteDisplay) }))
+                          }}
+                          className="w-14 text-center"
+                          aria-label="Часы начала"
+                        />
+                        <span className="text-muted-foreground">:</span>
+                        <Input
+                          id="arrival_start_minute"
+                          inputMode="numeric"
+                          placeholder="00"
+                          maxLength={2}
+                          value={startMinuteDisplay}
+                          onChange={(e) => {
+                            const v = e.target.value.replace(/\D/g, "").slice(0, 2)
+                            setStartMinuteDisplay(v)
+                            setFormData((prev) => ({
+                              ...prev,
+                              arrival_start_time: buildTimeString(startHourDisplay, v),
+                            }))
+                          }}
+                          onBlur={() => {
+                            const normalized = startMinuteDisplay ? String(Math.min(59, Math.max(0, parseInt(startMinuteDisplay, 10) || 0))).padStart(2, "0") : "00"
+                            setStartMinuteDisplay(normalized)
+                            setFormData((prev) => ({ ...prev, arrival_start_time: buildTimeString(startHourDisplay, normalized) }))
+                          }}
+                          className="w-14 text-center"
+                          aria-label="Минуты начала"
+                        />
+                      </div>
+                      <span className="text-muted-foreground">-</span>
+                      <div className="flex items-center gap-1">
+                        <Input
+                          id="arrival_end_hour"
+                          inputMode="numeric"
+                          placeholder="11"
+                          maxLength={2}
+                          value={endHourDisplay}
+                          onChange={(e) => {
+                            const v = e.target.value.replace(/\D/g, "").slice(0, 2)
+                            setEndHourDisplay(v)
+                            setFormData((prev) => ({
+                              ...prev,
+                              arrival_end_time: buildTimeString(v, endMinuteDisplay),
+                            }))
+                          }}
+                          onBlur={() => {
+                            const normalized = endHourDisplay ? String(Math.min(23, Math.max(0, parseInt(endHourDisplay, 10) || 11))).padStart(2, "0") : "11"
+                            setEndHourDisplay(normalized)
+                            setFormData((prev) => ({ ...prev, arrival_end_time: buildTimeString(normalized, endMinuteDisplay) }))
+                          }}
+                          className="w-14 text-center"
+                          aria-label="Часы окончания"
+                        />
+                        <span className="text-muted-foreground">:</span>
+                        <Input
+                          id="arrival_end_minute"
+                          inputMode="numeric"
+                          placeholder="00"
+                          maxLength={2}
+                          value={endMinuteDisplay}
+                          onChange={(e) => {
+                            const v = e.target.value.replace(/\D/g, "").slice(0, 2)
+                            setEndMinuteDisplay(v)
+                            setFormData((prev) => ({
+                              ...prev,
+                              arrival_end_time: buildTimeString(endHourDisplay, v),
+                            }))
+                          }}
+                          onBlur={() => {
+                            const normalized = endMinuteDisplay ? String(Math.min(59, Math.max(0, parseInt(endMinuteDisplay, 10) || 0))).padStart(2, "0") : "00"
+                            setEndMinuteDisplay(normalized)
+                            setFormData((prev) => ({ ...prev, arrival_end_time: buildTimeString(endHourDisplay, normalized) }))
+                          }}
+                          className="w-14 text-center"
+                          aria-label="Минуты окончания"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>

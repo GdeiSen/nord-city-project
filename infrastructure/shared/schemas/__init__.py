@@ -3,6 +3,8 @@ Shared Pydantic schemas for transport and API.
 Used by all services - web, bot, database (for output serialization).
 """
 from .user import UserSchema
+from .role import PermissionSchema, RoleSchema, UserAccessSchema
+from .contract import ContractSchema
 from .object import ObjectSchema
 from .space import SpaceSchema
 from .service_ticket import ServiceTicketSchema

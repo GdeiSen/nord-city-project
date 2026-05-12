@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from api.dependencies import get_audit_context, get_current_user
+from api.dependencies import get_audit_context, get_current_user, require_permission
 from api.schemas.guest_parking_settings import (
     GuestParkingSettingsResponse,
     UpdateGuestParkingSettingsBody,
 )
 from shared.clients.database_client import db_client
 from shared.clients.storage_client import storage_client
-from shared.constants import Roles
+from shared.permissions import PermissionCodes
 from shared.schemas.guest_parking_settings import GuestParkingSettingsSchema
 from shared.utils.storage_utils import STORAGE_PATH_PATTERN, extract_storage_path
 
@@ -15,12 +15,7 @@ router = APIRouter(prefix="/guest-parking-settings", tags=["Guest Parking Settin
 
 
 def _require_admin(current_user: dict = Depends(get_current_user)) -> dict:
-    role = current_user.get("role")
-    if role not in (Roles.ADMIN, Roles.SUPER_ADMIN):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Доступ только для администраторов.",
-        )
+    require_permission(current_user, PermissionCodes.PARKING_MANAGE)
     return current_user
 
 

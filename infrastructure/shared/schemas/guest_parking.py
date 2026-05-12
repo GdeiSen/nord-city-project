@@ -14,8 +14,14 @@ class GuestParkingSchema(BaseModel):
     object_id: Optional[int] = None
     msid: Optional[int] = None
     arrival_date: Optional[datetime] = None
+    arrival_start_at: Optional[datetime] = None
+    arrival_end_at: Optional[datetime] = None
     license_plate: str = ""
     car_make_color: str = ""
     tenant_phone: Optional[str] = None
+    status: str = "NEW"
+    reviewed_by_user_id: Optional[int] = None
+    reviewed_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

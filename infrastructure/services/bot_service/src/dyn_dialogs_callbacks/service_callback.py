@@ -10,6 +10,7 @@ from dyn_dialogs_callbacks.guest_parking_callback import (
     _normalize_phone,
 )
 from utils.dyn_dialog_utils import set_dialog_position
+from utils.service_ticket_category_resolver import resolve_service_ticket_category
 
 if TYPE_CHECKING:
     from telegram import Update
@@ -116,6 +117,9 @@ async def service_callback(
             active_options = active_dialog.options
             
             raw_trace = bot.managers.navigator.get_stack(context)
+            category = resolve_service_ticket_category(raw_trace)
+            if category:
+                service_ticket.category = category
             
             meta = json.loads(service_ticket.meta) if service_ticket.meta else {}
             meta["raw_trace"] = raw_trace
@@ -189,6 +193,8 @@ async def service_callback(
                     formatted_trace.append(item_text)
             
             meta["trace"] = formatted_trace
+            if category:
+                meta["category_source"] = "service_ticket_category_bindings"
             
             if not service_ticket.description and formatted_trace:
                 last_item_option_pair = None

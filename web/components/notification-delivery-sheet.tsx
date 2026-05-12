@@ -71,7 +71,7 @@ export function NotificationDeliverySheet({
     const selectedRoleIds = new Set(draft.roleIds)
     const selectedUserIds = new Set(draft.userIds)
     const visibleUsers = selectedRoleIds.size
-      ? users.filter((user) => (user.role != null && selectedRoleIds.has(user.role)) || selectedUserIds.has(user.id))
+      ? users.filter((user) => (user.role_ids ?? []).some((roleId) => selectedRoleIds.has(roleId)) || selectedUserIds.has(user.id))
       : users
 
     return visibleUsers

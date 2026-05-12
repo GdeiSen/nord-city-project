@@ -17,8 +17,8 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { User, USER_ROLES, ROLE_LABELS, RentalObject } from "@/types"
-import { userApi, rentalObjectApi } from "@/lib/api"
+import { Role, User, RentalObject } from "@/types"
+import { userApi, rentalObjectApi, roleApi } from "@/lib/api"
 import { getUser } from "@/lib/auth"
 import { EntityPicker } from "@/components/entity-picker"
 import {
@@ -45,22 +45,17 @@ export default function UserEditPage() {
     currentUser?.id != null &&
     Number(userId) === currentUser.id
 
-  const roleOptions = Object.entries(USER_ROLES)
-    .filter(([_, roleValue]) => roleValue !== USER_ROLES.SUPER_ADMIN)
-    .map(([_, roleValue]) => ({
-      value: String(roleValue),
-      label: ROLE_LABELS[roleValue as keyof typeof ROLE_LABELS],
-    }))
-
   const { loading, withLoading } = useLoading(true)
   const [objects, setObjects] = useState<RentalObject[]>([])
+  const [roles, setRoles] = useState<Role[]>([])
   const [formData, setFormData] = useState<Partial<User>>({})
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     const load = async () => {
-      const allObjects = await rentalObjectApi.getAll()
+      const [allObjects, allRoles] = await Promise.all([rentalObjectApi.getAll(), roleApi.getAll()])
       setObjects(allObjects)
+      setRoles(allRoles)
       if (isEdit) {
         const userData = await userApi.getById(Number(userId!))
         setFormData(userData)
@@ -88,9 +83,8 @@ export default function UserEditPage() {
       delete payload.created_at
       delete payload.updated_at
       delete payload.object
-      if (payload.role === USER_ROLES.SUPER_ADMIN) {
-        delete payload.role
-      }
+      delete payload.roles
+      delete payload.contracts
 
       if (isEdit) {
         await userApi.update(Number(userId!), payload)
@@ -118,6 +112,23 @@ export default function UserEditPage() {
       toast.error("Не удалось удалить пользователя", { description: err?.message })
     }
   }
+
+  const roleOptions = roles.map((role) => ({
+    value: String(role.id),
+    label: role.name || role.code,
+  }))
+
+  const rolePickerValue = (formData.role_ids ?? []).map(String).join(",")
+
+  const parseRolePickerValue = (value: string): number[] =>
+    Array.from(
+      new Set(
+        String(value || "")
+          .split(",")
+          .map((item) => Number(item.trim()))
+          .filter((item) => Number.isFinite(item))
+      )
+    )
 
   return (
     <>
@@ -184,12 +195,13 @@ export default function UserEditPage() {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="role">Роль</Label>
+                      <Label htmlFor="roles">Роли</Label>
                       <EntityPicker
+                        multiple
                         options={roleOptions}
-                        value={formData.role ?? null}
-                        onSelect={(v) => setFormData((prev) => ({ ...prev, role: parseInt(v, 10) }))}
-                        placeholder="Выберите роль"
+                        value={rolePickerValue}
+                        onChange={(v) => setFormData((prev) => ({ ...prev, role_ids: parseRolePickerValue(v) }))}
+                        placeholder="Выберите роли"
                         disabled={isEditingSelf}
                       />
                       {isEditingSelf && (
@@ -215,6 +227,10 @@ export default function UserEditPage() {
                   <div className="space-y-2">
                     <Label htmlFor="legal_entity">Юр. лицо</Label>
                     <Input id="legal_entity" name="legal_entity" value={formData.legal_entity ?? ""} onChange={handleInputChange} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="contract_number">Номер договора</Label>
+                    <Input id="contract_number" name="contract_number" value={formData.contract_number ?? ""} onChange={handleInputChange} />
                   </div>
 
                   <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end pt-4">

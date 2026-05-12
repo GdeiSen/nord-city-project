@@ -20,7 +20,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { RentalObject, TelegramChat, User, USER_ROLES } from "@/types"
+import { RentalObject, TelegramChat, User } from "@/types"
 import { rentalObjectApi, telegramChatApi, userApi } from "@/lib/api"
 import { StorageUploader } from "@/components/storage-uploader"
 import {
@@ -160,7 +160,7 @@ export default function RentalObjectEditPage() {
   ]
 
   const feedbackRecipientUsers = availableUsers.filter((user) =>
-    [USER_ROLES.MANAGER, USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN].includes((user.role ?? -1) as any)
+    (user.roles ?? []).some((role) => ["manager", "admin", "super_admin"].includes(role.code))
   )
 
   const feedbackRecipientOptions: EntityPickerOption[] = [

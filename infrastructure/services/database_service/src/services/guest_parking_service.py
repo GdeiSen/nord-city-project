@@ -36,16 +36,18 @@ def _to_cache_item(record: Any) -> dict:
         return {
             "id": record.get("id"),
             "object_id": record.get("object_id"),
-            "arrival_date": record.get("arrival_date"),
+            "arrival_date": record.get("arrival_start_at") or record.get("arrival_date"),
             "license_plate": record.get("license_plate", ""),
             "car_make_color": record.get("car_make_color", ""),
+            "status": record.get("status", "NEW"),
         }
     return {
         "id": getattr(record, "id", None),
         "object_id": getattr(record, "object_id", None),
-        "arrival_date": getattr(record, "arrival_date", None),
+        "arrival_date": getattr(record, "arrival_start_at", None) or getattr(record, "arrival_date", None),
         "license_plate": getattr(record, "license_plate", "") or "",
         "car_make_color": getattr(record, "car_make_color", "") or "",
+        "status": getattr(record, "status", "NEW") or "NEW",
     }
 
 
@@ -70,9 +72,10 @@ class GuestParkingService(BaseService):
                     horizon = now_dt + timedelta(days=7)
                     stmt = (
                         select(GuestParkingRequest)
-                        .where(GuestParkingRequest.arrival_date >= now_dt)
-                        .where(GuestParkingRequest.arrival_date <= horizon)
-                        .order_by(GuestParkingRequest.arrival_date.asc())
+                        .where(GuestParkingRequest.arrival_start_at >= now_dt)
+                        .where(GuestParkingRequest.arrival_start_at <= horizon)
+                        .where(GuestParkingRequest.status == "APPROVED")
+                        .order_by(GuestParkingRequest.arrival_start_at.asc())
                         .limit(REMINDER_CACHE_MAX_SIZE)
                     )
                     result = await session.execute(stmt)
@@ -86,6 +89,8 @@ class GuestParkingService(BaseService):
     async def _add_to_cache_if_not_full(self, item: dict) -> None:
         """Добавляет заявку в кэш, если не полон. arrival_date должен быть в будущем."""
         arr = item.get("arrival_date")
+        if item.get("status") != "APPROVED":
+            return
         if arr is None:
             return
         if isinstance(arr, str):

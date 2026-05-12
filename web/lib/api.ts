@@ -179,7 +179,14 @@ export const authApi = {
     })
   },
 
-  async validateToken(token: string): Promise<{ valid: boolean; user_id?: number; role?: number; reason?: string }> {
+  async validateToken(token: string): Promise<{
+    valid: boolean
+    user_id?: number
+    roles?: Array<{ id: number; code: string; name: string }>
+    permissions?: string[]
+    is_super_admin?: boolean
+    reason?: string
+  }> {
     const res = await fetch(`${API_BASE}/auth/validate`, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -187,7 +194,9 @@ export const authApi = {
     return {
       valid: !!data?.valid,
       user_id: typeof data?.user_id === "number" ? data.user_id : undefined,
-      role: typeof data?.role === "number" ? data.role : undefined,
+      roles: Array.isArray(data?.roles) ? data.roles : [],
+      permissions: Array.isArray(data?.permissions) ? data.permissions : [],
+      is_super_admin: !!data?.is_super_admin,
       reason: typeof data?.reason === "string" ? data.reason : undefined,
     }
   },
@@ -459,6 +468,25 @@ export interface UserRoleLinksResponse {
   links: UserRoleLinkItem[]
 }
 
+export interface PermissionResponse {
+  id: number
+  code: string
+  scope: string
+  name: string
+  description?: string
+}
+
+export interface RoleResponse {
+  id: number
+  code: string
+  name: string
+  description?: string
+  is_system: boolean
+  is_default: boolean
+  permission_ids: number[]
+  permissions: PermissionResponse[]
+}
+
 export interface TelegramChatResponse {
   chat_id: number
   title: string
@@ -483,6 +511,14 @@ export const userApi = {
   ...createExportApi("/users"),
   async getRoleLinks(): Promise<UserRoleLinksResponse> {
     return apiFetch<UserRoleLinksResponse>("/users/role-links")
+  },
+}
+
+const roleBase = createCrudApi<RoleResponse>("/roles")
+export const roleApi = {
+  ...roleBase,
+  async getPermissions(): Promise<PermissionResponse[]> {
+    return apiFetch<PermissionResponse[]>("/roles/permissions")
   },
 }
 const serviceTicketBase = createCrudApi<any>("/service-tickets")
@@ -520,7 +556,21 @@ export const auditLogApi = {
   },
 }
 const guestParkingBase = createCrudApi<any>("/guest-parking")
-export const guestParkingApi = { ...guestParkingBase }
+export const guestParkingApi = {
+  ...guestParkingBase,
+  async approve(id: number, reason?: string): Promise<void> {
+    await apiFetch<void>(`/guest-parking/${id}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ reason: reason || undefined }),
+    })
+  },
+  async reject(id: number, reason?: string): Promise<void> {
+    await apiFetch<void>(`/guest-parking/${id}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ reason: reason || undefined }),
+    })
+  },
+}
 
 export const guestParkingSettingsApi = {
   async get(): Promise<any> {

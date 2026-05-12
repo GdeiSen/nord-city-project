@@ -1,13 +1,3 @@
-class Roles:
-    LPR = 10011
-    MA = 20122
-    MANAGER = 10014
-    ADMIN = 10012
-    SUPER_ADMIN = 10013
-    GUEST = 00000
-
-
-
 class Dialogs:
     SERVICE = 1
     PROFILE = 2
@@ -131,6 +121,12 @@ class ServiceTicketStatus:
     IN_PROGRESS = "IN_PROGRESS"
 
 
+class GuestParkingStatus:
+    NEW = "NEW"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
 class FeedbackTypes:
     GENERAL = "GENERAL"
     SERVICE_TICKET = "SERVICE_TICKET"
@@ -172,6 +168,9 @@ class AuditRetentionClass:
 AUDITED_ENTITY_TYPES = frozenset(
     {
         "User",
+        "Role",
+        "Permission",
+        "Contract",
         "Feedback",
         "Object",
         "PollAnswer",
@@ -202,6 +201,9 @@ AUDIT_HEAVY_MAX_JSON_BYTES = 100_000
 # Per-entity audit mode. Default: fast. ServiceTicket: smart.
 AUDIT_ENTITY_MODES: dict[str, str] = {
     "User": AUDIT_MODE_SMART,
+    "Role": AUDIT_MODE_SMART,
+    "Permission": AUDIT_MODE_SMART,
+    "Contract": AUDIT_MODE_SMART,
     "Feedback": AUDIT_MODE_SMART,
     "Object": AUDIT_MODE_SMART,
     "PollAnswer": AUDIT_MODE_SMART,
@@ -217,6 +219,9 @@ AUDIT_ENTITY_MODES: dict[str, str] = {
 # Retention policy by entity type.
 AUDIT_ENTITY_RETENTION_CLASS: dict[str, str] = {
     "User": AuditRetentionClass.CRITICAL,
+    "Role": AuditRetentionClass.CRITICAL,
+    "Permission": AuditRetentionClass.CRITICAL,
+    "Contract": AuditRetentionClass.CRITICAL,
     "Object": AuditRetentionClass.CRITICAL,
     "Space": AuditRetentionClass.CRITICAL,
     "GuestParkingSettings": AuditRetentionClass.CRITICAL,

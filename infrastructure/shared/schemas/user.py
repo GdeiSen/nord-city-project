@@ -11,7 +11,6 @@ class UserSchema(BaseModel):
 
     id: int
     username: Optional[str] = None
-    role: Optional[int] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     middle_name: Optional[str] = None
@@ -21,5 +20,7 @@ class UserSchema(BaseModel):
     legal_entity: Optional[str] = None
     phone_number: Optional[str] = None
     email: Optional[str] = None
+    role_ids: list[int] = []
+    contract_number: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

@@ -21,11 +21,14 @@ class GuestParkingCreateRpc(BaseModel):
     user_id: int
     object_id: Optional[int] = None
     arrival_date: datetime
+    arrival_start_at: datetime
+    arrival_end_at: datetime
     license_plate: str = ""
     car_make_color: str = ""
     tenant_phone: Optional[str] = None
+    status: str = "NEW"
 
-    @field_validator("arrival_date")
+    @field_validator("arrival_date", "arrival_start_at", "arrival_end_at")
     @classmethod
     def arrival_aware(cls, v: datetime) -> datetime:
         return _ensure_aware(v)
@@ -39,11 +42,17 @@ class GuestParkingUpdateRpc(BaseModel):
     user_id: Optional[int] = None
     object_id: Optional[int] = None
     arrival_date: Optional[datetime] = None
+    arrival_start_at: Optional[datetime] = None
+    arrival_end_at: Optional[datetime] = None
     license_plate: Optional[str] = None
     car_make_color: Optional[str] = None
     tenant_phone: Optional[str] = None
+    status: Optional[str] = None
+    reviewed_by_user_id: Optional[int] = None
+    reviewed_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
 
-    @field_validator("arrival_date")
+    @field_validator("arrival_date", "arrival_start_at", "arrival_end_at", "reviewed_at")
     @classmethod
     def arrival_aware(cls, v: Optional[datetime]) -> Optional[datetime]:
         return _ensure_aware(v) if v is not None else None

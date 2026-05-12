@@ -6,7 +6,9 @@ export interface AuthUser {
   username?: string
   first_name?: string
   last_name?: string
-  role?: number
+  roles?: Array<{ id: number; code: string; name: string }>
+  permissions?: string[]
+  is_super_admin?: boolean
 }
 
 export function getToken(): string | null {

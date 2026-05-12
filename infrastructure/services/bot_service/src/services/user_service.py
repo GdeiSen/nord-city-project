@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, List, Optional, Dict, Any
 from .base_service import BaseService
-from shared.schemas import UserSchema
+from shared.schemas import UserAccessSchema, UserSchema
 
 if TYPE_CHECKING:
     from bot import Bot
@@ -41,6 +41,19 @@ class UserService(BaseService):
         if result["success"]:
             return result["data"] or []
         return []
+
+    async def get_access_profile(self, user_id: int) -> UserAccessSchema | None:
+        result = await self.bot.managers.database.user.get_access_profile(
+            user_id=user_id,
+            model_class=UserAccessSchema,
+        )
+        if result.get("success"):
+            return result.get("data")
+        return None
+
+    async def has_permission(self, user_id: int, permission_code: str) -> bool:
+        access = await self.get_access_profile(user_id)
+        return bool(access and (access.is_super_admin or permission_code in set(access.permissions or [])))
 
     async def update_user(
         self,

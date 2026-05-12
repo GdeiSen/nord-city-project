@@ -17,19 +17,34 @@ def _is_profile_complete(user) -> bool:
     )
 
 
-def _build_menu_message(bot: "Bot", user) -> str:
+async def _build_menu_message(bot: "Bot", user) -> str:
     if not _is_profile_complete(user):
         return bot.get_text("new_greeting")
-    return bot.get_text("default_greeting")
+    feature_keys = await bot.services.bot_settings.get_enabled_menu_feature_keys(int(user.id))
+    feature_blocks = []
+    for feature_key in feature_keys:
+        block_key = f"default_greeting_feature_{feature_key}"
+        block = bot.get_text(block_key)
+        if block and block != block_key:
+            feature_blocks.append(block)
+    return bot.get_text(
+        "default_greeting",
+        [
+            bot.get_text("default_greeting_header"),
+            bot.get_text("default_greeting_features_intro"),
+            "\n".join(feature_blocks),
+            bot.get_text("default_greeting_footer"),
+        ],
+    )
 
 
-def _build_menu_keyboard(bot: "Bot", user):
+async def _build_menu_keyboard(bot: "Bot", user):
     if not _is_profile_complete(user):
-        if bot.services.bot_settings.is_feature_enabled("profile"):
+        if await bot.services.user.has_permission(int(user.id), "bot.feature.profile"):
             return bot.create_keyboard([[("login", Dialogs.PROFILE)]])
         return None
 
-    rows = bot.services.bot_settings.get_enabled_menu_layout(user.role)
+    rows = await bot.services.bot_settings.get_enabled_menu_layout(int(user.id))
     if not rows:
         return None
     return bot.create_keyboard(rows)
@@ -60,8 +75,8 @@ async def show_main_menu(
     )
     bot.managers.storage.set(context, Variables.USER_LEGAL_ENTITY, user.legal_entity or "")
 
-    keyboard = _build_menu_keyboard(bot, user)
-    text = _build_menu_message(bot, user)
+    keyboard = await _build_menu_keyboard(bot, user)
+    text = await _build_menu_message(bot, user)
 
     await bot.send_message(update, context, text, keyboard, refresh=True)
     return Dialogs.MENU

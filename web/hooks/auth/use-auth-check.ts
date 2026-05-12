@@ -49,12 +49,22 @@ export function useAuthCheck(options: UseAuthCheckOptions): UseAuthCheckReturn {
         if (result.valid) {
           const currentUser = getUser()
           if (result.user_id != null) {
+            const nextAccess = {
+              roles: result.roles ?? [],
+              permissions: result.permissions ?? [],
+              is_super_admin: !!result.is_super_admin,
+            }
             if (currentUser) {
-              if (currentUser.id !== result.user_id || currentUser.role !== result.role) {
-                setUser({ ...currentUser, id: result.user_id, role: result.role })
+              if (
+                currentUser.id !== result.user_id ||
+                JSON.stringify(currentUser.roles ?? []) !== JSON.stringify(nextAccess.roles) ||
+                JSON.stringify(currentUser.permissions ?? []) !== JSON.stringify(nextAccess.permissions) ||
+                !!currentUser.is_super_admin !== nextAccess.is_super_admin
+              ) {
+                setUser({ ...currentUser, id: result.user_id, ...nextAccess })
               }
             } else {
-              setUser({ id: result.user_id, role: result.role })
+              setUser({ id: result.user_id, ...nextAccess })
             }
           }
           setAuthorized(true)

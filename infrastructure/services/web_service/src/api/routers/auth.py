@@ -8,7 +8,9 @@ from fastapi import APIRouter, HTTPException, Request, status
 
 from shared.clients.database_client import db_client
 from shared.clients.bot_client import bot_client
-from shared.constants import AuditRetentionClass, Roles
+from shared.constants import AuditRetentionClass
+from shared.permissions import PermissionCodes
+from shared.schemas.role import UserAccessSchema
 from shared.schemas.user import UserSchema
 from shared.utils.audit_context import build_request_audit_context
 from shared.utils.audit_events import append_business_audit_event
@@ -28,10 +30,12 @@ JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "480"))
 
 
-def _create_access_token(user_id: int, role: int) -> str:
+def _create_access_token(user_id: int, access_profile: UserAccessSchema) -> str:
     payload = {
         "sub": str(user_id),
-        "role": role,
+        "roles": [role.model_dump() for role in access_profile.roles],
+        "permissions": access_profile.permissions,
+        "is_super_admin": access_profile.is_super_admin,
         "iat": datetime.now(timezone.utc),
         "exp": datetime.now(timezone.utc) + timedelta(minutes=JWT_EXPIRE_MINUTES),
     }
@@ -244,7 +248,14 @@ async def verify_otp(body: VerifyOtpBody, request: Request):
 
         user_schema = user_result["data"]
 
-        if user_schema.role not in (Roles.ADMIN, Roles.SUPER_ADMIN):
+        access_response = await db_client.user.get_access_profile(user_id=body.user_id, model_class=UserAccessSchema)
+        if not access_response.get("success") or access_response.get("data") is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Нет прав для доступа к панели управления."
+            )
+        access_profile = access_response["data"]
+        if PermissionCodes.SITE_ACCESS not in set(access_profile.permissions or []) and not access_profile.is_super_admin:
             await append_business_audit_event(
                 entity_type="User",
                 entity_id=int(body.user_id),
@@ -258,7 +269,7 @@ async def verify_otp(body: VerifyOtpBody, request: Request):
                 meta={
                     "auth_flow": "otp",
                     "auth_stage": "verify",
-                    "resolved_role": user_schema.role,
+                    "resolved_permissions": access_profile.permissions,
                 },
                 audit_type="smart",
             )
@@ -267,7 +278,7 @@ async def verify_otp(body: VerifyOtpBody, request: Request):
                 detail="Нет прав для доступа к панели управления."
             )
 
-        access_token = _create_access_token(body.user_id, user_schema.role)
+        access_token = _create_access_token(body.user_id, access_profile)
 
         audit_response = await append_business_audit_event(
             entity_type="User",
@@ -282,7 +293,7 @@ async def verify_otp(body: VerifyOtpBody, request: Request):
             meta={
                 "auth_flow": "otp",
                 "auth_stage": "verify",
-                "resolved_role": user_schema.role,
+                "resolved_permissions": access_profile.permissions,
             },
             audit_type="smart",
         )
@@ -298,7 +309,9 @@ async def verify_otp(body: VerifyOtpBody, request: Request):
                 "username": user_schema.username,
                 "first_name": user_schema.first_name,
                 "last_name": user_schema.last_name,
-                "role": user_schema.role,
+                "roles": [role.model_dump() for role in access_profile.roles],
+                "permissions": access_profile.permissions,
+                "is_super_admin": access_profile.is_super_admin,
             }
         )
     except HTTPException:
@@ -333,12 +346,18 @@ async def validate_token(request: Request):
         return TokenValidationResponse(valid=False, reason="access_restricted")
 
     user_schema = user_result["data"]
-    if user_schema.role not in (Roles.ADMIN, Roles.SUPER_ADMIN):
+    access_response = await db_client.user.get_access_profile(user_id=user_id, model_class=UserAccessSchema)
+    if not access_response.get("success") or access_response.get("data") is None:
+        return TokenValidationResponse(valid=False, reason="access_restricted")
+    access_profile = access_response["data"]
+    if PermissionCodes.SITE_ACCESS not in set(access_profile.permissions or []) and not access_profile.is_super_admin:
         return TokenValidationResponse(valid=False, reason="access_restricted")
 
     return TokenValidationResponse(
         valid=True,
         user_id=user_id,
-        role=user_schema.role,
+        roles=[role.model_dump() for role in access_profile.roles],
+        permissions=access_profile.permissions,
+        is_super_admin=access_profile.is_super_admin,
         reason=None,
     )

@@ -79,6 +79,10 @@ class _NotificationProxy(_BotServiceProxy):
         """Удалить сообщение заявки из чата администраторов (перед удалением из БД)."""
         return await self._call("delete_guest_parking_messages", req_id=req_id, _audit_context=_audit_context)
 
+    async def notify_guest_parking_reviewed(self, *, req_id: int, _audit_context: dict | None = None) -> Dict[str, Any]:
+        """Notify user/admin chat after guest parking request approval or rejection."""
+        return await self._call("notify_guest_parking_reviewed", req_id=req_id, _audit_context=_audit_context)
+
     async def resync_object_routes(self, *, object_id: int, _audit_context: dict | None = None) -> Dict[str, Any]:
         """Re-sync active object-bound messages after object chat binding changes."""
         return await self._call("resync_object_routes", object_id=object_id, _audit_context=_audit_context)

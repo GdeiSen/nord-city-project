@@ -9,7 +9,7 @@ import { SidebarInset } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { IconEdit } from "@tabler/icons-react"
-import { User, USER_ROLES, ROLE_LABELS, ROLE_BADGE_VARIANTS } from "@/types"
+import { User } from "@/types"
 import { userApi, rentalObjectApi } from "@/lib/api"
 import { formatDate } from "@/lib/date-utils"
 import { useLoading, useRouteId } from "@/hooks"
@@ -25,12 +25,15 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 
-function getRoleBadge(role: number | undefined) {
+function getRoleBadges(user: User) {
   const badgeClass = "text-sm px-3 py-1"
-  if (role === undefined) return <Badge variant="outline" className={badgeClass}>Неопределен</Badge>
-  const roleKey = Object.values(USER_ROLES).find((r) => r === role)
-  if (!roleKey) return <Badge variant="outline" className={badgeClass}>Неизвестная роль</Badge>
-  return <Badge variant={ROLE_BADGE_VARIANTS[roleKey]} className={badgeClass}>{ROLE_LABELS[roleKey]}</Badge>
+  const roles = user.roles ?? []
+  if (!roles.length) return <Badge variant="outline" className={badgeClass}>Без роли</Badge>
+  return roles.map((role) => (
+    <Badge key={role.id} variant={role.code === "super_admin" ? "destructive" : "secondary"} className={badgeClass}>
+      {role.name || role.code}
+    </Badge>
+  ))
 }
 
 export default function UserDetailPage() {
@@ -118,7 +121,7 @@ export default function UserDetailPage() {
                   <h1 className="text-2xl font-semibold">
                     {user.last_name} {user.first_name} {user.middle_name}
                   </h1>
-                  {getRoleBadge(user.role)}
+                  {getRoleBadges(user)}
                 </div>
                 <p className="text-sm text-muted-foreground mt-1">
                   @{user.username} · Создан {formatDate(user.created_at)}
@@ -148,6 +151,10 @@ export default function UserDetailPage() {
                     <p className="text-sm">{user.legal_entity}</p>
                   </div>
                 )}
+                <div className="space-y-2">
+                  <div className="text-sm font-medium text-muted-foreground">Договор</div>
+                  <p className="text-sm">{user.contract_number || "—"}</p>
+                </div>
               </div>
             </div>
           ) : null}

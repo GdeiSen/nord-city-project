@@ -22,6 +22,10 @@ from shared.schemas.rpc import get_rpc_schema
 # --- Model Imports for Registration ---
 from models.user import User
 from models.user_auth import UserAuth
+from models.role import Role, RolePermission
+from models.permission import Permission
+from models.user_role import UserRole
+from models.contract import Contract, UserContract
 from models.feedback import Feedback
 from models.service_ticket_feedback_ref import ServiceTicketFeedbackRef
 from models.dynamic_dialog_binding import DynamicDialogBinding
@@ -41,6 +45,9 @@ from models.telegram_chat import TelegramChat
 # --- Service Imports for Registration ---
 from services.user_service import UserService
 from services.auth_service import AuthService
+from services.role_service import RoleService
+from services.permission_service import PermissionService
+from services.contract_service import ContractService
 from services.otp_service import OtpService
 from services.feedback_service import FeedbackService
 from services.service_ticket_feedback_ref_service import ServiceTicketFeedbackRefService
@@ -87,7 +94,8 @@ def _register_resources():
     logger.info("Registering database models and services...")
 
     models_to_register = [
-        User, UserAuth, DynamicDialogBinding, Feedback, ServiceTicketFeedbackRef, Object, PollAnswer,
+        User, UserAuth, Role, Permission, RolePermission, UserRole, Contract, UserContract,
+        DynamicDialogBinding, Feedback, ServiceTicketFeedbackRef, Object, PollAnswer,
         ServiceTicket, GuestParkingRequest, GuestParkingSettings, AuditLog, Space, SpaceView, OtpCode,
         StorageFile, BotMessageRef, TelegramChat,
     ]
@@ -97,6 +105,9 @@ def _register_resources():
     services_to_register = {
         "user": UserService,
         "auth": AuthService,
+        "role": RoleService,
+        "permission": PermissionService,
+        "contract": ContractService,
         "dynamic_dialog_binding": DynamicDialogBindingService,
         "feedback": FeedbackService,
         "service_ticket_feedback_ref": ServiceTicketFeedbackRefService,

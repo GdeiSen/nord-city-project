@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from shared.permissions import PermissionCodes
 from shared.constants import Dialogs
 
 
@@ -9,6 +10,7 @@ class BotFeatureDefinition:
     dialog_id: int
     command: str
     label_key: str
+    permission_code: str
 
 
 BOT_FEATURES: tuple[BotFeatureDefinition, ...] = (
@@ -17,36 +19,42 @@ BOT_FEATURES: tuple[BotFeatureDefinition, ...] = (
         dialog_id=Dialogs.PROFILE,
         command="profile",
         label_key="profile",
+        permission_code=PermissionCodes.BOT_FEATURE_PROFILE,
     ),
     BotFeatureDefinition(
         key="service",
         dialog_id=Dialogs.SERVICE,
         command="service",
         label_key="service",
+        permission_code=PermissionCodes.BOT_FEATURE_SERVICE,
     ),
     BotFeatureDefinition(
         key="poll",
         dialog_id=Dialogs.POLL,
         command="poll",
         label_key="polling",
+        permission_code=PermissionCodes.BOT_FEATURE_POLL,
     ),
     BotFeatureDefinition(
         key="feedback",
         dialog_id=Dialogs.FEEDBACK,
         command="feedback",
         label_key="feedback",
+        permission_code=PermissionCodes.BOT_FEATURE_FEEDBACK,
     ),
     BotFeatureDefinition(
         key="guest_parking",
         dialog_id=Dialogs.GUEST_PARKING,
         command="guest_parking",
         label_key="guest_parking",
+        permission_code=PermissionCodes.BOT_FEATURE_GUEST_PARKING,
     ),
     BotFeatureDefinition(
         key="spaces",
         dialog_id=Dialogs.SPACES,
         command="spaces",
         label_key="spaces",
+        permission_code=PermissionCodes.BOT_FEATURE_SPACES,
     ),
 )
 

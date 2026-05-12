@@ -1,7 +1,6 @@
 import type { DataTableColumnMeta } from "@/components/data-table"
 import type { TableColumnConfig } from "./types"
 import { configToMeta } from "./types"
-import { ROLE_LABELS } from "@/types"
 
 export const userColumns: TableColumnConfig[] = [
   { id: "id", label: "ID", type: "number", searchDbColumns: ["id"] },
@@ -18,14 +17,10 @@ export const userColumns: TableColumnConfig[] = [
     searchDbColumns: ["email", "phone_number"],
   },
   {
-    id: "role",
-    label: "Роль",
-    type: "number",
-    searchDbColumns: ["role"],
-    filterSelect: Object.entries(ROLE_LABELS).map(([value, label]) => ({
-      value: String(value),
-      label,
-    })),
+    id: "roles",
+    label: "Роли",
+    type: "string",
+    searchDbColumns: ["roles"],
   },
   {
     id: "object",

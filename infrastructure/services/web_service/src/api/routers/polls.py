@@ -6,11 +6,12 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from shared.clients.bot_client import bot_client
-from shared.constants import AuditRetentionClass, Roles
+from shared.constants import AuditRetentionClass
+from shared.permissions import PermissionCodes
 from shared.clients.database_client import db_client
 from shared.schemas.poll_answer import PollAnswerSchema
 from shared.utils.audit_events import append_business_audit_event
-from api.dependencies import get_audit_context, get_current_user
+from api.dependencies import get_audit_context, get_current_user, require_permission
 from api.schemas.common import MessageResponse
 from api.schemas.polls import (
     CreatePollRequest,
@@ -32,12 +33,7 @@ _POLL_HEADER_KEY = "poll_header"
 
 
 def _require_admin(current_user: dict = Depends(get_current_user)) -> dict:
-    role = current_user.get("role")
-    if role not in (Roles.ADMIN, Roles.SUPER_ADMIN):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Доступ только для администраторов.",
-        )
+    require_permission(current_user, PermissionCodes.SITE_ACCESS)
     return current_user
 
 

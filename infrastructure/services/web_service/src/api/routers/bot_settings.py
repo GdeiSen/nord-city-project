@@ -3,10 +3,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from api.dependencies import get_audit_context, get_current_user
+from api.dependencies import get_audit_context, get_current_user, require_permission
 from api.schemas.bot_settings import BotSettingsDocument
 from shared.clients.bot_client import bot_client
-from shared.constants import AuditRetentionClass, Roles
+from shared.constants import AuditRetentionClass
+from shared.permissions import PermissionCodes
 from shared.utils.audit_events import append_business_audit_event
 
 router = APIRouter(prefix="/bot-settings", tags=["Bot Settings"])
@@ -47,12 +48,7 @@ def _build_settings_diff(
 
 
 def _require_admin(current_user: dict = Depends(get_current_user)) -> dict:
-    role = current_user.get("role")
-    if role not in (Roles.ADMIN, Roles.SUPER_ADMIN):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Доступ только для администраторов.",
-        )
+    require_permission(current_user, PermissionCodes.ROLES_MANAGE)
     return current_user
 
 

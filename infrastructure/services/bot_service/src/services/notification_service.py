@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 import httpx
 from telegram.constants import ParseMode
 from telegram import InputFile
-from shared.constants import Dialogs, ServiceTicketStatus, Roles
+from shared.constants import Dialogs, ServiceTicketStatus, GuestParkingStatus
 from shared.utils.storage_utils import extract_storage_path, to_public_storage_url
 from .base_service import BaseService
 from datetime import datetime
@@ -236,6 +236,46 @@ class NotificationService(BaseService):
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _get_entity_value(entity: Any, key: str, default: Any = None) -> Any:
+        if isinstance(entity, dict):
+            return entity.get(key, default)
+        return getattr(entity, key, default)
+
+    @staticmethod
+    def _parse_datetime_value(value: Any) -> Optional[datetime]:
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str) and value.strip():
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                return None
+        return None
+
+    def _format_guest_parking_interval(self, request: Any, data: Optional[dict] = None) -> tuple[str, str]:
+        data = data or {}
+        start_raw = data.get("arrival_start_at") or self._get_entity_value(request, "arrival_start_at")
+        end_raw = data.get("arrival_end_at") or self._get_entity_value(request, "arrival_end_at")
+        fallback_raw = data.get("arrival_date") or self._get_entity_value(request, "arrival_date")
+        start_at = self._parse_datetime_value(start_raw) or self._parse_datetime_value(fallback_raw)
+        end_at = self._parse_datetime_value(end_raw)
+        date_str = start_at.strftime("%d.%m.%Y") if start_at else (str(fallback_raw)[:10] if fallback_raw else "")
+        if start_at and end_at:
+            return date_str, f"{start_at.strftime('%H:%M')} - {end_at.strftime('%H:%M')}"
+        if start_at:
+            return date_str, start_at.strftime("%H:%M")
+        return date_str, str(data.get("arrival_time") or "")
+
+    @staticmethod
+    def _guest_parking_status_label(status: Any) -> str:
+        value = str(status or GuestParkingStatus.NEW).upper()
+        return {
+            GuestParkingStatus.NEW: "Ожидает подтверждения",
+            GuestParkingStatus.APPROVED: "Подтверждена",
+            GuestParkingStatus.REJECTED: "Отклонена",
+        }.get(value, value)
+
     async def _resolve_ticket_from_admin_reply(
         self,
         *,
@@ -273,6 +313,49 @@ class NotificationService(BaseService):
             pass
 
         return ticket
+
+    async def _resolve_guest_parking_from_admin_reply(
+        self,
+        *,
+        chat_id: int,
+        reply_to_message: Message,
+    ):
+        message_ref = await self._find_message_ref(
+            chat_id=chat_id,
+            message_id=reply_to_message.message_id,
+            entity_type="GuestParkingRequest",
+        )
+        if message_ref is not None:
+            response = await self.bot.managers.database.guest_parking.get_by_id(
+                entity_id=message_ref.entity_id,
+                model_class=GuestParkingSchema,
+            )
+            if response.get("success") and response.get("data") is not None:
+                return response["data"]
+
+        request_id = self._extract_ticket_id_from_message(reply_to_message)
+        if request_id is None:
+            return None
+
+        response = await self.bot.managers.database.guest_parking.get_by_id(
+            entity_id=request_id,
+            model_class=GuestParkingSchema,
+        )
+        if not response.get("success") or response.get("data") is None:
+            return None
+        request = response["data"]
+        try:
+            await self._upsert_message_ref(
+                entity_type="GuestParkingRequest",
+                entity_id=self._get_entity_value(request, "id"),
+                chat_id=chat_id,
+                message_id=reply_to_message.message_id,
+                kind="PRIMARY",
+                meta={"user_id": self._get_entity_value(request, "user_id"), "restored_from_reply": True},
+            )
+        except Exception:
+            pass
+        return request
 
     async def _delete_message_refs(self, *, entity_type: str, entity_id: int) -> None:
         await self.bot.managers.database.bot_message_ref.delete_by_entity(
@@ -758,6 +841,7 @@ class NotificationService(BaseService):
                 ticket.id,
                 created_date,
                 object_name,
+                ticket.category or self.bot.get_text("description_not_specified"),
                 ticket.description or self.bot.get_text("description_not_specified"),
                 ticket.location or self.bot.get_text("location_not_specified"),
                 user_name,
@@ -908,6 +992,7 @@ class NotificationService(BaseService):
                 ticket.id,
                 created_date,
                 object_name,
+                ticket.category or self.bot.get_text("description_not_specified"),
                 ticket.description or self.bot.get_text("description_not_specified"),
                 ticket.location or self.bot.get_text("location_not_specified"),
                 user_name,
@@ -993,7 +1078,44 @@ class NotificationService(BaseService):
                 reply_to_message=reply_to_message,
             )
             if not ticket:
-                return False
+                parking_request = await self._resolve_guest_parking_from_admin_reply(
+                    chat_id=update.effective_chat.id,
+                    reply_to_message=reply_to_message,
+                )
+                if not parking_request:
+                    return False
+
+                message_text = (update.message.text or update.message.caption or "").strip()
+                if not message_text:
+                    return False
+                lower_text = message_text.lower()
+                if re.search(r'принят[оа]', lower_text):
+                    await self._process_guest_parking_review(
+                        update,
+                        context,
+                        parking_request,
+                        GuestParkingStatus.APPROVED,
+                        user_id,
+                    )
+                    return True
+                if re.search(r'отклон[её]н[оа]|отклонить', lower_text):
+                    reason = re.sub(r'^\s*(?:отклон[её]н[оа]|отклонить)\s*[:\-–—]?\s*', "", message_text, flags=re.IGNORECASE).strip()
+                    await self._process_guest_parking_review(
+                        update,
+                        context,
+                        parking_request,
+                        GuestParkingStatus.REJECTED,
+                        user_id,
+                        reason=reason or None,
+                    )
+                    return True
+
+                await self.bot.managers.message.reply_message(
+                    update,
+                    context,
+                    "guest_parking_unknown_admin_command",
+                )
+                return True
 
             message_text = (update.message.text or update.message.caption or "").strip()
             if not message_text:
@@ -1030,10 +1152,74 @@ class NotificationService(BaseService):
             )
             return False
 
+    async def _process_guest_parking_review(
+        self,
+        update: "Update",
+        context: "ContextTypes.DEFAULT_TYPE",
+        request,
+        status_value: str,
+        user_id: int,
+        *,
+        reason: Optional[str] = None,
+    ):
+        await self.ensure_user_exists(user_id)
+        request_id = int(self._get_entity_value(request, "id"))
+        rejection_reason = (reason or "").strip() or None
+        if status_value == GuestParkingStatus.REJECTED and not rejection_reason:
+            rejection_reason = "Заявка отклонена администратором."
+        audit_context = self.build_telegram_actor_audit_context(
+            telegram_user_id=user_id,
+            reason="guest_parking_reviewed_from_admin_reply",
+        )
+        result = await self.bot.managers.database.guest_parking.update(
+            entity_id=request_id,
+            update_data={
+                "status": status_value,
+                "reviewed_by_user_id": user_id,
+                "reviewed_at": now().isoformat(),
+                "rejection_reason": rejection_reason,
+            },
+            model_class=GuestParkingSchema,
+            _audit_context=audit_context,
+        )
+        if not result.get("success"):
+            await self.bot.managers.message.reply_message(
+                update,
+                context,
+                "error_processing_request",
+            )
+            return
+
+        text_key = (
+            "guest_parking_approved_admin"
+            if status_value == GuestParkingStatus.APPROVED
+            else "guest_parking_rejected_admin"
+        )
+        confirmation_message = await self.bot.managers.message.reply_message(
+            update,
+            context,
+            text_key,
+            payload=[str(request_id)],
+        )
+        if confirmation_message is not None:
+            await self._upsert_message_ref(
+                entity_type="GuestParkingRequest",
+                entity_id=request_id,
+                chat_id=confirmation_message.chat_id,
+                message_id=confirmation_message.message_id,
+                kind="REPLY",
+                meta={"status": status_value, "user_id": user_id},
+            )
+        await self.notify_guest_parking_reviewed(
+            req_id=request_id,
+            _audit_context=audit_context,
+            notify_admin=False,
+        )
+
     async def ensure_user_exists(self, user_id: int):
         user = await self.bot.services.user.get_user_by_id(user_id)
         if not user:
-            user = UserSchema(id=user_id, object_id=None, role=Roles.GUEST)
+            user = UserSchema(id=user_id, object_id=None)
             await self.bot.services.user.create_user(user)
 
     async def _process_ticket_accepted(self, update: "Update", context: "ContextTypes.DEFAULT_TYPE", ticket, user_id: int):
@@ -1659,17 +1845,13 @@ class NotificationService(BaseService):
                 user_name = f"{user.last_name or ''} {user.first_name or ''} {user.middle_name or ''}".strip()
                 legal_entity = user.legal_entity or ""
 
-            arrival_date = data.get("arrival_date")
-            date_str = (
-                arrival_date.strftime("%d.%m.%Y")
-                if isinstance(arrival_date, datetime)
-                else str(arrival_date)[:10]
-            )
-            time_str = data.get("arrival_time", "")
+            date_str, time_str = self._format_guest_parking_interval(None, data)
             tenant_contact = data.get("tenant_phone", "")
             if user_name or legal_entity:
                 tenant_contact = f"{tenant_contact} ({user_name}, {legal_entity})".strip()
             text = self.bot.get_text("guest_parking_to_admin", [
+                req_id,
+                self._guest_parking_status_label(data.get("status")),
                 date_str,
                 time_str,
                 data.get("license_plate", ""),
@@ -1824,16 +2006,22 @@ class NotificationService(BaseService):
                 req_id_val = req.get("id")
                 user_id = req.get("user_id")
                 arrival_date = req.get("arrival_date")
+                arrival_start_at = req.get("arrival_start_at")
+                arrival_end_at = req.get("arrival_end_at")
                 license_plate = req.get("license_plate", "")
                 car_make_color = req.get("car_make_color", "")
                 tenant_phone = req.get("tenant_phone", "")
+                status_value = req.get("status")
             else:
                 req_id_val = getattr(req, "id", None)
                 user_id = getattr(req, "user_id", None)
                 arrival_date = getattr(req, "arrival_date", None)
+                arrival_start_at = getattr(req, "arrival_start_at", None)
+                arrival_end_at = getattr(req, "arrival_end_at", None)
                 license_plate = getattr(req, "license_plate", "") or ""
                 car_make_color = getattr(req, "car_make_color", "") or ""
                 tenant_phone = getattr(req, "tenant_phone", "") or ""
+                status_value = getattr(req, "status", None)
 
             user = await self.bot.services.user.get_user_by_id(user_id) if user_id else None
             user_name = self.bot.get_text("unknown_user")
@@ -1845,19 +2033,22 @@ class NotificationService(BaseService):
             if user_name or legal_entity:
                 tenant_contact = f"{tenant_contact} ({user_name}, {legal_entity})".strip()
 
-            if arrival_date and hasattr(arrival_date, "strftime"):
-                date_str = arrival_date.strftime("%d.%m.%Y")
-                time_str = arrival_date.strftime("%H:%M")
-            elif isinstance(arrival_date, str):
-                parts = arrival_date.replace("Z", "").split("T")
-                date_str = parts[0][:10] if parts else ""
-                time_str = parts[1][:5] if len(parts) > 1 else ""
-            else:
-                date_str = str(arrival_date)[:10] if arrival_date else ""
-                time_str = ""
+            date_str, time_str = self._format_guest_parking_interval(
+                {
+                    "arrival_date": arrival_date,
+                    "arrival_start_at": arrival_start_at,
+                    "arrival_end_at": arrival_end_at,
+                }
+            )
 
             text = self.bot.get_text("guest_parking_to_admin", [
-                date_str, time_str, license_plate, car_make_color, tenant_contact,
+                req_id_val,
+                self._guest_parking_status_label(status_value),
+                date_str,
+                time_str,
+                license_plate,
+                car_make_color,
+                tenant_contact,
             ])
             message = await self.bot.application.bot.send_message(
                 chat_id=target_chat_id,
@@ -1960,15 +2151,21 @@ class NotificationService(BaseService):
             if isinstance(req, dict):
                 user_id = req.get("user_id")
                 arrival_date = req.get("arrival_date")
+                arrival_start_at = req.get("arrival_start_at")
+                arrival_end_at = req.get("arrival_end_at")
                 license_plate = req.get("license_plate", "")
                 car_make_color = req.get("car_make_color", "")
                 tenant_phone = req.get("tenant_phone", "")
+                status_value = req.get("status")
             else:
                 user_id = getattr(req, "user_id", None)
                 arrival_date = getattr(req, "arrival_date", None)
+                arrival_start_at = getattr(req, "arrival_start_at", None)
+                arrival_end_at = getattr(req, "arrival_end_at", None)
                 license_plate = getattr(req, "license_plate", "") or ""
                 car_make_color = getattr(req, "car_make_color", "") or ""
                 tenant_phone = getattr(req, "tenant_phone", "") or ""
+                status_value = getattr(req, "status", None)
 
             user = await self.bot.services.user.get_user_by_id(user_id) if user_id else None
             user_name = self.bot.get_text("unknown_user")
@@ -1980,18 +2177,23 @@ class NotificationService(BaseService):
             if user_name or legal_entity:
                 tenant_contact = f"{tenant_contact} ({user_name}, {legal_entity})".strip()
 
-            if arrival_date and hasattr(arrival_date, "strftime"):
-                date_str = arrival_date.strftime("%d.%m.%Y")
-                time_str = arrival_date.strftime("%H:%M")
-            elif isinstance(arrival_date, str):
-                parts = arrival_date.replace("Z", "").split("T")
-                date_str = parts[0][:10] if parts else ""
-                time_str = parts[1][:5] if len(parts) > 1 else ""
-            else:
-                date_str = str(arrival_date)[:10] if arrival_date else ""
-                time_str = ""
+            date_str, time_str = self._format_guest_parking_interval(
+                {
+                    "arrival_date": arrival_date,
+                    "arrival_start_at": arrival_start_at,
+                    "arrival_end_at": arrival_end_at,
+                }
+            )
 
-            payload = [date_str, time_str, license_plate, car_make_color, tenant_contact]
+            payload = [
+                req_id,
+                self._guest_parking_status_label(status_value),
+                date_str,
+                time_str,
+                license_plate,
+                car_make_color,
+                tenant_contact,
+            ]
             await self.bot.managers.message.edit_message(
                 chat_id=current_chat_id,
                 message_id=msid,
@@ -2048,6 +2250,89 @@ class NotificationService(BaseService):
                 ),
             )
             logger.exception("Failed to update guest parking admin message request_id=%s: %s", req_id, e)
+            return {"success": False, "error": str(e)}
+
+    async def notify_guest_parking_reviewed(
+        self,
+        req_id: int,
+        _audit_context: Optional[dict] = None,
+        *,
+        notify_admin: bool = True,
+    ) -> Dict[str, Any]:
+        """Уведомляет арендатора и обновляет админское сообщение после подтверждения/отклонения парковки."""
+        try:
+            resp = await self.bot.managers.database.guest_parking.get_by_id(
+                entity_id=req_id,
+                model_class=GuestParkingSchema,
+            )
+            if not resp.get("success") or not resp.get("data"):
+                return {"success": False, "error": "request_not_found"}
+            req = resp["data"]
+            user_id = self._get_entity_value(req, "user_id")
+            status_value = str(self._get_entity_value(req, "status", GuestParkingStatus.NEW)).upper()
+            license_plate = self._get_entity_value(req, "license_plate", "") or ""
+            rejection_reason = self._get_entity_value(req, "rejection_reason", "") or "Заявка отклонена администратором."
+            date_str, time_str = self._format_guest_parking_interval(req)
+
+            if status_value in {GuestParkingStatus.APPROVED, GuestParkingStatus.REJECTED} and user_id:
+                target_chat_id = await self._resolve_guest_parking_chat_id(req_id=req_id)
+                user_chat_id = await self._resolve_guest_parking_chat_id(request=req, req_id=req_id)
+                user_chat_id = int(user_id) if user_id else user_chat_id
+                text_key = (
+                    "guest_parking_approved_user"
+                    if status_value == GuestParkingStatus.APPROVED
+                    else "guest_parking_rejected_user"
+                )
+                payload = [date_str, time_str, license_plate]
+                if status_value == GuestParkingStatus.REJECTED:
+                    payload.append(rejection_reason)
+                try:
+                    await self.bot.application.bot.send_message(
+                        chat_id=user_chat_id,
+                        text=self.bot.get_text(text_key, payload),
+                        parse_mode=ParseMode.HTML,
+                    )
+                    await self._append_delivery_audit_event(
+                        entity_type="GuestParkingRequest",
+                        entity_id=int(req_id),
+                        event_type="DELIVERY_SUCCESS",
+                        action="send",
+                        reason="guest_parking_user_review_notified",
+                        audit_context=self.derive_audit_context(
+                            _audit_context,
+                            source_service="bot_service",
+                            reason="guest_parking_user_review_notified",
+                        ),
+                        meta=self._build_delivery_meta(
+                            delivery_channel="telegram_user",
+                            target_chat_id=user_chat_id,
+                            status="success",
+                            extra={"status": status_value},
+                        ),
+                    )
+                except Exception as send_error:
+                    logger.exception(
+                        "Failed to notify guest parking user request_id=%s user_id=%s: %s",
+                        req_id,
+                        user_id,
+                        send_error,
+                    )
+                if notify_admin and target_chat_id is not None:
+                    admin_text_key = (
+                        "guest_parking_approved_admin"
+                        if status_value == GuestParkingStatus.APPROVED
+                        else "guest_parking_rejected_admin"
+                    )
+                    await self.bot.application.bot.send_message(
+                        chat_id=target_chat_id,
+                        text=self.bot.get_text(admin_text_key, [req_id]),
+                        parse_mode=ParseMode.HTML,
+                    )
+
+            await self.edit_guest_parking_message(req_id=req_id, _audit_context=_audit_context)
+            return {"success": True, "error": None}
+        except Exception as e:
+            logger.exception("Failed to process guest parking review notification request_id=%s: %s", req_id, e)
             return {"success": False, "error": str(e)}
 
     async def delete_guest_parking_messages(self, req_id: int, _audit_context: Optional[dict] = None) -> Dict[str, Any]:

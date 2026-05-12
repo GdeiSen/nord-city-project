@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from pydantic import BaseModel
 
 from shared.clients.database_client import db_client
-from shared.constants import Roles
+from shared.permissions import PermissionCodes
 from shared.schemas.user import UserSchema
-from api.dependencies import get_current_user, get_audit_context
+from api.dependencies import get_current_user, get_audit_context, require_permission
 from api.schemas.common import MessageResponse, PaginatedResponse, parse_sort_param
 from api.schemas.list_params import parse_list_params_from_query
 from api.helpers.paginated_list import create_paginated_list_handler
@@ -24,21 +24,11 @@ USER_EXPORT_HEADERS = {
     "id": "ID",
     "user": "Пользователь",
     "contacts": "Контакты",
-    "role": "Роль",
+    "roles": "Роли",
     "object": "Объект",
     "legal_entity": "Юр. лицо",
     "created": "Создан",
 }
-ROLE_LABELS = {
-    Roles.GUEST: "Гость",
-    Roles.LPR: "User LPR",
-    Roles.MA: "User MA",
-    Roles.MANAGER: "Менеджер",
-    Roles.ADMIN: "Администратор",
-    Roles.SUPER_ADMIN: "Super Admin",
-}
-
-
 class UserRoleLinkItem(BaseModel):
     role_code: str
     role_id: int
@@ -67,17 +57,19 @@ def _normalize_bot_username(username: str) -> str:
     return username.strip().lstrip("@")
 
 
-def _build_role_links_payload() -> UserRoleLinksResponse:
+async def _build_role_links_payload() -> UserRoleLinksResponse:
     bot_username = _normalize_bot_username(_get_env_required("BOT_USERNAME"))
     lpr_token = _get_env_required("BOT_DEEP_LINK_LPR_TOKEN", "lpr")
     ma_token = _get_env_required("BOT_DEEP_LINK_MA_TOKEN", "ma")
+    lpr_role = (await db_client.role.get_by_code(code="lpr")).get("data") or {}
+    ma_role = (await db_client.role.get_by_code(code="ma")).get("data") or {}
 
     return UserRoleLinksResponse(
         bot_username=bot_username,
         links=[
             UserRoleLinkItem(
                 role_code="LPR",
-                role_id=Roles.LPR,
+                role_id=int(lpr_role.get("id", 0) if isinstance(lpr_role, dict) else getattr(lpr_role, "id", 0)),
                 token=lpr_token,
                 title="Ссылка LPR",
                 description=(
@@ -88,7 +80,7 @@ def _build_role_links_payload() -> UserRoleLinksResponse:
             ),
             UserRoleLinkItem(
                 role_code="MA",
-                role_id=Roles.MA,
+                role_id=int(ma_role.get("id", 0) if isinstance(ma_role, dict) else getattr(ma_role, "id", 0)),
                 token=ma_token,
                 title="Ссылка MA",
                 description=(
@@ -118,9 +110,9 @@ def _get_user_export_value(col_id: str):
             email = item.get("email", "")
             phone = item.get("phone_number", "")
             return f"{email} {phone}".strip()
-        if col_id == "role":
-            r = item.get("role")
-            return ROLE_LABELS.get(r, str(r)) if r is not None else ""
+        if col_id == "roles":
+            roles = item.get("roles") or []
+            return ", ".join(str(role.get("name") or role.get("code") or "") for role in roles if isinstance(role, dict))
         if col_id == "object":
             o = item.get("object")
             return o.get("name", f"БЦ-{o.get('id', '')}") if o else ""
@@ -139,17 +131,8 @@ async def create_user(
     request: Request,
     current_user: dict = Depends(get_current_user),
 ):
-    if current_user.get("role") != Roles.SUPER_ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Только Super Admin может создавать пользователей.",
-        )
+    require_permission(current_user, PermissionCodes.USERS_MANAGE)
     create_data = body.model_dump()
-    if create_data.get("role") == Roles.SUPER_ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Назначение роли Super Admin через сайт запрещено. Используйте базу данных.",
-        )
     response = await db_client.user.create(
         model_data=create_data,
         model_class=UserSchema,
@@ -191,7 +174,7 @@ async def export_users(
         filters=filters,
         max_page_size=None,
     )
-    column_ids = [c.strip() for c in (columns or "id,user,contacts,role,object,legal_entity,created").split(",") if c.strip()]
+    column_ids = [c.strip() for c in (columns or "id,user,contacts,roles,object,legal_entity,created").split(",") if c.strip()]
     column_ids = [c for c in column_ids if c in USER_EXPORT_HEADERS] or list(USER_EXPORT_HEADERS)
     response = await db_client.user.get_paginated(
         page=page,
@@ -221,12 +204,8 @@ async def export_users(
 
 @router.get("/role-links", response_model=UserRoleLinksResponse)
 async def get_user_role_links(current_user: dict = Depends(get_current_user)):
-    if current_user.get("role") != Roles.SUPER_ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Только Super Admin может просматривать ссылки ролей.",
-        )
-    return _build_role_links_payload()
+    require_permission(current_user, PermissionCodes.USERS_MANAGE)
+    return await _build_role_links_payload()
 
 
 @router.get("/{entity_id}", response_model=UserResponse)
@@ -253,31 +232,11 @@ async def update_user(
     update_data = body.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
+    require_permission(current_user, PermissionCodes.USERS_MANAGE)
 
-    # При редактировании себя — исключаем роль из payload (UI её блокирует, но frontend может отправлять)
+    # При редактировании себя — исключаем роли из payload, чтобы не потерять доступ.
     if entity_id == current_user["user_id"]:
-        update_data.pop("role", None)
-
-    # Запрет менять свою роль (на случай прямых API-вызовов) — уже убрали выше
-    if "role" in update_data:
-        new_role = update_data["role"]
-        target_user_response = await db_client.user.get_by_id(
-            entity_id=entity_id,
-            model_class=UserSchema,
-        )
-        if not target_user_response.get("success") or target_user_response.get("data") is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found",
-            )
-        target_user = target_user_response["data"]
-
-        # Роль Super Admin управляется только через БД: запрещаем назначения и снятие через web.
-        if new_role == Roles.SUPER_ADMIN or target_user.role == Roles.SUPER_ADMIN:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Управление ролью Super Admin через сайт запрещено. Используйте базу данных.",
-            )
+        update_data.pop("role_ids", None)
 
     response = await db_client.user.update(
         entity_id=entity_id,
@@ -297,6 +256,7 @@ async def delete_user(
     request: Request,
     current_user: dict = Depends(get_current_user),
 ):
+    require_permission(current_user, PermissionCodes.USERS_MANAGE)
     response = await db_client.user.delete(
         entity_id=entity_id,
         _audit_context=get_audit_context(request, current_user),

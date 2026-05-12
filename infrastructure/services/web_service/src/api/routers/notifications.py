@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from api.dependencies import get_audit_context, get_current_user
+from api.dependencies import get_audit_context, get_current_user, require_permission
 from api.schemas.notifications import (
     NotificationBroadcastRequest,
     NotificationBroadcastResponse,
@@ -10,7 +10,8 @@ from api.schemas.notifications import (
 from shared.clients.bot_client import bot_client
 from shared.clients.database_client import db_client
 from shared.clients.storage_client import storage_client
-from shared.constants import Roles, StorageFileCategory
+from shared.constants import StorageFileCategory
+from shared.permissions import PermissionCodes
 from shared.schemas.storage_file import StorageFileSchema
 from shared.schemas.user import UserSchema
 from shared.utils.storage_utils import STORAGE_PATH_PATTERN, extract_storage_path
@@ -22,12 +23,7 @@ router = APIRouter(prefix="/notifications", tags=["Notifications"])
 
 def _require_admin(current_user: dict = Depends(get_current_user)) -> dict:
     """Ensure user is Admin or Super Admin."""
-    role = current_user.get("role")
-    if role not in (Roles.ADMIN, Roles.SUPER_ADMIN):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Доступ только для администраторов.",
-        )
+    require_permission(current_user, PermissionCodes.NOTIFICATIONS_SEND)
     return current_user
 
 

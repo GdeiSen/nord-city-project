@@ -5,7 +5,7 @@ Service for handling Telegram-based authentication.
 Responsible for:
 - Generating and sending OTP codes to users via Telegram
 - Storing OTP codes in the database for verification
-- Validating that users have the required role (ADMIN/SUPER_ADMIN)
+- Validating that users have site access permission
 """
 
 import logging
@@ -16,7 +16,8 @@ from typing import TYPE_CHECKING, Optional, Dict, Any
 
 from telegram.constants import ParseMode
 
-from shared.constants import AuditRetentionClass, Roles
+from shared.constants import AuditRetentionClass
+from shared.permissions import PermissionCodes
 from .base_service import BaseService
 
 if TYPE_CHECKING:
@@ -35,7 +36,7 @@ class TelegramAuthService(BaseService):
 
     Handles the full OTP lifecycle:
     1. Receives a request to send an OTP code to a user
-    2. Validates user exists and has ADMIN or SUPER_ADMIN role
+    2. Validates user exists and has site access permission
     3. Generates a 6-digit OTP code
     4. Stores the code in the database with an expiration time
     5. Sends the code to the user via Telegram bot
@@ -69,9 +70,8 @@ class TelegramAuthService(BaseService):
                 logger.warning(f"OTP request for non-existent user: {user_id}")
                 return {"success": False, "error": "user_not_found"}
 
-            user_role = user.role
-            if user_role not in (Roles.ADMIN, Roles.SUPER_ADMIN):
-                logger.warning(f"OTP request for user without admin role: {user_id} (role={user_role})")
+            if not await self.bot.services.user.has_permission(user_id, PermissionCodes.SITE_ACCESS):
+                logger.warning("OTP request for user without site access permission: %s", user_id)
                 return {"success": False, "error": "insufficient_permissions"}
 
             # 2. Invalidate any existing active codes for this user

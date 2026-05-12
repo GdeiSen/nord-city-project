@@ -1,21 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from api.dependencies import get_current_user
+from api.dependencies import get_current_user, require_permission
 from api.schemas.telegram_chats import TelegramChatResponse
 from shared.clients.database_client import db_client
-from shared.constants import Roles
+from shared.permissions import PermissionCodes
 from shared.schemas.telegram_chat import TelegramChatSchema
 
 router = APIRouter(prefix="/telegram-chats", tags=["Telegram Chats"])
 
 
 def _require_admin(current_user: dict = Depends(get_current_user)) -> dict:
-    role = current_user.get("role")
-    if role not in (Roles.ADMIN, Roles.SUPER_ADMIN):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Недостаточно прав для просмотра Telegram-чатов.",
-        )
+    require_permission(current_user, PermissionCodes.SITE_ACCESS)
     return current_user
 
 

@@ -19,8 +19,7 @@ import { SidebarInset } from "@/components/ui/sidebar"
 import { Textarea } from "@/components/ui/textarea"
 import { Toaster } from "@/components/ui/sonner"
 import { useCanEdit, useFilterPickerData } from "@/hooks"
-import { notificationApi } from "@/lib/api"
-import { userColumns } from "@/lib/table-configs/users"
+import { notificationApi, roleApi, type RoleResponse } from "@/lib/api"
 
 function pluralizeUsers(count: number): string {
   const mod10 = count % 10
@@ -29,11 +28,6 @@ function pluralizeUsers(count: number): string {
   if (mod10 === 1 && mod100 !== 11) return "пользователю"
   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return "пользователям"
   return "пользователям"
-}
-
-function getRoleOptions() {
-  const roleColumn = userColumns.find((column) => column.id === "role")
-  return roleColumn?.filterSelect ?? []
 }
 
 export default function NotificationsPage() {
@@ -50,8 +44,16 @@ export default function NotificationsPage() {
   const [message, setMessage] = React.useState("")
   const [attachmentUrls, setAttachmentUrls] = React.useState<string[]>([])
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const [roles, setRoles] = React.useState<RoleResponse[]>([])
 
-  const roleOptions = React.useMemo(() => getRoleOptions(), [])
+  React.useEffect(() => {
+    roleApi.getAll().then(setRoles).catch(console.error)
+  }, [])
+
+  const roleOptions = React.useMemo(
+    () => roles.map((role) => ({ value: String(role.id), label: role.name || role.code })),
+    [roles]
+  )
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()

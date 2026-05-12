@@ -16,6 +16,8 @@
   11. Создание реестра DDID и связывание feedbacks / poll_answers / service_tickets
   12. Поддержка объектной маршрутизации Telegram-чатов
   13. Поддержка получателя сервисных отзывов и связи service_ticket <-> feedback
+  14. Интервалы и статусы заявок гостевой парковки
+  15. Категории заявок на обслуживание
 
 Использование:
     Из корня проекта:
@@ -933,50 +935,113 @@ async def step13_add_service_ticket_feedback_support(engine):
     print("  [OK] Поддержка получателя сервисных отзывов и ref-таблицы настроена")
 
 
+async def step14_add_guest_parking_interval_status(engine):
+    """Добавление интервала заезда и статуса рассмотрения гостевой парковки."""
+    async with engine.begin() as conn:
+        await conn.execute(text("ALTER TABLE guest_parking_requests ADD COLUMN IF NOT EXISTS arrival_start_at TIMESTAMPTZ"))
+        await conn.execute(text("ALTER TABLE guest_parking_requests ADD COLUMN IF NOT EXISTS arrival_end_at TIMESTAMPTZ"))
+        await conn.execute(text("ALTER TABLE guest_parking_requests ADD COLUMN IF NOT EXISTS status VARCHAR(20)"))
+        await conn.execute(text("ALTER TABLE guest_parking_requests ADD COLUMN IF NOT EXISTS reviewed_by_user_id BIGINT"))
+        await conn.execute(text("ALTER TABLE guest_parking_requests ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ"))
+        await conn.execute(text("ALTER TABLE guest_parking_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT"))
+        await conn.execute(
+            text(
+                """
+                UPDATE guest_parking_requests
+                SET
+                    arrival_start_at = COALESCE(arrival_start_at, arrival_date),
+                    arrival_end_at = COALESCE(arrival_end_at, arrival_date + interval '2 hours'),
+                    status = COALESCE(NULLIF(status, ''), 'NEW')
+                """
+            )
+        )
+        await conn.execute(text("ALTER TABLE guest_parking_requests ALTER COLUMN status SET DEFAULT 'NEW'"))
+        await conn.execute(text("ALTER TABLE guest_parking_requests ALTER COLUMN status SET NOT NULL"))
+        await conn.execute(text("ALTER TABLE guest_parking_requests ALTER COLUMN arrival_start_at SET NOT NULL"))
+        await conn.execute(text("ALTER TABLE guest_parking_requests ALTER COLUMN arrival_end_at SET NOT NULL"))
+        await conn.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.table_constraints
+                        WHERE table_name = 'guest_parking_requests'
+                          AND constraint_name = 'fk_guest_parking_reviewed_by_user_id_users'
+                    ) THEN
+                        ALTER TABLE guest_parking_requests
+                        ADD CONSTRAINT fk_guest_parking_reviewed_by_user_id_users
+                        FOREIGN KEY (reviewed_by_user_id) REFERENCES users(id)
+                        ON DELETE SET NULL;
+                    END IF;
+                END $$;
+                """
+            )
+        )
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_guest_parking_requests_status ON guest_parking_requests (status)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_guest_parking_requests_arrival_start_at ON guest_parking_requests (arrival_start_at)"))
+    print("  [OK] Интервалы и статусы гостевой парковки настроены")
+
+
+async def step15_add_service_ticket_category(engine):
+    """Добавление поля категории заявок на обслуживание."""
+    async with engine.begin() as conn:
+        await conn.execute(text("ALTER TABLE service_tickets ADD COLUMN IF NOT EXISTS category VARCHAR(200)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_service_tickets_category ON service_tickets (category)"))
+    print("  [OK] Категории заявок на обслуживание настроены")
+
+
 async def run_all():
     url = get_db_url()
     engine = create_async_engine(url, echo=False)
 
     print("\n=== Миграция Nord City: старая → новая версия ===\n")
 
-    print("Шаг 1/13: Создание таблицы guest_parking_requests...")
+    print("Шаг 1/15: Создание таблицы guest_parking_requests...")
     await step1_create_guest_parking(engine)
 
-    print("\nШаг 2/13: Миграция TIMESTAMP → TIMESTAMPTZ...")
+    print("\nШаг 2/15: Миграция TIMESTAMP → TIMESTAMPTZ...")
     await step2_migrate_timestamptz(engine)
 
-    print("\nШаг 3/13: Добавление колонки msid...")
+    print("\nШаг 3/15: Добавление колонки msid...")
     await step3_add_msid(engine)
 
-    print("\nШаг 4/13: Удаление колонки reminder_sent...")
+    print("\nШаг 4/15: Удаление колонки reminder_sent...")
     await step4_drop_reminder_sent(engine)
 
-    print("\nШаг 5/13: Удаление колонки reminder_sent_at (логика в кэше)...")
+    print("\nШаг 5/15: Удаление колонки reminder_sent_at (логика в кэше)...")
     await step5_drop_reminder_sent_at(engine)
 
-    print("\nШаг 6/13: Удаление колонки driver_phone...")
+    print("\nШаг 6/15: Удаление колонки driver_phone...")
     await step6_drop_driver_phone(engine)
 
-    print("\nШаг 7/13: Создание таблицы guest_parking_settings...")
+    print("\nШаг 7/15: Создание таблицы guest_parking_settings...")
     await step7_create_guest_parking_settings(engine)
 
-    print("\nШаг 8/13: Создание таблицы storage_files...")
+    print("\nШаг 8/15: Создание таблицы storage_files...")
     await step8_create_storage_files(engine)
 
-    print("\nШаг 9/13: Рефакторинг аудита...")
+    print("\nШаг 9/15: Рефакторинг аудита...")
     await step9_migrate_audit(engine)
 
-    print("\nШаг 10/13: Удаление legacy service_tickets.msid...")
+    print("\nШаг 10/15: Удаление legacy service_tickets.msid...")
     await step10_drop_service_ticket_msid(engine)
 
-    print("\nШаг 11/13: Создание DDID-реестра...")
+    print("\nШаг 11/15: Создание DDID-реестра...")
     await step11_add_dynamic_dialog_bindings(engine)
 
-    print("\nШаг 12/13: Поддержка объектной маршрутизации Telegram-чатов...")
+    print("\nШаг 12/15: Поддержка объектной маршрутизации Telegram-чатов...")
     await step12_add_chat_routing_support(engine)
 
-    print("\nШаг 13/13: Поддержка сервисных отзывов по заявкам...")
+    print("\nШаг 13/15: Поддержка сервисных отзывов по заявкам...")
     await step13_add_service_ticket_feedback_support(engine)
+
+    print("\nШаг 14/15: Интервалы и статусы гостевой парковки...")
+    await step14_add_guest_parking_interval_status(engine)
+
+    print("\nШаг 15/15: Категории заявок на обслуживание...")
+    await step15_add_service_ticket_category(engine)
 
     await engine.dispose()
     print("\n=== Миграция успешно завершена ===\n")

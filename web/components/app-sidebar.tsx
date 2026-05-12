@@ -14,6 +14,7 @@ import {
   IconFile,
   IconLanguage,
   IconAdjustments,
+  IconShieldLock,
 } from "@tabler/icons-react"
 
 import { NavMain } from "@/components/nav-main"
@@ -78,6 +79,11 @@ const data = {
       title: "Пользователи",
       url: "/users",
       icon: IconUsers,
+    },
+    {
+      title: "Роли и права",
+      url: "/roles",
+      icon: IconShieldLock,
     },
     {
       title: "Заявки на обслуживание",

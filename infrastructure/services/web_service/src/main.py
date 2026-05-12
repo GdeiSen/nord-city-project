@@ -19,6 +19,7 @@ from shared.clients.storage_client import storage_client
 from config import get_config
 from api.routers import (
     users_router,
+    roles_router,
     auth_router,
     feedback_router,
     rental_objects_router,
@@ -119,6 +120,7 @@ app.add_middleware(
 # --- Include explicit routers under /api/v1 ---
 API_PREFIX = "/api/v1"
 app.include_router(users_router, prefix=API_PREFIX)
+app.include_router(roles_router, prefix=API_PREFIX)
 app.include_router(auth_router, prefix=API_PREFIX)
 app.include_router(feedback_router, prefix=API_PREFIX)
 app.include_router(rental_objects_router, prefix=API_PREFIX)

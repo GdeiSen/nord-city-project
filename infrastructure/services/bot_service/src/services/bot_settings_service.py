@@ -4,10 +4,9 @@ from bot_features import (
     BOT_FEATURES_BY_DIALOG,
     BOT_FEATURES_BY_KEY,
     DEFAULT_MENU_LAYOUT,
-    LIMITED_MENU_LAYOUT,
 )
 from settings.bot_settings import get_bot_settings, save_bot_settings
-from shared.constants import Dialogs, Roles, Variables
+from shared.constants import Dialogs, Variables
 
 from .base_service import BaseService
 
@@ -45,6 +44,14 @@ class BotSettingsService(BaseService):
     def get_feature_by_key(self, feature_key: str):
         return BOT_FEATURES_BY_KEY.get(feature_key)
 
+    async def is_feature_allowed_for_user(self, feature_key: str, user_id: int | None) -> bool:
+        feature = BOT_FEATURES_BY_KEY.get(feature_key)
+        if feature is None:
+            return True
+        if user_id is None:
+            return False
+        return await self.bot.services.user.has_permission(int(user_id), feature.permission_code)
+
     def get_feature_key_for_route(
         self,
         route_id: int | str,
@@ -59,25 +66,28 @@ class BotSettingsService(BaseService):
         feature = BOT_FEATURES_BY_DIALOG.get(route_id) if isinstance(route_id, int) else None
         return feature.key if feature else None
 
-    def get_enabled_menu_layout(self, role: int | None) -> list[list[tuple[str, int]]]:
-        layout = LIMITED_MENU_LAYOUT if role in (Roles.MA, Roles.GUEST) else DEFAULT_MENU_LAYOUT
+    async def get_enabled_menu_layout(self, user_id: int) -> list[list[tuple[str, int]]]:
+        access = await self.bot.services.user.get_access_profile(user_id)
+        permissions = set(access.permissions if access else [])
         rows: list[list[tuple[str, int]]] = []
-        for row in layout:
+        for row in DEFAULT_MENU_LAYOUT:
             enabled_items: list[tuple[str, int]] = []
             for feature_key in row:
                 feature = BOT_FEATURES_BY_KEY[feature_key]
-                if not self.is_feature_enabled(feature_key):
+                if not (access and (access.is_super_admin or feature.permission_code in permissions)):
                     continue
                 enabled_items.append((feature.label_key, feature.dialog_id))
             if enabled_items:
                 rows.append(enabled_items)
         return rows
 
-    def get_enabled_menu_feature_keys(self, role: int | None) -> list[str]:
-        layout = LIMITED_MENU_LAYOUT if role in (Roles.MA, Roles.GUEST) else DEFAULT_MENU_LAYOUT
-        return [
-            feature_key
-            for row in layout
-            for feature_key in row
-            if self.is_feature_enabled(feature_key)
-        ]
+    async def get_enabled_menu_feature_keys(self, user_id: int) -> list[str]:
+        access = await self.bot.services.user.get_access_profile(user_id)
+        permissions = set(access.permissions if access else [])
+        result: list[str] = []
+        for row in DEFAULT_MENU_LAYOUT:
+            for feature_key in row:
+                feature = BOT_FEATURES_BY_KEY[feature_key]
+                if access and (access.is_super_admin or feature.permission_code in permissions):
+                    result.append(feature_key)
+        return result

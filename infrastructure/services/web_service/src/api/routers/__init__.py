@@ -1,5 +1,6 @@
 # Explicit API routers — each resource has its own module
 from .users import router as users_router
+from .roles import router as roles_router
 from .auth import router as auth_router
 from .feedbacks import router as feedback_router
 from .rental_objects import router as rental_objects_router
@@ -19,6 +20,7 @@ from .telegram_chats import router as telegram_chats_router
 
 __all__ = [
     "users_router",
+    "roles_router",
     "auth_router",
     "feedback_router",
     "rental_objects_router",

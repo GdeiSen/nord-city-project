@@ -1,6 +1,10 @@
 from .base import Base
 from .user import User
 from .user_auth import UserAuth
+from .role import Role, RolePermission
+from .permission import Permission
+from .user_role import UserRole
+from .contract import Contract, UserContract
 from .service_ticket import ServiceTicket
 from .feedback import Feedback
 from .service_ticket_feedback_ref import ServiceTicketFeedbackRef

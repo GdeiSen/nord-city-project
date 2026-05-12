@@ -9,21 +9,19 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from shared.clients.audit_client import audit_client
-from shared.constants import Roles
+from shared.permissions import PermissionCodes
 from shared.schemas.audit_log import AuditLogSchema
 from api.schemas.audit_log import AuditLogEntryResponse
 from api.schemas.common import PaginatedResponse
 from api.helpers.paginated_list import create_paginated_list_handler
 from api.helpers.enrichment import enrich_audit_logs_with_actor
-from api.dependencies import get_current_user
+from api.dependencies import get_current_user, require_permission
 
 router = APIRouter(prefix="/audit-log", tags=["Audit Log"])
 
 
 def _require_admin(current_user: dict = Depends(get_current_user)) -> dict:
-    role = current_user.get("role")
-    if role not in (Roles.ADMIN, Roles.SUPER_ADMIN):
-        raise HTTPException(status_code=403, detail="Недостаточно прав")
+    require_permission(current_user, PermissionCodes.SITE_ACCESS)
     return current_user
 
 
