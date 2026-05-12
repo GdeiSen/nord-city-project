@@ -7,7 +7,7 @@ set -euo pipefail
 #   POSTGRES_CONTAINER, DB_NAME, DB_USER, DB_HOST
 
 TARGET_USERNAME="${1:-gordey_senuta}"
-SUPER_ADMIN_ROLE_ID=10013
+SUPER_ADMIN_ROLE_CODE="super_admin"
 
 if [[ -f ".env" ]]; then
   # shellcheck disable=SC1091
@@ -43,16 +43,28 @@ ESCAPED_USERNAME="${TARGET_USERNAME//\'/\'\'}"
 
 echo "[INFO] Container: $CONTAINER"
 echo "[INFO] DB: $DB_NAME, user: $DB_USER"
-echo "[INFO] Обновляю роль пользователя '$TARGET_USERNAME' -> $SUPER_ADMIN_ROLE_ID"
+echo "[INFO] Назначаю пользователю '$TARGET_USERNAME' роль '$SUPER_ADMIN_ROLE_CODE'"
 
 UPDATED_COUNT="$(docker exec -i "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -tA -c "
-WITH updated AS (
-  UPDATE users
-  SET role = $SUPER_ADMIN_ROLE_ID
+WITH target_user AS (
+  SELECT id
+  FROM users
   WHERE lower(replace(coalesce(username,''), '@', '')) = lower(replace('$ESCAPED_USERNAME', '@', ''))
-  RETURNING id
+),
+target_role AS (
+  SELECT id
+  FROM roles
+  WHERE code = '$SUPER_ADMIN_ROLE_CODE'
+),
+inserted AS (
+  INSERT INTO user_roles (user_id, role_id)
+  SELECT target_user.id, target_role.id
+  FROM target_user
+  CROSS JOIN target_role
+  ON CONFLICT DO NOTHING
+  RETURNING user_id
 )
-SELECT count(*) FROM updated;
+SELECT count(*) FROM target_user;
 " | tr -d '[:space:]')"
 
 if [[ "$UPDATED_COUNT" == "0" ]]; then
@@ -62,9 +74,12 @@ if [[ "$UPDATED_COUNT" == "0" ]]; then
 fi
 
 docker exec -i "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -c "
-SELECT id, username, role
-FROM users
-WHERE lower(replace(coalesce(username,''), '@', '')) = lower(replace('$ESCAPED_USERNAME', '@', ''));
+SELECT u.id, u.username, string_agg(r.code, ', ' ORDER BY r.code) AS roles
+FROM users u
+LEFT JOIN user_roles ur ON ur.user_id = u.id
+LEFT JOIN roles r ON r.id = ur.role_id
+WHERE lower(replace(coalesce(u.username,''), '@', '')) = lower(replace('$ESCAPED_USERNAME', '@', ''))
+GROUP BY u.id, u.username;
 "
 
-echo "[OK] Роль обновлена на SUPER_ADMIN ($SUPER_ADMIN_ROLE_ID)."
+echo "[OK] Роль '$SUPER_ADMIN_ROLE_CODE' назначена."
