@@ -18,6 +18,14 @@ from config import get_config
 from database.database_manager import DatabaseManager
 from shared.utils.converter import Converter
 from shared.schemas.rpc import get_rpc_schema
+from shared.permissions import (
+    ADMIN_DEFAULT_PERMISSIONS,
+    ADMIN_ROLE_CODE,
+    DEFAULT_PERMISSIONS,
+    EVERYONE_DEFAULT_PERMISSIONS,
+    EVERYONE_ROLE_CODE,
+    SUPER_ADMIN_ROLE_CODE,
+)
 
 # --- Model Imports for Registration ---
 from models.user import User
@@ -163,6 +171,86 @@ async def _ensure_default_object():
     logger.info("Created default object with id=1 for system initialization.")
 
 
+async def _ensure_rbac_defaults():
+    """Ensure required system roles and permissions exist on every startup."""
+    from sqlalchemy import text
+
+    role_names = {
+        EVERYONE_ROLE_CODE: "Everyone",
+        ADMIN_ROLE_CODE: "Admin",
+        SUPER_ADMIN_ROLE_CODE: "Super Admin",
+    }
+    role_permissions = {
+        EVERYONE_ROLE_CODE: EVERYONE_DEFAULT_PERMISSIONS,
+        ADMIN_ROLE_CODE: ADMIN_DEFAULT_PERMISSIONS,
+        SUPER_ADMIN_ROLE_CODE: {item["code"] for item in DEFAULT_PERMISSIONS},
+    }
+
+    async with db_manager.get_session() as session:
+        await session.execute(text("CREATE SEQUENCE IF NOT EXISTS roles_id_seq"))
+        await session.execute(text("CREATE SEQUENCE IF NOT EXISTS permissions_id_seq"))
+        await session.execute(text("ALTER TABLE roles ALTER COLUMN id SET DEFAULT nextval('roles_id_seq'::regclass)"))
+        await session.execute(text("ALTER TABLE permissions ALTER COLUMN id SET DEFAULT nextval('permissions_id_seq'::regclass)"))
+        await session.execute(text("SELECT setval('roles_id_seq', COALESCE((SELECT MAX(id) FROM roles), 0) + 1, false)"))
+        await session.execute(text("SELECT setval('permissions_id_seq', COALESCE((SELECT MAX(id) FROM permissions), 0) + 1, false)"))
+
+        for item in DEFAULT_PERMISSIONS:
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO permissions (code, scope, name, description)
+                    VALUES (:code, :scope, :name, :description)
+                    ON CONFLICT (code) DO UPDATE
+                    SET scope = EXCLUDED.scope,
+                        name = EXCLUDED.name,
+                        description = EXCLUDED.description,
+                        updated_at = now()
+                    """
+                ),
+                {**item, "description": item.get("description")},
+            )
+
+        for role_code, role_name in role_names.items():
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO roles (code, name, is_system, is_default)
+                    VALUES (:code, :name, TRUE, :is_default)
+                    ON CONFLICT (code) DO UPDATE
+                    SET name = EXCLUDED.name,
+                        is_system = TRUE,
+                        is_default = EXCLUDED.is_default,
+                        updated_at = now()
+                    """
+                ),
+                {
+                    "code": role_code,
+                    "name": role_name,
+                    "is_default": role_code == EVERYONE_ROLE_CODE,
+                },
+            )
+
+        for role_code, permission_codes in role_permissions.items():
+            for permission_code in sorted(permission_codes):
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO role_permissions (role_id, permission_id)
+                        SELECT r.id, p.id
+                        FROM roles r
+                        JOIN permissions p ON p.code = :permission_code
+                        WHERE r.code = :role_code
+                        ON CONFLICT DO NOTHING
+                        """
+                    ),
+                    {"role_code": role_code, "permission_code": permission_code},
+                )
+
+        await session.commit()
+
+    logger.info("RBAC defaults ensured: everyone, admin, super_admin.")
+
+
 async def _rpc_handler(request: dict) -> dict:
     """Universal RPC handler that processes all incoming requests."""
     try:
@@ -220,6 +308,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Audit client local writer setup failed: %s", e)
     await _ensure_default_object()
+    await _ensure_rbac_defaults()
     try:
         await db_manager.services.get("guest_parking").init_reminder_cache()
     except Exception as e:

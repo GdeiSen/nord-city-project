@@ -99,8 +99,8 @@ class UserService(BaseService):
         if role_ids is None:
             return
         normalized_ids = sorted({int(item) for item in role_ids})
-        if not normalized_ids:
-            normalized_ids = await self._get_default_role_ids(session=session)
+        default_role_ids = await self._get_default_role_ids(session=session)
+        normalized_ids = sorted(set(normalized_ids) | set(default_role_ids))
         if normalized_ids:
             existing = await session.execute(select(Role.id).where(Role.id.in_(normalized_ids)))
             valid_ids = {int(item) for item in existing.scalars().all()}

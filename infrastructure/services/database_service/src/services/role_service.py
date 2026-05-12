@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 
 from models.permission import Permission
 from models.role import Role, RolePermission
-from shared.permissions import SUPER_ADMIN_ROLE_CODE
+from shared.permissions import EVERYONE_ROLE_CODE, PermissionCodes, SUPER_ADMIN_ROLE_CODE
 from shared.utils.converter import Converter
 
 from .base_service import BaseService, db_session_manager
@@ -83,6 +83,13 @@ class RoleService(BaseService):
         if role is None:
             return None
         normalized_ids = sorted({int(item) for item in (permission_ids or [])})
+        if role.code == EVERYONE_ROLE_CODE:
+            profile_permission = await session.execute(
+                select(Permission.id).where(Permission.code == PermissionCodes.BOT_FEATURE_PROFILE)
+            )
+            profile_permission_id = profile_permission.scalar_one_or_none()
+            if profile_permission_id is not None:
+                normalized_ids = sorted(set(normalized_ids) | {int(profile_permission_id)})
         if normalized_ids:
             existing_permissions = await session.execute(
                 select(Permission.id).where(Permission.id.in_(normalized_ids))
