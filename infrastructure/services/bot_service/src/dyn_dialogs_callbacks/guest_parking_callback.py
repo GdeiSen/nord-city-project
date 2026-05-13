@@ -257,9 +257,16 @@ async def guest_parking_callback(
             date_str = arrival_start_at.strftime("%d.%m.%Y") if arrival_start_at else ""
             time_str = data.get("arrival_time", "")
             license_plate = data.get("license_plate", "")
+            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
             await bot.send_message(
                 update, context,
                 "guest_parking_cancelled_user",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton(
+                        bot.get_text("guest_parking_to_menu"),
+                        callback_data=f"guest_parking:menu:{req_id}",
+                    )
+                ]]),
                 payload=[date_str, time_str, license_plate],
             )
         bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, None)
