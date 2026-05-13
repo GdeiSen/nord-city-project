@@ -112,6 +112,7 @@ class Variables:
     SERVICE_FEEDBACK_MESSAGE = 131
     BUFFER_MEDIA_MESSAGES = 132
     GUEST_PARKING_DATA = 133
+    PERSIST_NEXT_IMAGES = 134
 
 class ServiceTicketStatus:
     NEW = "NEW"

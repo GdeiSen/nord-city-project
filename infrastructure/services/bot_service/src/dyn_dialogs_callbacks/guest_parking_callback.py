@@ -326,3 +326,5 @@ async def _finalize_and_show_summary(
     if final_item:
         final_item.text = summary
         final_item.images = route_images[:2]
+        if route_images:
+            bot.managers.storage.set(context, Variables.PERSIST_NEXT_IMAGES, True)
