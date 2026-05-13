@@ -304,41 +304,28 @@ class MessageManager(BaseManager):
                             new_messages.append({"chat_id": message.chat_id, "message_id": message.message_id})
                     # Для нескольких изображений используем media group
                     else:
-                        from telegram import InputMediaPhoto
                         image_refs = [await self.bot.services.media.prepare_image_ref(img) for img in images]
-                        media = []
-                        for image_ref in image_refs:
-                            filename, file_content = await self.bot.services.media.download_photo_bytes(str(image_ref.get("url") or ""))
-                            media.append(InputMediaPhoto(
-                                media=self.bot.services.media.as_input_file(filename, file_content),
-                            ))
-
-                        # Отправляем группу медиа напрямую (как в broadcast)
                         log_context = self._build_log_context(chat_id=chat_id, image_count=len(images))
-                        media_messages = None
-                        try:
-                            media_messages = await context.bot.send_media_group(
-                                chat_id=chat_id,
-                                media=media,
-                            )
-                        except Exception as exc:
-                            await self.bot.handle_error(
-                                1001,
-                                f"send media group failed [{log_context}] {type(exc).__name__}: {exc}",
-                            )
 
-                        # Сохраняем ID всех сообщений с медиа
-                        for idx, msg in enumerate(media_messages or []):
-                            new_messages.append({"chat_id": msg.chat_id, "message_id": msg.message_id})
-                            photos = getattr(msg, "photo", None) or []
-                            uploaded_file_id = getattr(photos[-1], "file_id", None) if photos else None
-                            if uploaded_file_id and idx < len(image_refs):
-                                await self.bot.services.media.persist_storage_file_telegram_file_id(
-                                    storage_path=image_refs[idx].get("storage_path"),
-                                    telegram_file_id=str(uploaded_file_id),
-                                )
+                        # Отправляем каждое фото отдельно через _send_adaptive_photo (file_id + BytesIO fallback)
+                        for image_ref in image_refs:
+                            success, photo_msg, _ = await self._execute_with_retry(
+                                operation_name="send photo",
+                                operation=lambda ref=image_ref: self._send_adaptive_photo(
+                                    context=context,
+                                    chat_id=chat_id,
+                                    image_ref=ref,
+                                    caption="",
+                                    reply_markup=None,
+                                    parse_mode=parse_mode,
+                                ),
+                                error_code=1001,
+                                log_context=log_context,
+                            )
+                            if photo_msg:
+                                new_messages.append({"chat_id": photo_msg.chat_id, "message_id": photo_msg.message_id})
 
-                        # Отправляем текст и клавиатуру отдельным сообщением (как в broadcast)
+                        # Текст и клавиатура — отдельным сообщением после фото
                         log_context = self._build_log_context(chat_id=chat_id, dynamic=dynamic, refresh=refresh)
                         success, keyboard_message, _ = await self._execute_with_retry(
                             operation_name="send follow-up text message",
