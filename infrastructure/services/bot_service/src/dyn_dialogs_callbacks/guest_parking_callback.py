@@ -108,6 +108,12 @@ async def guest_parking_callback(
         active_seq = dialog.sequences.get(sequence_id)
         return active_seq.items_ids.index(item_id) if active_seq and item_id in active_seq.items_ids else 0
 
+    if state == 1:
+        if data:
+            await _finalize_and_show_summary(bot, update, context, dialog, data)
+        bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, None)
+        return await bot.managers.navigator.execute(Dialogs.MENU, update, context)
+
     # --- Ввод даты ---
     if item_id == 100:
         parsed = _parse_date(answer or "")
@@ -190,9 +196,7 @@ async def guest_parking_callback(
         if user and user.phone_number and user.phone_number.strip():
             data["tenant_phone"] = _normalize_phone(user.phone_number)
             bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, data)
-            await _finalize_and_show_summary(bot, update, context, dialog, data)
-            bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, None)
-            return await bot.managers.navigator.execute(Dialogs.MENU, update, context)
+            return CallbackResult.skip_and_complete()
         return CallbackResult.continue_()
 
     # --- Телефон арендатора ---
@@ -219,13 +223,7 @@ async def guest_parking_callback(
             await bot.send_message(
                 update, context, "profile_phone_saved", dynamic=False
             )
-        await _finalize_and_show_summary(bot, update, context, dialog, data)
-        bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, None)
-        return await bot.managers.navigator.execute(Dialogs.MENU, update, context)
-
-    if state == 1:
-        bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, None)
-        return await bot.managers.navigator.execute(Dialogs.MENU, update, context)
+        return CallbackResult.continue_()
 
     return CallbackResult.continue_()
 
