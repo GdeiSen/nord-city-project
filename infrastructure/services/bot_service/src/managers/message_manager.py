@@ -307,30 +307,26 @@ class MessageManager(BaseManager):
                         from telegram import InputMediaPhoto
                         image_refs = [await self.bot.services.media.prepare_image_ref(img) for img in images]
                         media = []
-                        for index, image_ref in enumerate(image_refs):
-                            is_last = index == len(image_refs) - 1
-                            caption_arg = text[:1024] if is_last else None
-                            parse_mode_arg = parse_mode if is_last else None
+                        for image_ref in image_refs:
                             filename, file_content = await self.bot.services.media.download_photo_bytes(str(image_ref.get("url") or ""))
-                            media_item = InputMediaPhoto(
+                            media.append(InputMediaPhoto(
                                 media=self.bot.services.media.as_input_file(filename, file_content),
-                                caption=caption_arg,
-                                parse_mode=parse_mode_arg,
-                            )
-                            media.append(media_item)
-                        
-                        # Отправляем группу медиа
+                            ))
+
+                        # Отправляем группу медиа напрямую (как в broadcast)
                         log_context = self._build_log_context(chat_id=chat_id, image_count=len(images))
-                        success, media_messages, _ = await self._execute_with_retry(
-                            operation_name="send media group",
-                            operation=lambda: context.bot.send_media_group(
+                        media_messages = None
+                        try:
+                            media_messages = await context.bot.send_media_group(
                                 chat_id=chat_id,
                                 media=media,
-                            ),
-                            error_code=1001,
-                            log_context=log_context,
-                        )
-                        
+                            )
+                        except Exception as exc:
+                            await self.bot.handle_error(
+                                1001,
+                                f"send media group failed [{log_context}] {type(exc).__name__}: {exc}",
+                            )
+
                         # Сохраняем ID всех сообщений с медиа
                         for idx, msg in enumerate(media_messages or []):
                             new_messages.append({"chat_id": msg.chat_id, "message_id": msg.message_id})
@@ -341,24 +337,24 @@ class MessageManager(BaseManager):
                                     storage_path=image_refs[idx].get("storage_path"),
                                     telegram_file_id=str(uploaded_file_id),
                                 )
-                        
-                        # Если нужна клавиатура, отправляем отдельным сообщением
-                        if reply_markup:
-                            success, keyboard_message, _ = await self._execute_with_retry(
-                                operation_name="send follow-up keyboard message",
-                                operation=lambda: context.bot.send_message(
-                                    chat_id=chat_id,
-                                    text=self.bot.get_text("choose_action"),
-                                    reply_markup=reply_markup,
-                                    parse_mode=parse_mode,
-                                ),
-                                error_code=1001,
-                                log_context=log_context,
+
+                        # Отправляем текст и клавиатуру отдельным сообщением (как в broadcast)
+                        log_context = self._build_log_context(chat_id=chat_id, dynamic=dynamic, refresh=refresh)
+                        success, keyboard_message, _ = await self._execute_with_retry(
+                            operation_name="send follow-up text message",
+                            operation=lambda: context.bot.send_message(
+                                chat_id=chat_id,
+                                text=text,
+                                reply_markup=reply_markup,
+                                parse_mode=parse_mode,
+                            ),
+                            error_code=1001,
+                            log_context=log_context,
+                        )
+                        if keyboard_message:
+                            new_messages.append(
+                                {"chat_id": keyboard_message.chat_id, "message_id": keyboard_message.message_id}
                             )
-                            if keyboard_message:
-                                new_messages.append(
-                                    {"chat_id": keyboard_message.chat_id, "message_id": keyboard_message.message_id}
-                                )
                 else:
                     # Отправляем новое текстовое сообщение
                     log_context = self._build_log_context(chat_id=chat_id, dynamic=dynamic, refresh=refresh)
