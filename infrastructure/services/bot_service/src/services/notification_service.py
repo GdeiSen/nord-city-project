@@ -1334,7 +1334,7 @@ class NotificationService(BaseService):
                 )
                 return True
             ticket_status = str(getattr(ticket, "status", "")).upper()
-            if ticket_status not in (ServiceTicketStatus.NEW,):
+            if ticket_status == ServiceTicketStatus.CANCELLED:
                 await query.message.reply_text(
                     self.bot.get_text("service_ticket_cancel_unavailable"),
                     parse_mode=ParseMode.HTML,
@@ -1623,7 +1623,7 @@ class NotificationService(BaseService):
                     parse_mode=ParseMode.HTML,
                 )
                 return True
-            if current_status != GuestParkingStatus.NEW:
+            if current_status == GuestParkingStatus.CANCELLED:
                 await query.message.reply_text(
                     self.bot.get_text("guest_parking_cancel_unavailable"),
                     parse_mode=ParseMode.HTML,
