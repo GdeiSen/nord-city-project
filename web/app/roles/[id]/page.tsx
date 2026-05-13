@@ -50,6 +50,54 @@ function getPermissionScopeLabel(scope: string) {
   return PERMISSION_SCOPE_LABELS[scope] ?? scope
 }
 
+function slugifyRoleCode(value: string) {
+  const translit: Record<string, string> = {
+    а: "a",
+    б: "b",
+    в: "v",
+    г: "g",
+    д: "d",
+    е: "e",
+    ё: "e",
+    ж: "zh",
+    з: "z",
+    и: "i",
+    й: "y",
+    к: "k",
+    л: "l",
+    м: "m",
+    н: "n",
+    о: "o",
+    п: "p",
+    р: "r",
+    с: "s",
+    т: "t",
+    у: "u",
+    ф: "f",
+    х: "h",
+    ц: "c",
+    ч: "ch",
+    ш: "sh",
+    щ: "sch",
+    ъ: "",
+    ы: "y",
+    ь: "",
+    э: "e",
+    ю: "yu",
+    я: "ya",
+  }
+  const transliterated = value
+    .trim()
+    .toLowerCase()
+    .split("")
+    .map((char) => translit[char] ?? char)
+    .join("")
+  return transliterated
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_{2,}/g, "_")
+}
+
 export default function RoleDetailPage() {
   const params = useParams<{ id: string }>()
   const router = useRouter()
@@ -90,6 +138,7 @@ export default function RoleDetailPage() {
   }, [permissions])
 
   const selectedIds = new Set(role.permission_ids ?? [])
+  const generatedRoleCode = isNew ? slugifyRoleCode(role.name ?? "") : role.code ?? ""
 
   const togglePermission = (permissionId: number, checked: boolean) => {
     setRole((current) => {
@@ -101,14 +150,15 @@ export default function RoleDetailPage() {
   }
 
   const save = async () => {
-    if (!role.name?.trim() || !role.code?.trim()) {
-      toast.error("Укажите код и название роли")
+    const roleCode = isNew ? generatedRoleCode : role.code?.trim()
+    if (!role.name?.trim() || !roleCode) {
+      toast.error("Укажите название роли")
       return
     }
     setSaving(true)
     try {
       const payload = {
-        code: role.code.trim(),
+        code: roleCode,
         name: role.name.trim(),
         description: role.description?.trim() || undefined,
         permission_ids: role.permission_ids ?? [],
@@ -151,20 +201,20 @@ export default function RoleDetailPage() {
           <div className="grid max-w-3xl gap-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="code">Код</Label>
-                <Input
-                  id="code"
-                  value={role.code ?? ""}
-                  disabled={!isNew && role.is_system}
-                  onChange={(event) => setRole((current) => ({ ...current, code: event.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
                 <Label htmlFor="name">Название</Label>
                 <Input
                   id="name"
                   value={role.name ?? ""}
                   onChange={(event) => setRole((current) => ({ ...current, name: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="code">Код</Label>
+                <Input
+                  id="code"
+                  value={generatedRoleCode}
+                  disabled
+                  placeholder="Сгенерируется из названия"
                 />
               </div>
             </div>

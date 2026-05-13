@@ -24,13 +24,6 @@ from shared.permissions import (
     DEFAULT_PERMISSIONS,
     EVERYONE_DEFAULT_PERMISSIONS,
     EVERYONE_ROLE_CODE,
-    GUEST_ROLE_CODE,
-    LPR_DEFAULT_PERMISSIONS,
-    LPR_ROLE_CODE,
-    MA_DEFAULT_PERMISSIONS,
-    MA_ROLE_CODE,
-    MANAGER_DEFAULT_PERMISSIONS,
-    MANAGER_ROLE_CODE,
     SUPER_ADMIN_ROLE_CODE,
 )
 
@@ -184,19 +177,11 @@ async def _ensure_rbac_defaults():
 
     role_names = {
         EVERYONE_ROLE_CODE: "Все пользователи",
-        GUEST_ROLE_CODE: "Гость",
-        LPR_ROLE_CODE: "LPR",
-        MA_ROLE_CODE: "MA",
-        MANAGER_ROLE_CODE: "Менеджер",
         ADMIN_ROLE_CODE: "Администратор",
         SUPER_ADMIN_ROLE_CODE: "Супер администратор",
     }
     role_permissions = {
         EVERYONE_ROLE_CODE: EVERYONE_DEFAULT_PERMISSIONS,
-        GUEST_ROLE_CODE: set(),
-        LPR_ROLE_CODE: LPR_DEFAULT_PERMISSIONS,
-        MA_ROLE_CODE: MA_DEFAULT_PERMISSIONS,
-        MANAGER_ROLE_CODE: MANAGER_DEFAULT_PERMISSIONS,
         ADMIN_ROLE_CODE: ADMIN_DEFAULT_PERMISSIONS,
         SUPER_ADMIN_ROLE_CODE: {item["code"] for item in DEFAULT_PERMISSIONS},
     }
@@ -277,7 +262,7 @@ async def _ensure_rbac_defaults():
 
         await session.commit()
 
-    logger.info("RBAC defaults ensured: everyone, guest, lpr, ma, manager, admin, super_admin.")
+    logger.info("RBAC defaults ensured: everyone, admin, super_admin.")
 
 
 async def _rpc_handler(request: dict) -> dict:

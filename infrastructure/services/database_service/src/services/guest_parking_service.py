@@ -25,9 +25,10 @@ logger = logging.getLogger(__name__)
 # Макс. размер кэша напоминаний (самые ранние заявки)
 REMINDER_CACHE_MAX_SIZE = 500
 
-# Окно напоминания: за 13–16 минут до arrival (при проверке раз в минуту)
-REMINDER_WINDOW_START_MIN = 13
-REMINDER_WINDOW_END_MIN = 16
+# Окно напоминания: примерно за 15 минут до начала интервала.
+# Планировщик проверяет раз в минуту, поэтому берём узкое окно 14-15 минут до arrival_start_at.
+REMINDER_WINDOW_START_MIN = 14
+REMINDER_WINDOW_END_MIN = 15
 
 
 def _to_cache_item(record: Any) -> dict:
