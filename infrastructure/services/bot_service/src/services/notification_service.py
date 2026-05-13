@@ -1323,6 +1323,53 @@ class NotificationService(BaseService):
             )
             return True
 
+        if action == "user_cancel":
+            actor_id = query.from_user.id if query.from_user else None
+            ticket_user_id = getattr(ticket, "user_id", None)
+            if actor_id != ticket_user_id:
+                await query.message.reply_text(
+                    self.bot.get_text("service_ticket_cancel_forbidden"),
+                    parse_mode=ParseMode.HTML,
+                )
+                return True
+            ticket_status = str(getattr(ticket, "status", "")).upper()
+            if ticket_status not in (ServiceTicketStatus.NEW,):
+                await query.message.reply_text(
+                    self.bot.get_text("service_ticket_cancel_unavailable"),
+                    parse_mode=ParseMode.HTML,
+                )
+                return True
+            await self.bot.services.service_ticket.update_service_ticket_status(
+                ticket.id,
+                ServiceTicketStatus.CANCELLED,
+                query.message.message_id if query.message else None,
+                actor_id,
+            )
+            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+            await query.edit_message_text(
+                self.bot.get_text("service_ticket_cancelled_user", [str(ticket_id)]),
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton(
+                        self.bot.get_text("service_feedback_to_main_menu"),
+                        callback_data=f"service_ticket:to_menu:{ticket_id}",
+                    )
+                ]]),
+            )
+            admin_chat_id = await self._resolve_ticket_chat_id(ticket)
+            if admin_chat_id:
+                await self.bot.application.bot.send_message(
+                    chat_id=admin_chat_id,
+                    text=self.bot.get_text("service_ticket_cancelled_admin", [str(ticket_id)]),
+                    parse_mode=ParseMode.HTML,
+                )
+            await self.edit_ticket_message(ticket_id=ticket_id, notify_admin_update=False)
+            return True
+
+        if action == "to_menu":
+            await self.bot.managers.navigator.execute(Dialogs.MENU, update, context)
+            return True
+
         chat_id = query.message.chat_id if query.message else None
         if not chat_id or not await self.is_admin_chat(chat_id):
             await query.message.reply_text(

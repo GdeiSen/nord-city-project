@@ -89,7 +89,21 @@ async def service_callback(
                     saved_ticket,
                     _audit_context=audit_context,
                 )
-            await bot.send_message(update, context, "service_ticket_completed", dynamic=False)
+            ticket_id = getattr(saved_ticket, "id", None) if saved_ticket else None
+            if ticket_id:
+                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                await bot.send_message(
+                    update, context, "service_ticket_completed",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton(
+                            bot.get_text("service_ticket_action_cancel"),
+                            callback_data=f"service_ticket:user_cancel:{ticket_id}",
+                        )
+                    ]]),
+                    dynamic=False,
+                )
+            else:
+                await bot.send_message(update, context, "service_ticket_completed", dynamic=False)
         return await bot.managers.navigator.execute(Dialogs.MENU, update, context)
 
     service_ticket = bot.managers.storage.get(context, Variables.USER_SERVICE_TICKET)
