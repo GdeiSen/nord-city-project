@@ -1620,6 +1620,62 @@ class NotificationService(BaseService):
         current_status = str(self._get_entity_value(request, "status", GuestParkingStatus.NEW)).upper()
         actor_id = query.from_user.id if query.from_user else None
 
+        if action == "user_cancel":
+            request_user_id = self._get_entity_value(request, "user_id")
+            if actor_id is None or int(request_user_id) != int(actor_id):
+                await query.message.reply_text(
+                    self.bot.get_text("guest_parking_cancel_forbidden"),
+                    parse_mode=ParseMode.HTML,
+                )
+                return True
+            if current_status != GuestParkingStatus.NEW:
+                await query.message.reply_text(
+                    self.bot.get_text("guest_parking_cancel_unavailable"),
+                    parse_mode=ParseMode.HTML,
+                )
+                return True
+            audit_context = self.build_telegram_actor_audit_context(
+                telegram_user_id=actor_id,
+                reason="guest_parking_cancelled_by_user_from_completion_message",
+            )
+            result = await self.bot.managers.database.guest_parking.update(
+                entity_id=request_id,
+                update_data={"status": GuestParkingStatus.CANCELLED},
+                model_class=GuestParkingSchema,
+                _audit_context=audit_context,
+            )
+            if not result.get("success"):
+                await query.message.reply_text(
+                    self.bot.get_text("error_processing_request"),
+                    parse_mode=ParseMode.HTML,
+                )
+                return True
+            date_str, time_str = self._format_guest_parking_interval(request)
+            license_plate = self._get_entity_value(request, "license_plate", "") or ""
+            await query.edit_message_text(
+                self.bot.get_text("guest_parking_cancelled_user", [date_str, time_str, license_plate]),
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton(
+                        self.bot.get_text("guest_parking_to_menu"),
+                        callback_data=f"guest_parking:menu:{request_id}",
+                    )
+                ]]),
+            )
+            target_chat_id = await self._resolve_guest_parking_chat_id(request=request, req_id=request_id)
+            if target_chat_id is not None:
+                await self.bot.application.bot.send_message(
+                    chat_id=target_chat_id,
+                    text=self.bot.get_text("guest_parking_cancelled_admin", [str(request_id)]),
+                    parse_mode=ParseMode.HTML,
+                )
+            await self.edit_guest_parking_message(
+                req_id=request_id,
+                _audit_context=audit_context,
+                notify_admin_update=False,
+            )
+            return True
+
         if action in {"approve", "reject"}:
             chat_id = query.message.chat_id if query.message else None
             if not chat_id or not await self.is_admin_chat(chat_id):

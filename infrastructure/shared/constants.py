@@ -120,6 +120,7 @@ class ServiceTicketStatus:
     ASSIGNED = "ASSIGNED"
     COMPLETED = "COMPLETED"
     IN_PROGRESS = "IN_PROGRESS"
+    CANCELLED = "CANCELLED"
 
 
 class GuestParkingStatus:

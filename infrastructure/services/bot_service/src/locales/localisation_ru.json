@@ -140,6 +140,7 @@
     "guest_parking_cancelled_user": "🚫 <b>Ваша заявка на гостевую парковку отменена.</b>\n\n<b>Дата и интервал:</b> {?} {?}\n<b>Госномер:</b> {?}",
     "guest_parking_action_approve": "✅ Принять",
     "guest_parking_action_reject": "❌ Отклонить",
+    "guest_parking_completed": "✅ Заявка на гостевую парковку успешно создана!\nВы можете отменить её до подтверждения администратором.",
     "guest_parking_action_cancel": "🚫 Отменить заявку",
     "guest_parking_not_found": "❌ Заявка на парковку не найдена.",
     "guest_parking_admin_only_action": "⛔ Это действие доступно только в чате администраторов.",
