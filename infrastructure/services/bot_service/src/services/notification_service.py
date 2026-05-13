@@ -2850,15 +2850,9 @@ class NotificationService(BaseService):
                 if status_value == GuestParkingStatus.REJECTED:
                     payload.append(rejection_reason)
                 try:
-                    reply_markup = (
-                        self._guest_parking_cancel_keyboard(req_id)
-                        if status_value == GuestParkingStatus.APPROVED
-                        else None
-                    )
                     await self.bot.application.bot.send_message(
                         chat_id=user_chat_id,
                         text=self.bot.get_text(text_key, payload),
-                        reply_markup=reply_markup,
                         parse_mode=ParseMode.HTML,
                     )
                     await self._append_delivery_audit_event(
