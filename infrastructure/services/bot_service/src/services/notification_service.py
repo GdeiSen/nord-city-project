@@ -980,7 +980,12 @@ class NotificationService(BaseService):
             return {"success": False, "error": str(e)}
 
     async def edit_ticket_message(
-        self, ticket=None, *, ticket_id: Optional[int] = None, _audit_context: Optional[dict] = None
+        self,
+        ticket=None,
+        *,
+        ticket_id: Optional[int] = None,
+        _audit_context: Optional[dict] = None,
+        notify_admin_update: bool = True,
     ) -> Dict[str, Any]:
         """
         Edits the ticket message in the admin chat with current data.
@@ -1060,12 +1065,13 @@ class NotificationService(BaseService):
                 reply_markup=self._service_ticket_admin_keyboard(ticket),
                 payload=payload,
             )
-            admin_text = self.bot.get_text("ticket_updated_admin", [ticket.id])
-            await self.bot.application.bot.send_message(
-                chat_id=current_chat_id,
-                text=admin_text,
-                parse_mode=ParseMode.HTML,
-            )
+            if notify_admin_update:
+                admin_text = self.bot.get_text("ticket_updated_admin", [ticket.id])
+                await self.bot.application.bot.send_message(
+                    chat_id=current_chat_id,
+                    text=admin_text,
+                    parse_mode=ParseMode.HTML,
+                )
             await self._append_delivery_audit_event(
                 entity_type="ServiceTicket",
                 entity_id=int(ticket.id),
@@ -1338,7 +1344,7 @@ class NotificationService(BaseService):
                 self.bot.get_text("ticket_accepted", [str(ticket_id)]),
                 parse_mode=ParseMode.HTML,
             )
-            await self.edit_ticket_message(ticket_id=ticket_id)
+            await self.edit_ticket_message(ticket_id=ticket_id, notify_admin_update=False)
             return True
 
         if action == "complete":
@@ -1362,7 +1368,7 @@ class NotificationService(BaseService):
                 parse_mode=ParseMode.HTML,
             )
             await self.notify_ticket_completion(ticket_id=ticket_id, user_id=ticket.user_id)
-            await self.edit_ticket_message(ticket_id=ticket_id)
+            await self.edit_ticket_message(ticket_id=ticket_id, notify_admin_update=False)
             return True
 
         if action == "assign":
@@ -1452,7 +1458,7 @@ class NotificationService(BaseService):
                 text=self.bot.get_text("ticket_assigned", [str(ticket_id), assignee]),
                 parse_mode=ParseMode.HTML,
             )
-            await self.edit_ticket_message(ticket_id=ticket_id)
+            await self.edit_ticket_message(ticket_id=ticket_id, notify_admin_update=False)
 
         return handler
 
@@ -1637,7 +1643,11 @@ class NotificationService(BaseService):
                     text=self.bot.get_text("guest_parking_cancelled_admin", [str(request_id)]),
                     parse_mode=ParseMode.HTML,
                 )
-            await self.edit_guest_parking_message(req_id=request_id, _audit_context=audit_context)
+            await self.edit_guest_parking_message(
+                req_id=request_id,
+                _audit_context=audit_context,
+                notify_admin_update=False,
+            )
             return True
 
         return False
@@ -1664,7 +1674,7 @@ class NotificationService(BaseService):
                     kind="REPLY",
                     meta={"status": ServiceTicketStatus.IN_PROGRESS, "user_id": user_id},
                 )
-            await self.edit_ticket_message(ticket_id=ticket.id)
+            await self.edit_ticket_message(ticket_id=ticket.id, notify_admin_update=False)
 
     async def _process_ticket_assigned(self, update: "Update", context: "ContextTypes.DEFAULT_TYPE", ticket, user_id: int, assignee: str):
         await self.ensure_user_exists(user_id)
@@ -1684,7 +1694,7 @@ class NotificationService(BaseService):
                     kind="REPLY",
                     meta={"status": ServiceTicketStatus.ASSIGNED, "user_id": user_id, "assignee": assignee},
                 )
-            await self.edit_ticket_message(ticket_id=ticket.id)
+            await self.edit_ticket_message(ticket_id=ticket.id, notify_admin_update=False)
 
     async def _process_ticket_completed(self, update: "Update", context: "ContextTypes.DEFAULT_TYPE", ticket, user_id: int):
         await self.ensure_user_exists(user_id)
@@ -1715,7 +1725,7 @@ class NotificationService(BaseService):
                 user_id=ticket.user_id,
                 _audit_context=telegram_audit_context,
             )
-            await self.edit_ticket_message(ticket_id=ticket.id)
+            await self.edit_ticket_message(ticket_id=ticket.id, notify_admin_update=False)
 
     async def notify_ticket_completion(
         self, ticket_id: int, user_id: Optional[int] = None, _audit_context: Optional[dict] = None
@@ -2547,7 +2557,13 @@ class NotificationService(BaseService):
             logger.exception("Failed to deliver new guest parking admin notification request_id=%s: %s", req_id, e)
             return {"success": False, "error": str(e)}
 
-    async def edit_guest_parking_message(self, req_id: int, _audit_context: Optional[dict] = None) -> Dict[str, Any]:
+    async def edit_guest_parking_message(
+        self,
+        req_id: int,
+        _audit_context: Optional[dict] = None,
+        *,
+        notify_admin_update: bool = True,
+    ) -> Dict[str, Any]:
         """Редактирует сообщение заявки в чате администраторов. Вызывать при изменении с сайта."""
         try:
             resp = await self.bot.managers.database.guest_parking.get_by_id(entity_id=req_id)
@@ -2623,12 +2639,13 @@ class NotificationService(BaseService):
                 reply_markup=self._guest_parking_admin_keyboard(req_id, status_value),
                 payload=payload,
             )
-            admin_text = self.bot.get_text("guest_parking_updated_admin", [req_id])
-            await self.bot.application.bot.send_message(
-                chat_id=current_chat_id,
-                text=admin_text,
-                parse_mode=ParseMode.HTML,
-            )
+            if notify_admin_update:
+                admin_text = self.bot.get_text("guest_parking_updated_admin", [req_id])
+                await self.bot.application.bot.send_message(
+                    chat_id=current_chat_id,
+                    text=admin_text,
+                    parse_mode=ParseMode.HTML,
+                )
             await self._append_delivery_audit_event(
                 entity_type="GuestParkingRequest",
                 entity_id=int(req_id),
@@ -2758,7 +2775,11 @@ class NotificationService(BaseService):
                         parse_mode=ParseMode.HTML,
                     )
 
-            await self.edit_guest_parking_message(req_id=req_id, _audit_context=_audit_context)
+            await self.edit_guest_parking_message(
+                req_id=req_id,
+                _audit_context=_audit_context,
+                notify_admin_update=False,
+            )
             return {"success": True, "error": None}
         except Exception as e:
             logger.exception("Failed to process guest parking review notification request_id=%s: %s", req_id, e)
