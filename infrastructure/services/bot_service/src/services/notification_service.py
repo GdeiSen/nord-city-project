@@ -79,7 +79,7 @@ class NotificationService(BaseService):
     def _service_ticket_admin_keyboard(self, ticket) -> InlineKeyboardMarkup | None:
         status = str(self._get_entity_value(ticket, "status", ServiceTicketStatus.NEW)).upper()
         ticket_id = self._get_entity_value(ticket, "id")
-        if not ticket_id or status == ServiceTicketStatus.COMPLETED:
+        if not ticket_id or status in (ServiceTicketStatus.COMPLETED, ServiceTicketStatus.CANCELLED):
             return None
 
         buttons: list[InlineKeyboardButton] = []
@@ -112,6 +112,7 @@ class NotificationService(BaseService):
             ServiceTicketStatus.IN_PROGRESS: "В работе",
             ServiceTicketStatus.ASSIGNED: "Передана",
             ServiceTicketStatus.COMPLETED: "Выполнена",
+            ServiceTicketStatus.CANCELLED: "Отменена",
         }.get(value, value)
 
     async def _resolve_guest_parking_chat_id(self, request=None, *, req_id: Optional[int] = None) -> Optional[int]:
@@ -1383,7 +1384,7 @@ class NotificationService(BaseService):
             return True
 
         status = str(getattr(ticket, "status", ServiceTicketStatus.NEW)).upper()
-        if status == ServiceTicketStatus.COMPLETED:
+        if status in (ServiceTicketStatus.COMPLETED, ServiceTicketStatus.CANCELLED):
             await query.message.reply_text(
                 self.bot.get_text("ticket_already_completed", [str(ticket_id)]),
                 parse_mode=ParseMode.HTML,
