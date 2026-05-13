@@ -191,7 +191,8 @@ async def guest_parking_callback(
             data["tenant_phone"] = _normalize_phone(user.phone_number)
             bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, data)
             await _finalize_and_show_summary(bot, update, context, dialog, data)
-            return CallbackResult.skip_and_complete()
+            bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, None)
+            return await bot.managers.navigator.execute(Dialogs.MENU, update, context)
         return CallbackResult.continue_()
 
     # --- Телефон арендатора ---
@@ -219,32 +220,10 @@ async def guest_parking_callback(
                 update, context, "profile_phone_saved", dynamic=False
             )
         await _finalize_and_show_summary(bot, update, context, dialog, data)
-        return CallbackResult.skip_and_complete()
+        bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, None)
+        return await bot.managers.navigator.execute(Dialogs.MENU, update, context)
 
     if state == 1:
-        req_id = data.get("req_id")
-        if req_id:
-            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-            arrival_start_at = data.get("arrival_start_at")
-            date_str = arrival_start_at.strftime("%d.%m.%Y") if isinstance(arrival_start_at, datetime) else ""
-            time_str = data.get("arrival_time", "")
-            license_plate = data.get("license_plate", "")
-            route_images = data.get("route_images", [])
-            if route_images:
-                bot.managers.storage.set(context, Variables.PERSIST_NEXT_IMAGES, True)
-            await bot.send_message(
-                update, context,
-                "guest_parking_final_summary",
-                payload=[date_str, time_str, license_plate],
-                images=route_images if route_images else None,
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton(
-                        bot.get_text("guest_parking_action_cancel"),
-                        callback_data=f"guest_parking:user_cancel:{req_id}",
-                    )
-                ]]),
-                dynamic=False,
-            )
         bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, None)
         return await bot.managers.navigator.execute(Dialogs.MENU, update, context)
 
@@ -335,3 +314,24 @@ async def _finalize_and_show_summary(
 
     data["route_images"] = route_images[:2]
     bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, data)
+
+    if req_id:
+        date_str = arrival_start_at.strftime("%d.%m.%Y") if arrival_date else ""
+        time_str = data.get("arrival_time", "")
+        license_plate = data.get("license_plate", "")
+        if route_images:
+            bot.managers.storage.set(context, Variables.PERSIST_NEXT_IMAGES, True)
+        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+        await bot.send_message(
+            update, context,
+            "guest_parking_final_summary",
+            payload=[date_str, time_str, license_plate],
+            images=route_images[:2] if route_images else None,
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    bot.get_text("guest_parking_action_cancel"),
+                    callback_data=f"guest_parking:user_cancel:{req_id}",
+                )
+            ]]),
+            dynamic=False,
+        )
