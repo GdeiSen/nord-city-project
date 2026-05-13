@@ -101,11 +101,6 @@ export default function GuestParkingPage() {
       cell: ({ row }) => <div className="font-medium">{row.original.license_plate}</div>,
     },
     {
-      accessorKey: "car_make_color",
-      header: "Марка и цвет",
-      meta: guestParkingColumnMeta.car_make_color,
-    },
-    {
       accessorKey: "user",
       header: "Арендатор",
       meta: guestParkingColumnMeta.user,

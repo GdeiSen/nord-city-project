@@ -125,6 +125,7 @@ class GuestParkingStatus:
     NEW = "NEW"
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
+    CANCELLED = "CANCELLED"
 
 
 class FeedbackTypes:

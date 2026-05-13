@@ -1,5 +1,6 @@
+import asyncio
 import logging
-from typing import Dict, List, Callable, Any, Coroutine, TYPE_CHECKING
+from typing import Dict, List, Callable, Any, Coroutine, Awaitable, Optional, TYPE_CHECKING
 from .base_manager import BaseManager
 
 if TYPE_CHECKING:
@@ -17,6 +18,8 @@ class EventManager(BaseManager):
         self._events: Dict[str, List[Callable[..., Coroutine[Any, Any, Any]]]] = {}
         self._input_handlers: Dict[int, Callable[..., Coroutine[Any, Any, Any]]] = {}
         self._active_dialog_type: Dict[int, int] = {}  # user_id -> dialog_state
+        self._input_timeout_tasks: Dict[int, asyncio.Task] = {}
+        self._input_handler_tokens: Dict[int, int] = {}
     
     async def initialize(self) -> None:
         """Инициализация менеджера событий"""
@@ -81,7 +84,15 @@ class EventManager(BaseManager):
                     logger.exception("Error in event handler for '%s': %s", event_name, e)
         return results
     
-    def register_input_handler(self, user_id: int, dialog_type: int, handler: Callable[..., Coroutine[Any, Any, Any]]) -> None:
+    def register_input_handler(
+        self,
+        user_id: int,
+        dialog_type: int,
+        handler: Callable[..., Coroutine[Any, Any, Any]],
+        *,
+        timeout_seconds: Optional[float] = None,
+        on_timeout: Optional[Callable[[], Awaitable[None]]] = None,
+    ) -> None:
         """
         Регистрация обработчика ввода для пользователя
         
@@ -90,8 +101,42 @@ class EventManager(BaseManager):
             dialog_type: Тип диалога (текстовый ввод, фото и т.д.)
             handler: Асинхронная функция-обработчик
         """
+        self._cancel_input_timeout(user_id)
         self._input_handlers[user_id] = handler
         self._active_dialog_type[user_id] = dialog_type
+        token = self._input_handler_tokens.get(user_id, 0) + 1
+        self._input_handler_tokens[user_id] = token
+        if timeout_seconds and timeout_seconds > 0:
+            self._input_timeout_tasks[user_id] = asyncio.create_task(
+                self._expire_input_handler(user_id, token, timeout_seconds, on_timeout)
+            )
+
+    def _cancel_input_timeout(self, user_id: int) -> None:
+        task = self._input_timeout_tasks.pop(user_id, None)
+        if task and not task.done():
+            task.cancel()
+
+    async def _expire_input_handler(
+        self,
+        user_id: int,
+        token: int,
+        timeout_seconds: float,
+        on_timeout: Optional[Callable[[], Awaitable[None]]],
+    ) -> None:
+        try:
+            await asyncio.sleep(timeout_seconds)
+            if self._input_handler_tokens.get(user_id) != token:
+                return
+            self._input_handlers.pop(user_id, None)
+            self._active_dialog_type.pop(user_id, None)
+            self._input_handler_tokens.pop(user_id, None)
+            self._input_timeout_tasks.pop(user_id, None)
+            if on_timeout is not None:
+                await on_timeout()
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            logger.exception("Input handler timeout callback failed for user_id=%s: %s", user_id, e)
     
     def remove_input_handler(self, user_id: int) -> None:
         """
@@ -104,6 +149,9 @@ class EventManager(BaseManager):
             del self._input_handlers[user_id]
         if user_id in self._active_dialog_type:
             del self._active_dialog_type[user_id]
+        if user_id in self._input_handler_tokens:
+            del self._input_handler_tokens[user_id]
+        self._cancel_input_timeout(user_id)
     
     def get_input_handler(self, user_id: int) -> tuple[Callable[..., Coroutine[Any, Any, Any]] | None, int | None]:
         """
@@ -160,3 +208,8 @@ class EventManager(BaseManager):
         """Очистка всех обработчиков ввода"""
         self._input_handlers.clear()
         self._active_dialog_type.clear() 
+        self._input_handler_tokens.clear()
+        for task in self._input_timeout_tasks.values():
+            if not task.done():
+                task.cancel()
+        self._input_timeout_tasks.clear()

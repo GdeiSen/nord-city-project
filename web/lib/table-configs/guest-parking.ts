@@ -24,7 +24,6 @@ export const guestParkingColumns: TableColumnConfig[] = [
     ],
   },
   { id: "license_plate", label: "Госномер", type: "string", searchDbColumns: ["license_plate"] },
-  { id: "car_make_color", label: "Марка и цвет", type: "string", searchDbColumns: ["car_make_color"] },
   { id: "user", label: "Арендатор", filterDbColumn: "user_id", filterPicker: "users", searchDbColumns: [] },
 ]
 

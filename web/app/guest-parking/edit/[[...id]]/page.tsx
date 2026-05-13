@@ -150,7 +150,6 @@ export default function GuestParkingEditPage() {
     arrival_start_time: string
     arrival_end_time: string
     license_plate: string
-    car_make_color: string
     tenant_phone: string
   }>({
     user_id: null,
@@ -158,7 +157,6 @@ export default function GuestParkingEditPage() {
     arrival_start_time: "09:00",
     arrival_end_time: "11:00",
     license_plate: "",
-    car_make_color: "",
     tenant_phone: "",
   })
   const [saving, setSaving] = useState(false)
@@ -188,7 +186,6 @@ export default function GuestParkingEditPage() {
           arrival_start_time: startParts.time,
           arrival_end_time: endParts.time,
           license_plate: req.license_plate ?? "",
-          car_make_color: req.car_make_color ?? "",
           tenant_phone: req.tenant_phone ?? "",
         })
         setDateInputDisplay(startParts.date ? format(parseISO(startParts.date), "dd.MM.yyyy", { locale: ru }) : "")
@@ -235,10 +232,6 @@ export default function GuestParkingEditPage() {
       toast.error("Укажите госномер")
       return
     }
-    if (!formData.car_make_color?.trim()) {
-      toast.error("Укажите марку и цвет автомобиля")
-      return
-    }
     const tenantPhoneError = getPhoneValidationError(formData.tenant_phone, false)
     if (tenantPhoneError) {
       toast.error(tenantPhoneError)
@@ -259,7 +252,6 @@ export default function GuestParkingEditPage() {
           arrival_start_at: arrivalStartAt,
           arrival_end_at: arrivalEndAt,
           license_plate: formData.license_plate.trim(),
-          car_make_color: formData.car_make_color.trim(),
           tenant_phone: formData.tenant_phone.trim() || undefined,
         } as any)
         toast.success("Заявка обновлена")
@@ -270,7 +262,7 @@ export default function GuestParkingEditPage() {
           arrival_start_at: arrivalStartAt,
           arrival_end_at: arrivalEndAt,
           license_plate: formData.license_plate.trim(),
-          car_make_color: formData.car_make_color.trim(),
+          car_make_color: "",
           tenant_phone: formData.tenant_phone.trim() || undefined,
         } as any)
         toast.success("Заявка создана")
@@ -504,16 +496,6 @@ export default function GuestParkingEditPage() {
                     value={formData.license_plate}
                     onChange={handleInputChange}
                     placeholder="А123БВ77"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="car_make_color">Марка и цвет автомобиля</Label>
-                  <Input
-                    id="car_make_color"
-                    name="car_make_color"
-                    value={formData.car_make_color}
-                    onChange={handleInputChange}
-                    placeholder="Toyota Corolla, белый"
                   />
                 </div>
                 <div className="space-y-2">

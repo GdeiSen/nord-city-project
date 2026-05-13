@@ -356,7 +356,25 @@ async def _render_text_item(
 
     user_id = bot.get_user_id(update)
     if user_id:
-        bot.managers.event.register_input_handler(user_id, Actions.TYPING, text_handler)
+        chat_id = update.effective_chat.id if update.effective_chat else None
+
+        async def on_timeout() -> None:
+            bot.managers.navigator.clear(context)
+            bot.managers.storage.clear(context)
+            if chat_id is not None:
+                await bot.application.bot.send_message(
+                    chat_id=chat_id,
+                    text=bot.get_text("input_timeout_expired"),
+                    parse_mode="HTML",
+                )
+
+        bot.managers.event.register_input_handler(
+            user_id,
+            Actions.TYPING,
+            text_handler,
+            timeout_seconds=600,
+            on_timeout=on_timeout,
+        )
 
     keyboard_rows = []
     if options and getattr(active_item, "options_ids", None):

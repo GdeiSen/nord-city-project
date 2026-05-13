@@ -21,13 +21,6 @@
       "items_ids": [
         102
       ],
-      "next_sequence_id": 3
-    },
-    {
-      "id": 3,
-      "items_ids": [
-        103
-      ],
       "next_sequence_id": 4
     },
     {
@@ -70,11 +63,6 @@
     {
       "id": 102,
       "text": "dlg_guest_parking_license",
-      "type": 1
-    },
-    {
-      "id": 103,
-      "text": "dlg_guest_parking_car",
       "type": 1
     },
     {

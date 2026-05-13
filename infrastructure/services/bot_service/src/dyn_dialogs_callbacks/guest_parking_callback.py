@@ -185,17 +185,6 @@ async def guest_parking_callback(
             return CallbackResult.retry_current(sequence_id, _idx())
         data["license_plate"] = plate
         bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, data)
-        return CallbackResult.continue_()
-
-    # --- Марка и цвет ---
-    if item_id == 103:
-        car = (answer or "").strip()
-        if not car:
-            set_dialog_position(bot, context, sequence_id, _idx())
-            await bot.send_message(update, context, "guest_parking_car_invalid", dynamic=False)
-            return CallbackResult.retry_current(sequence_id, _idx())
-        data["car_make_color"] = car
-        bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, data)
         user_id = bot.get_user_id(update)
         user = await bot.services.user.get_user_by_id(user_id) if user_id else None
         if user and user.phone_number and user.phone_number.strip():
@@ -281,7 +270,7 @@ async def _finalize_and_show_summary(
             "arrival_start_at": arrival_start_save.isoformat(),
             "arrival_end_at": arrival_end_save.isoformat(),
             "license_plate": data.get("license_plate", ""),
-            "car_make_color": data.get("car_make_color", ""),
+            "car_make_color": "",
             "tenant_phone": data.get("tenant_phone"),
             "status": "NEW",
         },
@@ -331,7 +320,6 @@ async def _finalize_and_show_summary(
             date_str,
             time_str,
             data.get("license_plate", ""),
-            data.get("car_make_color", ""),
         ],
     )
     final_item = dialog.items.get(106)

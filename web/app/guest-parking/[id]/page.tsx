@@ -185,10 +185,6 @@ export default function GuestParkingDetailPage() {
                   <p className="text-sm font-medium">{request.license_plate}</p>
                 </div>
                 <div className="space-y-2">
-                  <div className="text-sm font-medium text-muted-foreground">Марка и цвет</div>
-                  <p className="text-sm">{request.car_make_color}</p>
-                </div>
-                <div className="space-y-2">
                   <div className="text-sm font-medium text-muted-foreground">Телефон арендатора</div>
                   <p className="text-sm">{request.tenant_phone || "—"}</p>
                 </div>

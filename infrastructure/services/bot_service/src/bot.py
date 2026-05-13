@@ -389,6 +389,14 @@ class Bot:
                 if "query is too old" not in err and "query id is invalid" not in err:
                     raise
             callback_data = update.callback_query.data
+            if callback_data and callback_data.startswith("service_ticket:"):
+                handled = await self.services.notification.handle_service_ticket_callback(update, context)
+                if handled:
+                    return
+            if callback_data and callback_data.startswith("guest_parking:"):
+                handled = await self.services.notification.handle_guest_parking_callback(update, context)
+                if handled:
+                    return
             user_id = self.get_user_id(update)
             handler, dialog_type = self.managers.event.get_input_handler(user_id)
             if handler and dialog_type == Actions.CALLBACK:
@@ -514,8 +522,14 @@ class Bot:
             )
             await self.managers.navigator.execute(Dialogs.MENU, update, context)
 
-    def register_input_handler(self, user_id: int, dialog_type: int, handler: Callable[..., Coroutine[Any, Any, Any]]) -> None:
-        self.managers.event.register_input_handler(user_id, dialog_type, handler)
+    def register_input_handler(
+        self,
+        user_id: int,
+        dialog_type: int,
+        handler: Callable[..., Coroutine[Any, Any, Any]],
+        **kwargs,
+    ) -> None:
+        self.managers.event.register_input_handler(user_id, dialog_type, handler, **kwargs)
 
     async def _post_init_hook(self, application):
         """

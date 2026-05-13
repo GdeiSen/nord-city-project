@@ -10,8 +10,8 @@ import re
 from urllib.parse import urlparse
 import httpx
 from telegram.constants import ParseMode
-from telegram import InputFile
-from shared.constants import Dialogs, ServiceTicketStatus, GuestParkingStatus
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+from shared.constants import Actions, Dialogs, ServiceTicketStatus, GuestParkingStatus
 from shared.utils.storage_utils import extract_storage_path, to_public_storage_url
 from .base_service import BaseService
 from datetime import datetime
@@ -75,6 +75,33 @@ class NotificationService(BaseService):
     async def _resolve_ticket_chat_id(self, ticket) -> Optional[int]:
         chat_id = await self.bot.services.chat_routing.resolve_chat_for_ticket(ticket=ticket)
         return chat_id if chat_id is not None else self._get_fallback_admin_chat_id()
+
+    def _service_ticket_admin_keyboard(self, ticket) -> InlineKeyboardMarkup | None:
+        status = str(self._get_entity_value(ticket, "status", ServiceTicketStatus.NEW)).upper()
+        ticket_id = self._get_entity_value(ticket, "id")
+        if not ticket_id or status == ServiceTicketStatus.COMPLETED:
+            return None
+
+        buttons: list[InlineKeyboardButton] = []
+        if status == ServiceTicketStatus.NEW:
+            buttons.append(InlineKeyboardButton(
+                self.bot.get_text("ticket_action_accept"),
+                callback_data=f"service_ticket:accept:{ticket_id}",
+            ))
+            buttons.append(InlineKeyboardButton(
+                self.bot.get_text("ticket_action_assign"),
+                callback_data=f"service_ticket:assign:{ticket_id}",
+            ))
+        else:
+            buttons.append(InlineKeyboardButton(
+                self.bot.get_text("ticket_action_assign"),
+                callback_data=f"service_ticket:assign:{ticket_id}",
+            ))
+            buttons.append(InlineKeyboardButton(
+                self.bot.get_text("ticket_action_complete"),
+                callback_data=f"service_ticket:complete:{ticket_id}",
+            ))
+        return InlineKeyboardMarkup([buttons])
 
     async def _resolve_guest_parking_chat_id(self, request=None, *, req_id: Optional[int] = None) -> Optional[int]:
         chat_id = await self.bot.services.chat_routing.resolve_chat_for_guest_parking(
@@ -274,7 +301,34 @@ class NotificationService(BaseService):
             GuestParkingStatus.NEW: "Ожидает подтверждения",
             GuestParkingStatus.APPROVED: "Подтверждена",
             GuestParkingStatus.REJECTED: "Отклонена",
+            GuestParkingStatus.CANCELLED: "Отменена пользователем",
         }.get(value, value)
+
+    def _guest_parking_admin_keyboard(self, req_id: int, status: Any = None) -> InlineKeyboardMarkup | None:
+        if str(status or GuestParkingStatus.NEW).upper() != GuestParkingStatus.NEW:
+            return None
+        return InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    self.bot.get_text("guest_parking_action_approve"),
+                    callback_data=f"guest_parking:approve:{req_id}",
+                ),
+                InlineKeyboardButton(
+                    self.bot.get_text("guest_parking_action_reject"),
+                    callback_data=f"guest_parking:reject:{req_id}",
+                ),
+            ]
+        ])
+
+    def _guest_parking_cancel_keyboard(self, req_id: int) -> InlineKeyboardMarkup:
+        return InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    self.bot.get_text("guest_parking_action_cancel"),
+                    callback_data=f"guest_parking:cancel:{req_id}",
+                )
+            ]
+        ])
 
     async def _resolve_ticket_from_admin_reply(
         self,
@@ -851,6 +905,7 @@ class NotificationService(BaseService):
             message = await self.bot.application.bot.send_message(
                 chat_id=target_chat_id,
                 text=message_text,
+                reply_markup=self._service_ticket_admin_keyboard(ticket),
                 parse_mode=ParseMode.HTML
             )
 
@@ -1002,6 +1057,7 @@ class NotificationService(BaseService):
                 chat_id=current_chat_id,
                 message_id=message_id,
                 text="ticket_to_admin_chat",
+                reply_markup=self._service_ticket_admin_keyboard(ticket),
                 payload=payload,
             )
             admin_text = self.bot.get_text("ticket_updated_admin", [ticket.id])
@@ -1216,6 +1272,376 @@ class NotificationService(BaseService):
             notify_admin=False,
         )
 
+    async def handle_service_ticket_callback(
+        self,
+        update: "Update",
+        context: "ContextTypes.DEFAULT_TYPE",
+    ) -> bool:
+        query = update.callback_query
+        if query is None or not query.data:
+            return False
+        parts = query.data.split(":")
+        if len(parts) != 3 or parts[0] != "service_ticket":
+            return False
+
+        action = parts[1]
+        try:
+            ticket_id = int(parts[2])
+        except ValueError:
+            return False
+
+        ticket = await self.bot.services.service_ticket.get_service_ticket_by_id(ticket_id)
+        if ticket is None:
+            await query.message.reply_text(
+                self.bot.get_text("ticket_not_found"),
+                parse_mode=ParseMode.HTML,
+            )
+            return True
+
+        chat_id = query.message.chat_id if query.message else None
+        if not chat_id or not await self.is_admin_chat(chat_id):
+            await query.message.reply_text(
+                self.bot.get_text("ticket_admin_only_action"),
+                parse_mode=ParseMode.HTML,
+            )
+            return True
+
+        actor_id = query.from_user.id if query.from_user else None
+        if actor_id is None:
+            return True
+
+        status = str(getattr(ticket, "status", ServiceTicketStatus.NEW)).upper()
+        if status == ServiceTicketStatus.COMPLETED:
+            await query.message.reply_text(
+                self.bot.get_text("ticket_already_completed", [str(ticket_id)]),
+                parse_mode=ParseMode.HTML,
+            )
+            return True
+
+        if action == "accept":
+            updated = await self._apply_ticket_status_from_button(
+                ticket,
+                ServiceTicketStatus.IN_PROGRESS,
+                actor_id,
+                query.message.message_id,
+                "ticket_accepted",
+                [str(ticket_id)],
+                "ticket_accepted_via_button",
+            )
+            if updated is None:
+                await query.message.reply_text(
+                    self.bot.get_text("error_processing_request"),
+                    parse_mode=ParseMode.HTML,
+                )
+                return True
+            await query.message.reply_text(
+                self.bot.get_text("ticket_accepted", [str(ticket_id)]),
+                parse_mode=ParseMode.HTML,
+            )
+            await self.edit_ticket_message(ticket_id=ticket_id)
+            return True
+
+        if action == "complete":
+            updated = await self._apply_ticket_status_from_button(
+                ticket,
+                ServiceTicketStatus.COMPLETED,
+                actor_id,
+                query.message.message_id,
+                "ticket_completed",
+                [str(ticket_id)],
+                "ticket_completed_via_button",
+            )
+            if updated is None:
+                await query.message.reply_text(
+                    self.bot.get_text("error_processing_request"),
+                    parse_mode=ParseMode.HTML,
+                )
+                return True
+            await query.message.reply_text(
+                self.bot.get_text("ticket_completed", [str(ticket_id)]),
+                parse_mode=ParseMode.HTML,
+            )
+            await self.notify_ticket_completion(ticket_id=ticket_id, user_id=ticket.user_id)
+            await self.edit_ticket_message(ticket_id=ticket_id)
+            return True
+
+        if action == "assign":
+            await query.message.reply_text(
+                self.bot.get_text("ticket_assign_prompt", [str(ticket_id)]),
+                parse_mode=ParseMode.HTML,
+            )
+            self._register_ticket_assign_input_handler(
+                actor_id,
+                ticket_id=ticket_id,
+                admin_chat_id=int(chat_id),
+                prompt_message_id=query.message.message_id,
+            )
+            return True
+
+        return False
+
+    def _build_ticket_assign_input_handler(
+        self,
+        *,
+        ticket_id: int,
+        admin_chat_id: int,
+        prompt_message_id: int,
+    ):
+        async def handler(update: "Update", context: "ContextTypes.DEFAULT_TYPE") -> None:
+            user_id = self.bot.get_user_id(update)
+            chat_id = update.message.chat.id if update.message else None
+            if chat_id != admin_chat_id:
+                await self.bot.application.bot.send_message(
+                    chat_id=admin_chat_id,
+                    text=self.bot.get_text("ticket_assign_prompt_wrong_chat", [str(ticket_id)]),
+                    parse_mode=ParseMode.HTML,
+                )
+                if user_id:
+                    self._register_ticket_assign_input_handler(
+                        user_id,
+                        ticket_id=ticket_id,
+                        admin_chat_id=admin_chat_id,
+                        prompt_message_id=prompt_message_id,
+                    )
+                return
+
+            assignee = (update.message.text or "").strip() if update.message else ""
+            if not assignee:
+                await self.bot.application.bot.send_message(
+                    chat_id=admin_chat_id,
+                    text=self.bot.get_text("ticket_assign_empty_assignee", [str(ticket_id)]),
+                    parse_mode=ParseMode.HTML,
+                )
+                if user_id:
+                    self._register_ticket_assign_input_handler(
+                        user_id,
+                        ticket_id=ticket_id,
+                        admin_chat_id=admin_chat_id,
+                        prompt_message_id=prompt_message_id,
+                    )
+                return
+
+            ticket = await self.bot.services.service_ticket.get_service_ticket_by_id(ticket_id)
+            if ticket is None:
+                await self.bot.application.bot.send_message(
+                    chat_id=admin_chat_id,
+                    text=self.bot.get_text("ticket_not_found"),
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+
+            updated = await self._apply_ticket_status_from_button(
+                ticket,
+                ServiceTicketStatus.ASSIGNED,
+                user_id,
+                getattr(update.message, "message_id", prompt_message_id),
+                "ticket_assigned",
+                [str(ticket_id), assignee],
+                "ticket_assigned_via_button",
+                assignee=assignee,
+            )
+            if updated is None:
+                await self.bot.application.bot.send_message(
+                    chat_id=admin_chat_id,
+                    text=self.bot.get_text("error_processing_request"),
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+            await self.bot.application.bot.send_message(
+                chat_id=admin_chat_id,
+                text=self.bot.get_text("ticket_assigned", [str(ticket_id), assignee]),
+                parse_mode=ParseMode.HTML,
+            )
+            await self.edit_ticket_message(ticket_id=ticket_id)
+
+        return handler
+
+    def _register_ticket_assign_input_handler(
+        self,
+        user_id: int,
+        *,
+        ticket_id: int,
+        admin_chat_id: int,
+        prompt_message_id: int,
+    ) -> None:
+        self.bot.register_input_handler(
+            user_id,
+            Actions.TYPING,
+            self._build_ticket_assign_input_handler(
+                ticket_id=ticket_id,
+                admin_chat_id=admin_chat_id,
+                prompt_message_id=prompt_message_id,
+            ),
+            timeout_seconds=600,
+            on_timeout=self._build_ticket_assign_timeout_handler(
+                ticket_id=ticket_id,
+                admin_chat_id=admin_chat_id,
+            ),
+        )
+
+    def _build_ticket_assign_timeout_handler(self, *, ticket_id: int, admin_chat_id: int):
+        async def on_timeout() -> None:
+            await self.bot.application.bot.send_message(
+                chat_id=admin_chat_id,
+                text=self.bot.get_text("ticket_assign_timeout", [str(ticket_id)]),
+                parse_mode=ParseMode.HTML,
+            )
+
+        return on_timeout
+
+    async def _apply_ticket_status_from_button(
+        self,
+        ticket,
+        status: str,
+        user_id: int,
+        message_id: int,
+        text_key: str,
+        payload: list[str],
+        reason: str,
+        *,
+        assignee: Optional[str] = None,
+    ):
+        await self.ensure_user_exists(user_id)
+        updated = await self.bot.services.service_ticket.update_service_ticket_status(
+            ticket.id,
+            status,
+            message_id,
+            user_id,
+            assignee=assignee,
+        )
+        return updated
+
+    async def handle_guest_parking_callback(
+        self,
+        update: "Update",
+        context: "ContextTypes.DEFAULT_TYPE",
+    ) -> bool:
+        query = update.callback_query
+        if query is None or not query.data:
+            return False
+        parts = query.data.split(":")
+        if len(parts) != 3 or parts[0] != "guest_parking":
+            return False
+
+        action = parts[1]
+        try:
+            request_id = int(parts[2])
+        except ValueError:
+            return False
+
+        response = await self.bot.managers.database.guest_parking.get_by_id(
+            entity_id=request_id,
+            model_class=GuestParkingSchema,
+        )
+        if not response.get("success") or response.get("data") is None:
+            await query.message.reply_text(
+                self.bot.get_text("guest_parking_not_found"),
+                parse_mode=ParseMode.HTML,
+            )
+            return True
+
+        request = response["data"]
+        current_status = str(self._get_entity_value(request, "status", GuestParkingStatus.NEW)).upper()
+        actor_id = query.from_user.id if query.from_user else None
+
+        if action in {"approve", "reject"}:
+            chat_id = query.message.chat_id if query.message else None
+            if not chat_id or not await self.is_admin_chat(chat_id):
+                await query.message.reply_text(
+                    self.bot.get_text("guest_parking_admin_only_action"),
+                    parse_mode=ParseMode.HTML,
+                )
+                return True
+            if current_status != GuestParkingStatus.NEW:
+                await query.message.reply_text(
+                    self.bot.get_text("guest_parking_already_reviewed", [
+                        str(request_id),
+                        self._guest_parking_status_label(current_status),
+                    ]),
+                    parse_mode=ParseMode.HTML,
+                )
+                return True
+
+            status_value = GuestParkingStatus.APPROVED if action == "approve" else GuestParkingStatus.REJECTED
+            rejection_reason = None
+            if status_value == GuestParkingStatus.REJECTED:
+                rejection_reason = "Заявка отклонена администратором."
+            audit_context = self.build_telegram_actor_audit_context(
+                telegram_user_id=actor_id,
+                reason="guest_parking_reviewed_from_admin_button",
+            )
+            result = await self.bot.managers.database.guest_parking.update(
+                entity_id=request_id,
+                update_data={
+                    "status": status_value,
+                    "reviewed_by_user_id": actor_id,
+                    "reviewed_at": now().isoformat(),
+                    "rejection_reason": rejection_reason,
+                },
+                model_class=GuestParkingSchema,
+                _audit_context=audit_context,
+            )
+            if not result.get("success"):
+                await query.message.reply_text(
+                    self.bot.get_text("error_processing_request"),
+                    parse_mode=ParseMode.HTML,
+                )
+                return True
+
+            await self.notify_guest_parking_reviewed(req_id=request_id, _audit_context=audit_context)
+            return True
+
+        if action == "cancel":
+            request_user_id = self._get_entity_value(request, "user_id")
+            if actor_id is None or int(request_user_id) != int(actor_id):
+                await query.message.reply_text(
+                    self.bot.get_text("guest_parking_cancel_forbidden"),
+                    parse_mode=ParseMode.HTML,
+                )
+                return True
+            if current_status != GuestParkingStatus.APPROVED:
+                await query.message.reply_text(
+                    self.bot.get_text("guest_parking_cancel_unavailable"),
+                    parse_mode=ParseMode.HTML,
+                )
+                return True
+
+            audit_context = self.build_telegram_actor_audit_context(
+                telegram_user_id=actor_id,
+                reason="guest_parking_cancelled_by_user",
+            )
+            result = await self.bot.managers.database.guest_parking.update(
+                entity_id=request_id,
+                update_data={"status": GuestParkingStatus.CANCELLED},
+                model_class=GuestParkingSchema,
+                _audit_context=audit_context,
+            )
+            if not result.get("success"):
+                await query.message.reply_text(
+                    self.bot.get_text("error_processing_request"),
+                    parse_mode=ParseMode.HTML,
+                )
+                return True
+
+            date_str, time_str = self._format_guest_parking_interval(request)
+            license_plate = self._get_entity_value(request, "license_plate", "") or ""
+            await query.edit_message_text(
+                self.bot.get_text("guest_parking_cancelled_user", [date_str, time_str, license_plate]),
+                parse_mode=ParseMode.HTML,
+            )
+
+            target_chat_id = await self._resolve_guest_parking_chat_id(request=request, req_id=request_id)
+            if target_chat_id is not None:
+                await self.bot.application.bot.send_message(
+                    chat_id=target_chat_id,
+                    text=self.bot.get_text("guest_parking_cancelled_admin", [str(request_id)]),
+                    parse_mode=ParseMode.HTML,
+                )
+            await self.edit_guest_parking_message(req_id=request_id, _audit_context=audit_context)
+            return True
+
+        return False
+
     async def ensure_user_exists(self, user_id: int):
         user = await self.bot.services.user.get_user_by_id(user_id)
         if not user:
@@ -1238,6 +1664,7 @@ class NotificationService(BaseService):
                     kind="REPLY",
                     meta={"status": ServiceTicketStatus.IN_PROGRESS, "user_id": user_id},
                 )
+            await self.edit_ticket_message(ticket_id=ticket.id)
 
     async def _process_ticket_assigned(self, update: "Update", context: "ContextTypes.DEFAULT_TYPE", ticket, user_id: int, assignee: str):
         await self.ensure_user_exists(user_id)
@@ -1257,6 +1684,7 @@ class NotificationService(BaseService):
                     kind="REPLY",
                     meta={"status": ServiceTicketStatus.ASSIGNED, "user_id": user_id, "assignee": assignee},
                 )
+            await self.edit_ticket_message(ticket_id=ticket.id)
 
     async def _process_ticket_completed(self, update: "Update", context: "ContextTypes.DEFAULT_TYPE", ticket, user_id: int):
         await self.ensure_user_exists(user_id)
@@ -1287,6 +1715,7 @@ class NotificationService(BaseService):
                 user_id=ticket.user_id,
                 _audit_context=telegram_audit_context,
             )
+            await self.edit_ticket_message(ticket_id=ticket.id)
 
     async def notify_ticket_completion(
         self, ticket_id: int, user_id: Optional[int] = None, _audit_context: Optional[dict] = None
@@ -1855,12 +2284,12 @@ class NotificationService(BaseService):
                 date_str,
                 time_str,
                 data.get("license_plate", ""),
-                data.get("car_make_color", ""),
                 tenant_contact,
             ])
             message = await self.bot.application.bot.send_message(
                 chat_id=target_chat_id,
                 text=text,
+                reply_markup=self._guest_parking_admin_keyboard(req_id, data.get("status")),
                 parse_mode=ParseMode.HTML,
             )
             if message and message.message_id:
@@ -1935,7 +2364,6 @@ class NotificationService(BaseService):
                     continue
                 data = {
                     "license_plate": item.get("license_plate", "") if isinstance(item, dict) else (getattr(item, "license_plate", "") or ""),
-                    "car_make_color": item.get("car_make_color", "") if isinstance(item, dict) else (getattr(item, "car_make_color", "") or ""),
                 }
                 try:
                     await self._send_guest_parking_reminder(req_id, data)
@@ -1956,7 +2384,6 @@ class NotificationService(BaseService):
             return
         text = self.bot.get_text("guest_parking_reminder", [
             data.get("license_plate", ""),
-            data.get("car_make_color", ""),
         ])
         await self.bot.application.bot.send_message(
             chat_id=target_chat_id,
@@ -2009,7 +2436,6 @@ class NotificationService(BaseService):
                 arrival_start_at = req.get("arrival_start_at")
                 arrival_end_at = req.get("arrival_end_at")
                 license_plate = req.get("license_plate", "")
-                car_make_color = req.get("car_make_color", "")
                 tenant_phone = req.get("tenant_phone", "")
                 status_value = req.get("status")
             else:
@@ -2019,7 +2445,6 @@ class NotificationService(BaseService):
                 arrival_start_at = getattr(req, "arrival_start_at", None)
                 arrival_end_at = getattr(req, "arrival_end_at", None)
                 license_plate = getattr(req, "license_plate", "") or ""
-                car_make_color = getattr(req, "car_make_color", "") or ""
                 tenant_phone = getattr(req, "tenant_phone", "") or ""
                 status_value = getattr(req, "status", None)
 
@@ -2047,12 +2472,12 @@ class NotificationService(BaseService):
                 date_str,
                 time_str,
                 license_plate,
-                car_make_color,
                 tenant_contact,
             ])
             message = await self.bot.application.bot.send_message(
                 chat_id=target_chat_id,
                 text=text,
+                reply_markup=self._guest_parking_admin_keyboard(int(req_id_val or req_id), status_value),
                 parse_mode=ParseMode.HTML,
             )
             if message and message.message_id:
@@ -2154,7 +2579,6 @@ class NotificationService(BaseService):
                 arrival_start_at = req.get("arrival_start_at")
                 arrival_end_at = req.get("arrival_end_at")
                 license_plate = req.get("license_plate", "")
-                car_make_color = req.get("car_make_color", "")
                 tenant_phone = req.get("tenant_phone", "")
                 status_value = req.get("status")
             else:
@@ -2163,7 +2587,6 @@ class NotificationService(BaseService):
                 arrival_start_at = getattr(req, "arrival_start_at", None)
                 arrival_end_at = getattr(req, "arrival_end_at", None)
                 license_plate = getattr(req, "license_plate", "") or ""
-                car_make_color = getattr(req, "car_make_color", "") or ""
                 tenant_phone = getattr(req, "tenant_phone", "") or ""
                 status_value = getattr(req, "status", None)
 
@@ -2191,13 +2614,13 @@ class NotificationService(BaseService):
                 date_str,
                 time_str,
                 license_plate,
-                car_make_color,
                 tenant_contact,
             ]
             await self.bot.managers.message.edit_message(
                 chat_id=current_chat_id,
                 message_id=msid,
                 text="guest_parking_to_admin",
+                reply_markup=self._guest_parking_admin_keyboard(req_id, status_value),
                 payload=payload,
             )
             admin_text = self.bot.get_text("guest_parking_updated_admin", [req_id])
@@ -2287,9 +2710,15 @@ class NotificationService(BaseService):
                 if status_value == GuestParkingStatus.REJECTED:
                     payload.append(rejection_reason)
                 try:
+                    reply_markup = (
+                        self._guest_parking_cancel_keyboard(req_id)
+                        if status_value == GuestParkingStatus.APPROVED
+                        else None
+                    )
                     await self.bot.application.bot.send_message(
                         chat_id=user_chat_id,
                         text=self.bot.get_text(text_key, payload),
+                        reply_markup=reply_markup,
                         parse_mode=ParseMode.HTML,
                     )
                     await self._append_delivery_audit_event(
