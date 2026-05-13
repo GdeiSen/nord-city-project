@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Avatar, AvatarFallback, AvatarGroup } from "@/components/ui/avatar"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { IconSettings, IconUserPlus } from "@tabler/icons-react"
 import { User } from "@/types"
 import { userApi } from "@/lib/api"
@@ -42,17 +43,48 @@ export default function UsersPage() {
     initialParams: { sort: "created:desc" },
   })
 
-  const getRoleBadges = (user: User) => {
+  const getRoleInitials = (name: string) => {
+    const normalized = name.trim()
+    if (!normalized) return "—"
+    return normalized.replace(/\s+/g, "").slice(0, 2).toUpperCase()
+  }
+
+  const getRoleAvatars = (user: User) => {
     const roles = user.roles ?? []
-    if (!roles.length) return <Badge variant="outline">Без роли</Badge>
+    if (!roles.length) {
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Avatar size="sm" className="bg-muted">
+                <AvatarFallback className="text-[10px]">—</AvatarFallback>
+              </Avatar>
+            </TooltipTrigger>
+            <TooltipContent>Без роли</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )
+    }
     return (
-      <div className="flex flex-wrap gap-1">
+      <TooltipProvider>
+        <AvatarGroup className="-space-x-2">
         {roles.map((role) => (
-          <Badge key={role.id} variant={role.code === "super_admin" ? "destructive" : "secondary"}>
-            {role.name || role.code}
-          </Badge>
+          <Tooltip key={role.id}>
+            <TooltipTrigger asChild>
+              <Avatar
+                size="sm"
+                className={role.code === "super_admin" ? "bg-destructive text-destructive-foreground" : "bg-primary text-primary-foreground"}
+              >
+                <AvatarFallback className="bg-transparent text-[10px] font-medium text-inherit">
+                  {getRoleInitials(role.name || role.code)}
+                </AvatarFallback>
+              </Avatar>
+            </TooltipTrigger>
+            <TooltipContent>{role.name || role.code}</TooltipContent>
+          </Tooltip>
         ))}
-      </div>
+        </AvatarGroup>
+      </TooltipProvider>
     )
   }
 
@@ -94,7 +126,7 @@ export default function UsersPage() {
       accessorKey: "roles",
       header: "Роли",
       meta: userColumnMeta.roles,
-      cell: ({ row }) => getRoleBadges(row.original),
+      cell: ({ row }) => getRoleAvatars(row.original),
     },
     {
       accessorKey: "object",

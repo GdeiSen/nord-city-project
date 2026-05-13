@@ -12,6 +12,7 @@ import { SidebarInset } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Popover,
   PopoverContent,
@@ -151,6 +152,7 @@ export default function GuestParkingEditPage() {
     arrival_end_time: string
     license_plate: string
     tenant_phone: string
+    status: GuestParkingRequest["status"]
   }>({
     user_id: null,
     arrival_date: "",
@@ -158,6 +160,7 @@ export default function GuestParkingEditPage() {
     arrival_end_time: "11:00",
     license_plate: "",
     tenant_phone: "",
+    status: "NEW",
   })
   const [saving, setSaving] = useState(false)
   const [dateInputDisplay, setDateInputDisplay] = useState("")
@@ -187,6 +190,7 @@ export default function GuestParkingEditPage() {
           arrival_end_time: endParts.time,
           license_plate: req.license_plate ?? "",
           tenant_phone: req.tenant_phone ?? "",
+          status: req.status ?? "NEW",
         })
         setDateInputDisplay(startParts.date ? format(parseISO(startParts.date), "dd.MM.yyyy", { locale: ru }) : "")
         setStartHourDisplay(startH || "09")
@@ -202,6 +206,7 @@ export default function GuestParkingEditPage() {
           arrival_date: dateStr,
           arrival_start_time: "09:00",
           arrival_end_time: "11:00",
+          status: "NEW",
         }))
         setDateInputDisplay(format(now, "dd.MM.yyyy", { locale: ru }))
         setStartHourDisplay("09")
@@ -253,6 +258,7 @@ export default function GuestParkingEditPage() {
           arrival_end_at: arrivalEndAt,
           license_plate: formData.license_plate.trim(),
           tenant_phone: formData.tenant_phone.trim() || undefined,
+          status: formData.status,
         } as any)
         toast.success("Заявка обновлена")
         router.push(`/guest-parking/${Number(reqId)}`)
@@ -521,6 +527,30 @@ export default function GuestParkingEditPage() {
                     <p className="text-sm text-destructive">{tenantPhoneError}</p>
                   )}
                 </div>
+                {isEdit && (
+                  <div className="space-y-2">
+                    <Label htmlFor="status">Статус</Label>
+                    <Select
+                      value={formData.status}
+                      onValueChange={(value) => {
+                        setFormData((prev) => ({
+                          ...prev,
+                          status: value as GuestParkingRequest["status"],
+                        }))
+                      }}
+                    >
+                      <SelectTrigger id="status">
+                        <SelectValue placeholder="Выберите статус" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NEW">Ожидает</SelectItem>
+                        <SelectItem value="APPROVED">Подтверждена</SelectItem>
+                        <SelectItem value="REJECTED">Отклонена</SelectItem>
+                        <SelectItem value="CANCELLED">Отменена</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
 
                 <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end pt-4">
                   {isEdit && (

@@ -1381,7 +1381,6 @@ class NotificationService(BaseService):
                 parse_mode=ParseMode.HTML,
             )
             await self.notify_ticket_completion(ticket_id=ticket_id, user_id=ticket.user_id)
-            await self.edit_ticket_message(ticket_id=ticket_id, notify_admin_update=False)
             return True
 
         if action == "assign":
@@ -1738,7 +1737,6 @@ class NotificationService(BaseService):
                 user_id=ticket.user_id,
                 _audit_context=telegram_audit_context,
             )
-            await self.edit_ticket_message(ticket_id=ticket.id, notify_admin_update=False)
 
     async def notify_ticket_completion(
         self, ticket_id: int, user_id: Optional[int] = None, _audit_context: Optional[dict] = None

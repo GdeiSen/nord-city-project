@@ -243,7 +243,7 @@ export interface GuestParkingRequest extends BaseEntity {
   license_plate: string
   car_make_color: string
   tenant_phone?: string
-  status: "NEW" | "APPROVED" | "REJECTED"
+  status: "NEW" | "APPROVED" | "REJECTED" | "CANCELLED"
   reviewed_by_user_id?: number
   reviewed_at?: string
   rejection_reason?: string

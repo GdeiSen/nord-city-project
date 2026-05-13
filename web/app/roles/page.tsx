@@ -11,7 +11,6 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Toaster } from "@/components/ui/sonner"
 import { roleApi, type RoleResponse } from "@/lib/api"
 import { DataTable, createSelectColumn } from "@/components/data-table"
@@ -55,11 +54,8 @@ export default function RolesPage() {
       meta: { type: "string", headerLabel: "Роль" },
       cell: ({ row }) => (
         <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium">{getRoleName(row.original)}</span>
-            <Badge variant="outline">{row.original.code}</Badge>
-          </div>
-          <div className="text-sm text-muted-foreground">{row.original.description || "Без описания"}</div>
+          <div className="font-medium">{getRoleName(row.original)}</div>
+          <div className="text-sm text-muted-foreground">#{row.original.id}</div>
         </div>
       ),
     },

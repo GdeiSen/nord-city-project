@@ -134,6 +134,22 @@ async def update_guest_parking(
         _validate_interval(start_at, end_at)
         if "arrival_start_at" in update_data:
             update_data["arrival_date"] = update_data["arrival_start_at"]
+    if "status" in update_data:
+        status_value = str(update_data["status"]).upper()
+        allowed_statuses = {
+            GuestParkingStatus.NEW,
+            GuestParkingStatus.APPROVED,
+            GuestParkingStatus.REJECTED,
+            GuestParkingStatus.CANCELLED,
+        }
+        if status_value not in allowed_statuses:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid guest parking status")
+        update_data["status"] = status_value
+        if status_value in {GuestParkingStatus.APPROVED, GuestParkingStatus.REJECTED}:
+            update_data.setdefault("reviewed_by_user_id", int(current_user["user_id"]))
+            update_data.setdefault("reviewed_at", datetime.now(timezone.utc))
+            if status_value == GuestParkingStatus.REJECTED and not update_data.get("rejection_reason"):
+                update_data["rejection_reason"] = "Заявка отклонена администратором."
     if update_data.get("user_id") is not None:
         user_response = await db_client.user.get_by_id(
             entity_id=int(update_data["user_id"]),
@@ -150,8 +166,13 @@ async def update_guest_parking(
         error = response.get("error", "Failed to update guest parking request")
         code = status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=code, detail=error)
+    old_status = str(getattr(old_req, "status", "") or "").upper()
+    new_status = str(update_data.get("status") or old_status).upper()
     try:
-        resp = await bot_client.notification.edit_guest_parking_message(req_id=entity_id, _audit_context=audit_ctx)
+        if "status" in update_data and new_status != old_status and new_status in {GuestParkingStatus.APPROVED, GuestParkingStatus.REJECTED}:
+            resp = await bot_client.notification.notify_guest_parking_reviewed(req_id=entity_id, _audit_context=audit_ctx)
+        else:
+            resp = await bot_client.notification.edit_guest_parking_message(req_id=entity_id, _audit_context=audit_ctx)
         if resp and not resp.get("success"):
             logger.error(
                 "Bot edit of guest parking message failed: entity_id=%s, error=%s",

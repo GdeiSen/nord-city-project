@@ -21,6 +21,7 @@ export const guestParkingColumns: TableColumnConfig[] = [
       { value: "NEW", label: "Ожидает" },
       { value: "APPROVED", label: "Подтверждена" },
       { value: "REJECTED", label: "Отклонена" },
+      { value: "CANCELLED", label: "Отменена" },
     ],
   },
   { id: "license_plate", label: "Госномер", type: "string", searchDbColumns: ["license_plate"] },

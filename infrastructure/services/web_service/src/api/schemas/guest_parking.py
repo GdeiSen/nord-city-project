@@ -18,6 +18,7 @@ class GuestParkingResponse(BaseModel):
     license_plate: Optional[str] = None
     car_make_color: Optional[str] = None
     tenant_phone: Optional[str] = None
+    status: Optional[str] = None
     status: str = "NEW"
     reviewed_by_user_id: Optional[int] = None
     reviewed_at: Optional[datetime] = None

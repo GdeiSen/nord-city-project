@@ -35,12 +35,22 @@ function formatArrivalInterval(request: GuestParkingRequest): string {
 }
 
 function statusBadge(status: GuestParkingRequest["status"]) {
-  const label = status === "APPROVED" ? "Подтверждена" : status === "REJECTED" ? "Отклонена" : "Ожидает подтверждения"
-  const colorClass = status === "APPROVED"
-    ? "border-emerald-500 text-emerald-700"
-    : status === "REJECTED"
-      ? "border-red-500 text-red-700"
-      : "border-amber-500 text-amber-700"
+  const label =
+    status === "APPROVED"
+      ? "Подтверждена"
+      : status === "REJECTED"
+        ? "Отклонена"
+        : status === "CANCELLED"
+          ? "Отменена"
+          : "Ожидает подтверждения"
+  const colorClass =
+    status === "APPROVED"
+      ? "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-600"
+      : status === "REJECTED"
+        ? "bg-red-500 text-white border-red-500 hover:bg-red-500"
+        : status === "CANCELLED"
+          ? "bg-gray-500 text-white border-gray-500 hover:bg-gray-500"
+          : "bg-blue-500 text-white border-blue-500 hover:bg-blue-500"
   return <Badge variant="outline" className={colorClass}>{label}</Badge>
 }
 
