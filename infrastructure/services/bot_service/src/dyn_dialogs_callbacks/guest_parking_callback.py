@@ -155,7 +155,7 @@ async def guest_parking_callback(
             current = now()
             arrival_start_at = current.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
             arrival_end_at = current.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
-        if arrival_end_at <= arrival_start_at or arrival_end_at - arrival_start_at > timedelta(hours=2):
+        if arrival_end_at <= arrival_start_at or arrival_end_at - arrival_start_at > timedelta(hours=12):
             set_dialog_position(bot, context, sequence_id, _idx())
             await bot.send_message(update, context, "guest_parking_time_error", dynamic=False)
             return CallbackResult.retry_current(sequence_id, _idx())

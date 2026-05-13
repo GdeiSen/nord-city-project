@@ -338,7 +338,13 @@ class NotificationService(BaseService):
                     self.bot.get_text("guest_parking_action_cancel"),
                     callback_data=f"guest_parking:cancel:{req_id}",
                 )
-            ]
+            ],
+            [
+                InlineKeyboardButton(
+                    self.bot.get_text("guest_parking_to_menu"),
+                    callback_data=f"guest_parking:menu:{req_id}",
+                )
+            ],
         ])
 
     async def _resolve_ticket_from_admin_reply(
@@ -1547,6 +1553,11 @@ class NotificationService(BaseService):
         except ValueError:
             return False
 
+        if action == "menu":
+            await query.answer()
+            await self.bot.managers.navigator.execute(Dialogs.MENU, update, context)
+            return True
+
         response = await self.bot.managers.database.guest_parking.get_by_id(
             entity_id=request_id,
             model_class=GuestParkingSchema,
@@ -1646,6 +1657,14 @@ class NotificationService(BaseService):
             await query.edit_message_text(
                 self.bot.get_text("guest_parking_cancelled_user", [date_str, time_str, license_plate]),
                 parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton(
+                            self.bot.get_text("guest_parking_to_menu"),
+                            callback_data=f"guest_parking:menu:{request_id}",
+                        )
+                    ]
+                ]),
             )
 
             target_chat_id = await self._resolve_guest_parking_chat_id(request=request, req_id=request_id)
