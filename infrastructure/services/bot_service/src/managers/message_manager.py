@@ -308,8 +308,9 @@ class MessageManager(BaseManager):
                         log_context = self._build_log_context(chat_id=chat_id, image_count=len(images))
 
                         # Отправляем каждое фото отдельно через _send_adaptive_photo (file_id + BytesIO fallback)
+                        # Фото намеренно не добавляем в new_messages — они остаются в чате при навигации
                         for image_ref in image_refs:
-                            success, photo_msg, _ = await self._execute_with_retry(
+                            await self._execute_with_retry(
                                 operation_name="send photo",
                                 operation=lambda ref=image_ref: self._send_adaptive_photo(
                                     context=context,
@@ -322,8 +323,6 @@ class MessageManager(BaseManager):
                                 error_code=1001,
                                 log_context=log_context,
                             )
-                            if photo_msg:
-                                new_messages.append({"chat_id": photo_msg.chat_id, "message_id": photo_msg.message_id})
 
                         # Текст и клавиатура — отдельным сообщением после фото
                         log_context = self._build_log_context(chat_id=chat_id, dynamic=dynamic, refresh=refresh)
