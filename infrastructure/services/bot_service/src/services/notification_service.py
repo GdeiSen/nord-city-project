@@ -1346,16 +1346,9 @@ class NotificationService(BaseService):
                 query.message.message_id if query.message else None,
                 actor_id,
             )
-            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
             await query.edit_message_text(
                 self.bot.get_text("service_ticket_cancelled_user", [str(ticket_id)]),
                 parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton(
-                        self.bot.get_text("service_feedback_to_main_menu"),
-                        callback_data=f"service_ticket:to_menu:{ticket_id}",
-                    )
-                ]]),
             )
             admin_chat_id = await self._resolve_ticket_chat_id(ticket)
             if admin_chat_id:
@@ -1365,6 +1358,7 @@ class NotificationService(BaseService):
                     parse_mode=ParseMode.HTML,
                 )
             await self.edit_ticket_message(ticket_id=ticket_id, notify_admin_update=False)
+            await self.bot.managers.navigator.execute(Dialogs.MENU, update, context)
             return True
 
         if action == "to_menu":
@@ -1656,12 +1650,6 @@ class NotificationService(BaseService):
             await query.edit_message_text(
                 self.bot.get_text("guest_parking_cancelled_user", [date_str, time_str, license_plate]),
                 parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton(
-                        self.bot.get_text("guest_parking_to_menu"),
-                        callback_data=f"guest_parking:menu:{request_id}",
-                    )
-                ]]),
             )
             target_chat_id = await self._resolve_guest_parking_chat_id(request=request, req_id=request_id)
             if target_chat_id is not None:
@@ -1675,6 +1663,7 @@ class NotificationService(BaseService):
                 _audit_context=audit_context,
                 notify_admin_update=False,
             )
+            await self.bot.managers.navigator.execute(Dialogs.MENU, update, context)
             return True
 
         if action in {"approve", "reject"}:
