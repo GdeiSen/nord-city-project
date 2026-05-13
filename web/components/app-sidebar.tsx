@@ -13,7 +13,6 @@ import {
   IconHistory,
   IconFile,
   IconLanguage,
-  IconAdjustments,
   IconShieldLock,
 } from "@tabler/icons-react"
 
@@ -132,11 +131,6 @@ const data = {
       title: "Локализация бота",
       url: "/localization",
       icon: IconLanguage,
-    },
-    {
-      title: "Настройки бота",
-      url: "/localization/settings",
-      icon: IconAdjustments,
     },
   ],
 }

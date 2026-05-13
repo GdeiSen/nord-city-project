@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { IconDeviceFloppy, IconRefresh, IconSearch } from "@tabler/icons-react";
 import { toast } from "sonner";
 
@@ -383,9 +382,6 @@ export default function LocalizationPage() {
                     Компактный режим редактирования текстовых данных бота
                   </p>
                 </div>
-                <Button asChild type="button" variant="outline" size="sm">
-                  <Link href="/localization/settings">Настройки бота</Link>
-                </Button>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">

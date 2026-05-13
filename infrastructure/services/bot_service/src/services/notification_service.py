@@ -103,6 +103,17 @@ class NotificationService(BaseService):
             ))
         return InlineKeyboardMarkup([buttons])
 
+    @staticmethod
+    def _service_ticket_status_label(status: Any) -> str:
+        value = str(status or ServiceTicketStatus.NEW).upper()
+        return {
+            ServiceTicketStatus.NEW: "Новая",
+            ServiceTicketStatus.ACCEPTED: "Принята",
+            ServiceTicketStatus.IN_PROGRESS: "В работе",
+            ServiceTicketStatus.ASSIGNED: "Передана",
+            ServiceTicketStatus.COMPLETED: "Выполнена",
+        }.get(value, value)
+
     async def _resolve_guest_parking_chat_id(self, request=None, *, req_id: Optional[int] = None) -> Optional[int]:
         chat_id = await self.bot.services.chat_routing.resolve_chat_for_guest_parking(
             request=request,
@@ -894,6 +905,7 @@ class NotificationService(BaseService):
             message_text = self.bot.get_text("ticket_to_admin_chat", [
                 ticket.id,
                 created_date,
+                self._service_ticket_status_label(ticket.status),
                 object_name,
                 ticket.category or self.bot.get_text("description_not_specified"),
                 ticket.description or self.bot.get_text("description_not_specified"),
@@ -1051,6 +1063,7 @@ class NotificationService(BaseService):
             payload = [
                 ticket.id,
                 created_date,
+                self._service_ticket_status_label(ticket.status),
                 object_name,
                 ticket.category or self.bot.get_text("description_not_specified"),
                 ticket.description or self.bot.get_text("description_not_specified"),

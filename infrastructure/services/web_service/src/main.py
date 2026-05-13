@@ -34,7 +34,6 @@ from api.routers import (
     notifications_router,
     storage_files_router,
     localization_router,
-    bot_settings_router,
     telegram_chats_router,
 )
 
@@ -135,7 +134,6 @@ app.include_router(storage_router, prefix=API_PREFIX)
 app.include_router(notifications_router, prefix=API_PREFIX)
 app.include_router(storage_files_router, prefix=API_PREFIX)
 app.include_router(localization_router, prefix=API_PREFIX)
-app.include_router(bot_settings_router, prefix=API_PREFIX)
 app.include_router(telegram_chats_router, prefix=API_PREFIX)
 
 
