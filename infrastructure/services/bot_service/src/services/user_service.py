@@ -53,7 +53,7 @@ class UserService(BaseService):
 
     async def has_permission(self, user_id: int, permission_code: str) -> bool:
         access = await self.get_access_profile(user_id)
-        return bool(access and (access.is_super_admin or permission_code in set(access.permissions or [])))
+        return bool(access and permission_code in set(access.permissions or []))
 
     async def update_user(
         self,

@@ -231,7 +231,34 @@ async def _ensure_rbac_defaults():
                 },
             )
 
+        # super_admin: full resync so no permissions can be stripped even via direct DB edits.
+        # Other roles: additive-only (ON CONFLICT DO NOTHING) to preserve manual customisation.
+        await session.execute(
+            text(
+                """
+                DELETE FROM role_permissions
+                WHERE role_id = (SELECT id FROM roles WHERE code = :code)
+                """
+            ),
+            {"code": SUPER_ADMIN_ROLE_CODE},
+        )
+        await session.execute(
+            text(
+                """
+                INSERT INTO role_permissions (role_id, permission_id)
+                SELECT r.id, p.id
+                FROM roles r
+                CROSS JOIN permissions p
+                WHERE r.code = :code
+                ON CONFLICT DO NOTHING
+                """
+            ),
+            {"code": SUPER_ADMIN_ROLE_CODE},
+        )
+
         for role_code, permission_codes in role_permissions.items():
+            if role_code == SUPER_ADMIN_ROLE_CODE:
+                continue
             for permission_code in sorted(permission_codes):
                 await session.execute(
                     text(

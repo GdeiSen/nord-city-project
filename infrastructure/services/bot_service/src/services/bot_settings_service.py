@@ -74,7 +74,7 @@ class BotSettingsService(BaseService):
             enabled_items: list[tuple[str, int]] = []
             for feature_key in row:
                 feature = BOT_FEATURES_BY_KEY[feature_key]
-                if not (access and (access.is_super_admin or feature.permission_code in permissions)):
+                if not (access and feature.permission_code in permissions):
                     continue
                 enabled_items.append((feature.label_key, feature.dialog_id))
             if enabled_items:
@@ -88,6 +88,6 @@ class BotSettingsService(BaseService):
         for row in DEFAULT_MENU_LAYOUT:
             for feature_key in row:
                 feature = BOT_FEATURES_BY_KEY[feature_key]
-                if access and (access.is_super_admin or feature.permission_code in permissions):
+                if access and feature.permission_code in permissions:
                     result.append(feature_key)
         return result

@@ -82,6 +82,8 @@ class RoleService(BaseService):
         role = await self.repository.get_by_id(session=session, entity_id=role_id)
         if role is None:
             return None
+        if role.code == SUPER_ADMIN_ROLE_CODE:
+            raise ValueError("super_admin role permissions are managed by the system and cannot be modified via the API.")
         normalized_ids = sorted({int(item) for item in (permission_ids or [])})
         if role.code == EVERYONE_ROLE_CODE:
             profile_permission = await session.execute(

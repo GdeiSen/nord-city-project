@@ -8,7 +8,6 @@ from database.database_manager import DatabaseManager
 from models.contract import Contract, UserContract
 from models.feedback import Feedback
 from models.guest_parking_request import GuestParkingRequest
-from models.permission import Permission
 from models.poll_answer import PollAnswer
 from models.role import Role, RolePermission
 from models.service_ticket import ServiceTicket
@@ -213,9 +212,6 @@ class UserService(BaseService):
                 if permission is not None:
                     permissions.add(permission.code)
         is_super_admin = any(role.code == SUPER_ADMIN_ROLE_CODE for role in roles)
-        if is_super_admin:
-            all_permissions = await session.execute(select(Permission.code))
-            permissions = {str(item) for item in all_permissions.scalars().all()}
         return {
             "user_id": int(user_id),
             "roles": Converter.to_dict(roles),
@@ -226,7 +222,7 @@ class UserService(BaseService):
     @db_session_manager
     async def has_permission(self, *, session, user_id: int, permission_code: str) -> bool:
         access = await self.get_access_profile(session=session, user_id=user_id)
-        return bool(access.get("is_super_admin") or permission_code in set(access.get("permissions") or []))
+        return permission_code in set(access.get("permissions") or [])
 
     @db_session_manager
     async def get_by_ids(self, *, session, ids: List[int]) -> List[User]:

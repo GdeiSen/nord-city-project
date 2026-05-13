@@ -68,8 +68,6 @@ def get_current_user(request: Request) -> dict:
 
 
 def require_permission(current_user: dict, permission_code: str) -> None:
-    if current_user.get("is_super_admin"):
-        return
     if permission_code in set(current_user.get("permissions") or []):
         return
     raise HTTPException(

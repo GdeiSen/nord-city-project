@@ -84,6 +84,11 @@ async def update_role(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found")
     if getattr(existing, "code", None) == SUPER_ADMIN_ROLE_CODE:
         update_data.pop("code", None)
+        if "permission_ids" in update_data:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Права роли super_admin управляются системой и не могут быть изменены через интерфейс.",
+            )
     response = await db_client.role.update(
         entity_id=role_id,
         update_data=update_data,
