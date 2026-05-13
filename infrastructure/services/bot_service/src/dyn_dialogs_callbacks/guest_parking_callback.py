@@ -225,6 +225,49 @@ async def guest_parking_callback(
         await _finalize_and_show_summary(bot, update, context, dialog, data)
         return CallbackResult.continue_()
 
+    # --- Отмена заявки пользователем ---
+    if option_id == 3001:
+        req_id = data.get("req_id")
+        if req_id:
+            from shared.schemas import GuestParkingSchema
+            from shared.constants import GuestParkingStatus
+            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+            audit_context = bot.services.notification.build_telegram_actor_audit_context(
+                telegram_user_id=bot.get_user_id(update),
+                reason="guest_parking_cancelled_by_user_from_dialog",
+            )
+            await bot.managers.database.guest_parking.update(
+                entity_id=req_id,
+                update_data={"status": GuestParkingStatus.CANCELLED},
+                model_class=GuestParkingSchema,
+                _audit_context=audit_context,
+            )
+            target_chat_id = await bot.services.notification._resolve_guest_parking_chat_id(req_id=req_id)
+            if target_chat_id:
+                await bot.application.bot.send_message(
+                    chat_id=target_chat_id,
+                    text=bot.get_text("guest_parking_cancelled_admin", [str(req_id)]),
+                    parse_mode="HTML",
+                )
+            arrival_start_at = data.get("arrival_start_at")
+            date_str = arrival_start_at.strftime("%d.%m.%Y") if arrival_start_at else ""
+            time_str = data.get("arrival_time", "")
+            license_plate = data.get("license_plate", "")
+            await bot.send_message(
+                update, context,
+                "guest_parking_cancelled_user",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton(
+                        bot.get_text("guest_parking_to_menu"),
+                        callback_data=f"guest_parking:menu:{req_id}",
+                    )
+                ]]),
+                payload=[date_str, time_str, license_plate],
+                dynamic=False,
+            )
+        bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, None)
+        return CallbackResult.skip_and_complete()
+
     if state == 1:
         bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, None)
         return await bot.managers.navigator.execute(Dialogs.MENU, update, context)
@@ -285,6 +328,9 @@ async def _finalize_and_show_summary(
 
     saved = result.get("data")
     req_id = saved.id if saved else None
+
+    data["req_id"] = req_id
+    bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, data)
 
     await bot.services.notification.notify_new_guest_parking(
         req_id=req_id,

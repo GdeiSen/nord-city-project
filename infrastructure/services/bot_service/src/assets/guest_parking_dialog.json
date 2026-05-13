@@ -74,7 +74,8 @@
       "id": 106,
       "text": "dlg_guest_parking_final",
       "options_ids": [
-        3000
+        3000,
+        3001
       ],
       "type": 0
     },
@@ -101,6 +102,11 @@
       "id": 3000,
       "text": "guest_parking_to_menu",
       "row": 0
+    },
+    {
+      "id": 3001,
+      "text": "guest_parking_action_cancel",
+      "row": 1
     },
     {
       "id": 3100,
