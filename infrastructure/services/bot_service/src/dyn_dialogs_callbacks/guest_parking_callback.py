@@ -241,6 +241,13 @@ async def guest_parking_callback(
                 model_class=GuestParkingSchema,
                 _audit_context=audit_context,
             )
+            target_chat_id = await bot.services.notification._resolve_guest_parking_chat_id(req_id=req_id)
+            if target_chat_id:
+                await bot.application.bot.send_message(
+                    chat_id=target_chat_id,
+                    text=bot.get_text("guest_parking_cancelled_admin", [str(req_id)]),
+                    parse_mode="HTML",
+                )
             await bot.services.notification.edit_guest_parking_message(
                 req_id=req_id,
                 _audit_context=audit_context,
