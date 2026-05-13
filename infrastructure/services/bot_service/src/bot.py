@@ -86,6 +86,10 @@ from telegram.ext import (
     filters,
 )
 try:
+    from telegram.ext import AIORateLimiter
+except ImportError:
+    AIORateLimiter = None
+try:
     from telegram.ext import ChatMemberHandler
 except ImportError:  # pragma: no cover - fallback for older PTB versions
     ChatMemberHandler = None
@@ -568,6 +572,8 @@ class Agent:
                 connection_pool_size=100,
             )
             builder = builder.request(request)
+        if AIORateLimiter is not None:
+            builder = builder.rate_limiter(AIORateLimiter(max_retries=5))
         return builder.build()
 
     async def start_async(self, token: str, db_url: str, admin_chat_id: str | None = None, chief_engineer_chat_id: str = None):
