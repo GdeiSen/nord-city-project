@@ -573,7 +573,10 @@ class Agent:
             )
             builder = builder.request(request)
         if AIORateLimiter is not None:
-            builder = builder.rate_limiter(AIORateLimiter(max_retries=5))
+            try:
+                builder = builder.rate_limiter(AIORateLimiter(max_retries=5))
+            except RuntimeError:
+                pass  # aiolimiter package not installed; rate limiting disabled
         return builder.build()
 
     async def start_async(self, token: str, db_url: str, admin_chat_id: str | None = None, chief_engineer_chat_id: str = None):
