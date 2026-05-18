@@ -44,6 +44,7 @@ from models.guest_parking_request import GuestParkingRequest
 from models.guest_parking_settings import GuestParkingSettings
 from models.audit_log import AuditLog
 from models.bot_message_ref import BotMessageRef
+from models.bot_interaction_session import BotInteractionSession
 from models.space import Space
 from models.space_view import SpaceView
 from models.otp_code import OtpCode
@@ -68,6 +69,7 @@ from services.guest_parking_service import GuestParkingService
 from services.guest_parking_settings_service import GuestParkingSettingsService
 from services.audit_log_service import AuditLogService
 from services.bot_message_ref_service import BotMessageRefService
+from services.bot_interaction_session_service import BotInteractionSessionService
 from services.space_view_service import SpaceViewService
 from services.storage_file_service import StorageFileService
 from services.telegram_chat_service import TelegramChatService
@@ -105,7 +107,7 @@ def _register_resources():
         User, UserAuth, Role, Permission, RolePermission, UserRole, Contract, UserContract,
         DynamicDialogBinding, Feedback, ServiceTicketFeedbackRef, Object, PollAnswer,
         ServiceTicket, GuestParkingRequest, GuestParkingSettings, AuditLog, Space, SpaceView, OtpCode,
-        StorageFile, BotMessageRef, TelegramChat,
+        StorageFile, BotMessageRef, BotInteractionSession, TelegramChat,
     ]
     for model in models_to_register:
         db_manager.repositories.register(model)
@@ -127,6 +129,7 @@ def _register_resources():
         "guest_parking_settings": GuestParkingSettingsService,
         "audit_log": AuditLogService,
         "bot_message_ref": BotMessageRefService,
+        "bot_interaction_session": BotInteractionSessionService,
         "telegram_chat": TelegramChatService,
         "space_view": SpaceViewService,
         "otp": OtpService,

@@ -505,6 +505,104 @@ class _BotMessageRefProxy(_CRUDProxy):
         )
 
 
+class _BotInteractionSessionProxy(_CRUDProxy):
+    """Durable bot interaction sessions."""
+
+    async def reserve_session(
+        self,
+        *,
+        session_type: str,
+        entity_type: str,
+        entity_id: int,
+        chat_id: int,
+        owner_user_id: int,
+        prompt_message_id: int | None = None,
+        expires_at: Any = None,
+        meta: Optional[Dict[str, Any]] = None,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "reserve_session",
+            _model_class=model_class,
+            session_type=session_type,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            chat_id=chat_id,
+            owner_user_id=owner_user_id,
+            prompt_message_id=prompt_message_id,
+            expires_at=expires_at,
+            meta=meta or {},
+        )
+
+    async def set_prompt_message(
+        self,
+        *,
+        session_id: int,
+        prompt_message_id: int,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "set_prompt_message",
+            _model_class=model_class,
+            session_id=session_id,
+            prompt_message_id=prompt_message_id,
+        )
+
+    async def get_active_by_chat(
+        self,
+        *,
+        session_type: str,
+        chat_id: int,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "get_active_by_chat",
+            _model_class=model_class,
+            session_type=session_type,
+            chat_id=chat_id,
+        )
+
+    async def close_session(
+        self,
+        *,
+        session_id: int | None = None,
+        session_type: str | None = None,
+        chat_id: int | None = None,
+        owner_user_id: int | None = None,
+        status: str = "COMPLETED",
+        meta_updates: Optional[Dict[str, Any]] = None,
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "close_session",
+            _model_class=model_class,
+            session_id=session_id,
+            session_type=session_type,
+            chat_id=chat_id,
+            owner_user_id=owner_user_id,
+            status=status,
+            meta_updates=meta_updates or {},
+        )
+
+    async def close_active_for_owner_or_chat(
+        self,
+        *,
+        session_type: str,
+        chat_id: int | None = None,
+        owner_user_id: int | None = None,
+        status: str = "CANCELLED",
+        model_class: Any = None,
+    ) -> Dict[str, Any]:
+        return await self._call(
+            "close_active_for_owner_or_chat",
+            _model_class=model_class,
+            session_type=session_type,
+            chat_id=chat_id,
+            owner_user_id=owner_user_id,
+            status=status,
+        )
+
+
 class _ObjectProxy(_CRUDProxy):
     """Object proxy with get_by_ids for batch enrichment."""
 
@@ -838,6 +936,7 @@ class DatabaseClient:
         self.storage_file = _StorageFileProxy(self._http, "storage_file")
         self.audit_log = _AuditLogProxy(self._http, "audit_log")
         self.bot_message_ref = _BotMessageRefProxy(self._http, "bot_message_ref")
+        self.bot_interaction_session = _BotInteractionSessionProxy(self._http, "bot_interaction_session")
         self.telegram_chat = _TelegramChatProxy(self._http, "telegram_chat")
         self.service_ticket_feedback_ref = _ServiceTicketFeedbackRefProxy(
             self._http,

@@ -20,5 +20,6 @@ from .otp_code import OtpCodeSchema
 from .enrichment import UserSummary, ObjectSummary, TelegramChatSummary, ServiceTicketSummary
 from .storage_file import StorageFileSchema
 from .bot_message_ref import BotMessageRefSchema
+from .bot_interaction_session import BotInteractionSessionSchema
 from .dynamic_dialog_binding import DynamicDialogBindingSchema
 from .telegram_chat import TelegramChatSchema

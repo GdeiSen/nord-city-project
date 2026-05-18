@@ -72,6 +72,7 @@ from services.telegram_auth_service import TelegramAuthService
 from services.bot_settings_service import BotSettingsService
 from services.localization_service import LocalizationService
 from services.media_service import MediaService
+from services.bot_state_service import BotStateService
 
 # Telegram-related imports
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, Message
@@ -194,6 +195,7 @@ class Bot:
         self.services.register_service(BotSettingsService(self))
         self.services.register_service(LocalizationService(self))
         self.services.register_service(MediaService(self))
+        self.services.register_service(BotStateService(self))
 
     async def handle_error(self, code: int, message: str):
         """Simple error handler"""
@@ -462,6 +464,9 @@ class Bot:
         else:
             # --- Refactoring Change: Use NotificationService ---
             # Check if this is a message in the admin chat replying to a ticket
+            if chat_id and await self.services.notification.is_admin_chat(chat_id):
+                if await self.services.notification.handle_active_ticket_assign_text(update, context):
+                    return
             if chat_id and await self.services.notification.is_admin_chat(chat_id) and update.message.reply_to_message:
                 try:
                     await self.services.notification.handle_admin_reply(update, context)

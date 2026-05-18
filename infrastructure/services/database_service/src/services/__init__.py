@@ -13,6 +13,7 @@ from .service_ticket_service import ServiceTicketService
 from .object_service import ObjectService
 from .space_service import SpaceService
 from .storage_file_service import StorageFileService
+from .bot_interaction_session_service import BotInteractionSessionService
 __all__ = [
     # User services
     "UserService",
@@ -29,4 +30,5 @@ __all__ = [
     "ObjectService",
     "SpaceService",
     "StorageFileService",
+    "BotInteractionSessionService",
 ]
