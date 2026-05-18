@@ -82,6 +82,22 @@ class BotInteractionSessionService(BaseService):
             and int(active_session.owner_user_id) == int(owner_user_id)
         )
 
+    @staticmethod
+    def _coerce_datetime(value: Any, *, field_name: str) -> Optional[datetime]:
+        if value is None or isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip()
+            if not normalized:
+                return None
+            if normalized.endswith("Z"):
+                normalized = f"{normalized[:-1]}+00:00"
+            try:
+                return datetime.fromisoformat(normalized)
+            except ValueError as exc:
+                raise ValueError(f"Invalid datetime value for {field_name}: {value!r}") from exc
+        raise TypeError(f"{field_name} must be datetime or ISO datetime string, got {type(value).__name__}")
+
     async def _refresh_active_session(
         self,
         *,
@@ -94,7 +110,7 @@ class BotInteractionSessionService(BaseService):
         if prompt_message_id is not None:
             active_session.prompt_message_id = int(prompt_message_id)
         if expires_at is not None:
-            active_session.expires_at = expires_at
+            active_session.expires_at = self._coerce_datetime(expires_at, field_name="expires_at")
         if meta:
             current_meta = dict(active_session.meta or {})
             current_meta.update(meta)
@@ -116,6 +132,7 @@ class BotInteractionSessionService(BaseService):
         meta: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         normalized_type = str(session_type or "").strip().upper()
+        normalized_expires_at = self._coerce_datetime(expires_at, field_name="expires_at")
         await self._expire_stale_sessions(session=session, session_type=normalized_type)
 
         chat_session = await self._get_active_by_chat(
@@ -135,7 +152,7 @@ class BotInteractionSessionService(BaseService):
                     session=session,
                     active_session=chat_session,
                     prompt_message_id=prompt_message_id,
-                    expires_at=expires_at,
+                    expires_at=normalized_expires_at,
                     meta=meta,
                 )
                 return {"reserved": True, "reason": "resumed", "session": refreshed}
@@ -158,7 +175,7 @@ class BotInteractionSessionService(BaseService):
             prompt_message_id=int(prompt_message_id) if prompt_message_id is not None else None,
             status=ACTIVE_STATUS,
             meta=meta or {},
-            expires_at=expires_at,
+            expires_at=normalized_expires_at,
         )
         try:
             created = await self.repository.create(session=session, obj_in=created)
@@ -185,7 +202,7 @@ class BotInteractionSessionService(BaseService):
                         session=retry_session,
                         active_session=active,
                         prompt_message_id=prompt_message_id,
-                        expires_at=expires_at,
+                        expires_at=normalized_expires_at,
                         meta=meta,
                     )
                     await retry_session.commit()
