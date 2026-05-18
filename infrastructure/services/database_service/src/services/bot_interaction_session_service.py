@@ -66,6 +66,41 @@ class BotInteractionSessionService(BaseService):
         )
         return (await session.execute(stmt)).scalar_one_or_none()
 
+    @staticmethod
+    def _is_same_session_target(
+        active_session: BotInteractionSession,
+        *,
+        entity_type: str,
+        entity_id: int,
+        chat_id: int,
+        owner_user_id: int,
+    ) -> bool:
+        return (
+            active_session.entity_type == str(entity_type or "").strip()
+            and int(active_session.entity_id) == int(entity_id)
+            and int(active_session.chat_id) == int(chat_id)
+            and int(active_session.owner_user_id) == int(owner_user_id)
+        )
+
+    async def _refresh_active_session(
+        self,
+        *,
+        session,
+        active_session: BotInteractionSession,
+        prompt_message_id: Optional[int],
+        expires_at: Optional[datetime],
+        meta: Optional[dict[str, Any]],
+    ) -> BotInteractionSession:
+        if prompt_message_id is not None:
+            active_session.prompt_message_id = int(prompt_message_id)
+        if expires_at is not None:
+            active_session.expires_at = expires_at
+        if meta:
+            current_meta = dict(active_session.meta or {})
+            current_meta.update(meta)
+            active_session.meta = current_meta
+        return await self.repository.update(session=session, obj_in=active_session)
+
     @db_session_manager
     async def reserve_session(
         self,
@@ -89,6 +124,21 @@ class BotInteractionSessionService(BaseService):
             chat_id=int(chat_id),
         )
         if chat_session is not None:
+            if self._is_same_session_target(
+                chat_session,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                chat_id=chat_id,
+                owner_user_id=owner_user_id,
+            ):
+                refreshed = await self._refresh_active_session(
+                    session=session,
+                    active_session=chat_session,
+                    prompt_message_id=prompt_message_id,
+                    expires_at=expires_at,
+                    meta=meta,
+                )
+                return {"reserved": True, "reason": "resumed", "session": refreshed}
             return {"reserved": False, "reason": "chat_active", "session": chat_session}
 
         owner_session = await self._get_active_by_owner(
@@ -124,6 +174,22 @@ class BotInteractionSessionService(BaseService):
                     chat_id=int(chat_id),
                 )
                 reason = "chat_active"
+                if active is not None and self._is_same_session_target(
+                    active,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    chat_id=chat_id,
+                    owner_user_id=owner_user_id,
+                ):
+                    refreshed = await self._refresh_active_session(
+                        session=retry_session,
+                        active_session=active,
+                        prompt_message_id=prompt_message_id,
+                        expires_at=expires_at,
+                        meta=meta,
+                    )
+                    await retry_session.commit()
+                    return {"reserved": True, "reason": "resumed", "session": refreshed}
                 if active is None:
                     active = await self._get_active_by_owner(
                         session=retry_session,

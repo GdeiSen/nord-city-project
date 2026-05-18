@@ -162,6 +162,27 @@ class NotificationService(BaseService):
             return None
         return await self.bot.services.bot_state.get_active_ticket_assignment_by_chat(int(admin_chat_id))
 
+    @staticmethod
+    def _is_same_ticket_assign_session(
+        session: dict[str, Any] | None,
+        *,
+        ticket_id: int,
+        admin_chat_id: int,
+        owner_user_id: int,
+    ) -> bool:
+        if session is None:
+            return False
+        session_ticket_id = session.get("entity_id") or session.get("ticket_id")
+        session_chat_id = session.get("chat_id") or session.get("admin_chat_id")
+        session_owner_id = session.get("owner_user_id")
+        if session_ticket_id is None or session_chat_id is None or session_owner_id is None:
+            return False
+        return (
+            int(session_ticket_id) == int(ticket_id)
+            and int(session_chat_id) == int(admin_chat_id)
+            and int(session_owner_id) == int(owner_user_id)
+        )
+
     async def _warn_ticket_assign_session_locked(
         self,
         *,
@@ -1447,7 +1468,8 @@ class NotificationService(BaseService):
                 )
                 return True
             session = await self._get_ticket_assign_session_by_chat(int(chat_id))
-            if session is None or int(session.get("ticket_id") or 0) != ticket_id:
+            session_ticket_id = session.get("entity_id") or session.get("ticket_id") if session else None
+            if session is None or session_ticket_id is None or int(session_ticket_id) != ticket_id:
                 await query.message.reply_text(
                     self.bot.get_text("ticket_assign_no_active_session"),
                     parse_mode=ParseMode.HTML,
@@ -1609,6 +1631,47 @@ class NotificationService(BaseService):
                 ticket_id=ticket_id,
             )
             if not reserved:
+                is_same_assignment = self._is_same_ticket_assign_session(
+                    active_session,
+                    ticket_id=ticket_id,
+                    admin_chat_id=int(chat_id),
+                    owner_user_id=int(actor_id),
+                )
+                if is_same_assignment:
+                    try:
+                        prompt_message = await query.message.reply_text(
+                            self.bot.get_text("ticket_assign_prompt", [str(ticket_id)]),
+                            reply_markup=self._service_ticket_assign_cancel_keyboard(ticket_id),
+                            parse_mode=ParseMode.HTML,
+                        )
+                    except Exception:
+                        return True
+                    await self._set_ticket_assign_prompt_message(
+                        admin_chat_id=int(chat_id),
+                        owner_user_id=int(actor_id),
+                        prompt_message_id=getattr(prompt_message, "message_id", None),
+                    )
+                    if getattr(prompt_message, "message_id", None) is not None:
+                        await self._upsert_message_ref(
+                            entity_type="ServiceTicket",
+                            entity_id=ticket_id,
+                            chat_id=int(chat_id),
+                            message_id=prompt_message.message_id,
+                            kind="PROMPT",
+                            meta={
+                                "prompt_type": "assignment",
+                                "owner_user_id": int(actor_id),
+                                "session_id": active_session.get("id"),
+                                "resumed": True,
+                            },
+                        )
+                    self._register_ticket_assign_input_handler(
+                        actor_id,
+                        ticket_id=ticket_id,
+                        admin_chat_id=int(chat_id),
+                        prompt_message_id=getattr(prompt_message, "message_id", query.message.message_id),
+                    )
+                    return True
                 text_key = "ticket_assign_chat_already_active" if reason == "chat_active" else "ticket_assign_user_already_active"
                 active_ticket_id = active_session.get("entity_id") or active_session.get("ticket_id") if active_session else ticket_id
                 await query.message.reply_text(
