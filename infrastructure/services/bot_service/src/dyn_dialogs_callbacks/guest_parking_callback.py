@@ -294,37 +294,15 @@ async def _finalize_and_show_summary(
         data=data,
     )
 
-    route_images: list[str] = []
-    try:
-        from shared.schemas import GuestParkingSettingsSchema
-
-        settings_resp = await bot.managers.database.guest_parking_settings.get_settings(
-            model_class=GuestParkingSettingsSchema
-        )
-        if settings_resp.get("success") and settings_resp.get("data") is not None:
-            settings = settings_resp["data"]
-            if isinstance(settings, dict):
-                route_images = list(settings.get("route_images") or [])
-            else:
-                route_images = list(getattr(settings, "route_images", []) or [])
-    except Exception:
-        route_images = []
-
-    data["route_images"] = route_images[:2]
-    bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, data)
-
     if req_id:
         date_str = arrival_start_at.strftime("%d.%m.%Y") if arrival_date else ""
         time_str = data.get("arrival_time", "")
         license_plate = data.get("license_plate", "")
-        if route_images:
-            bot.managers.storage.set(context, Variables.PERSIST_NEXT_IMAGES, True)
         from telegram import InlineKeyboardMarkup, InlineKeyboardButton
         await bot.send_message(
             update, context,
             "guest_parking_final_summary",
             payload=[date_str, time_str, license_plate],
-            images=route_images[:2] if route_images else None,
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton(
                     bot.get_text("guest_parking_action_cancel"),

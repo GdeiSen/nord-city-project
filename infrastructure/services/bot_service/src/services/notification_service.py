@@ -48,6 +48,9 @@ class NotificationService(BaseService):
         self._admin_chat_id: Optional[str] = None
         self._chief_engineer_chat_id: Optional[str] = None
         self._reminder_scheduler_task = None
+        self._ticket_assign_sessions_by_chat: dict[int, dict[str, Any]] = {}
+        self._ticket_assign_chat_by_user: dict[int, int] = {}
+        self._ticket_assign_sessions_lock = asyncio.Lock()
 
     async def initialize(self) -> None:
         """Initializes the notification service by loading chat IDs from headers."""
@@ -88,10 +91,6 @@ class NotificationService(BaseService):
                 self.bot.get_text("ticket_action_accept"),
                 callback_data=f"service_ticket:accept:{ticket_id}",
             ))
-            buttons.append(InlineKeyboardButton(
-                self.bot.get_text("ticket_action_assign"),
-                callback_data=f"service_ticket:assign:{ticket_id}",
-            ))
         else:
             buttons.append(InlineKeyboardButton(
                 self.bot.get_text("ticket_action_assign"),
@@ -102,6 +101,131 @@ class NotificationService(BaseService):
                 callback_data=f"service_ticket:complete:{ticket_id}",
             ))
         return InlineKeyboardMarkup([buttons])
+
+    def _service_ticket_assign_cancel_keyboard(self, ticket_id: int) -> InlineKeyboardMarkup:
+        return InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    self.bot.get_text("ticket_assign_cancel_action"),
+                    callback_data=f"service_ticket:assign_cancel:{ticket_id}",
+                )
+            ]
+        ])
+
+    async def _reserve_ticket_assign_session(
+        self,
+        *,
+        admin_chat_id: int,
+        owner_user_id: int,
+        ticket_id: int,
+    ) -> tuple[bool, str | None, dict[str, Any] | None]:
+        async with self._ticket_assign_sessions_lock:
+            chat_session = self._ticket_assign_sessions_by_chat.get(admin_chat_id)
+            if chat_session is not None:
+                return False, "chat_active", dict(chat_session)
+
+            owner_chat_id = self._ticket_assign_chat_by_user.get(owner_user_id)
+            if owner_chat_id is not None:
+                user_session = self._ticket_assign_sessions_by_chat.get(owner_chat_id)
+                if user_session is not None:
+                    return False, "user_active", dict(user_session)
+                self._ticket_assign_chat_by_user.pop(owner_user_id, None)
+
+            session = {
+                "ticket_id": int(ticket_id),
+                "owner_user_id": int(owner_user_id),
+                "admin_chat_id": int(admin_chat_id),
+                "prompt_message_id": None,
+                "created_at": now().isoformat(),
+            }
+            self._ticket_assign_sessions_by_chat[admin_chat_id] = session
+            self._ticket_assign_chat_by_user[owner_user_id] = admin_chat_id
+            return True, None, dict(session)
+
+    async def _set_ticket_assign_prompt_message(
+        self,
+        *,
+        admin_chat_id: int,
+        owner_user_id: int,
+        prompt_message_id: int | None,
+    ) -> None:
+        async with self._ticket_assign_sessions_lock:
+            session = self._ticket_assign_sessions_by_chat.get(admin_chat_id)
+            if not session or session.get("owner_user_id") != owner_user_id:
+                return
+            session["prompt_message_id"] = prompt_message_id
+
+    async def _clear_ticket_assign_session(
+        self,
+        *,
+        admin_chat_id: int | None = None,
+        owner_user_id: int | None = None,
+    ) -> dict[str, Any] | None:
+        async with self._ticket_assign_sessions_lock:
+            resolved_chat_id = admin_chat_id
+            if resolved_chat_id is None and owner_user_id is not None:
+                resolved_chat_id = self._ticket_assign_chat_by_user.get(owner_user_id)
+            if resolved_chat_id is None:
+                return None
+
+            session = self._ticket_assign_sessions_by_chat.pop(resolved_chat_id, None)
+            if session is not None:
+                self._ticket_assign_chat_by_user.pop(int(session.get("owner_user_id")), None)
+                return dict(session)
+            if owner_user_id is not None:
+                self._ticket_assign_chat_by_user.pop(owner_user_id, None)
+            return None
+
+    async def _get_ticket_assign_session_by_chat(self, admin_chat_id: int | None) -> dict[str, Any] | None:
+        if admin_chat_id is None:
+            return None
+        async with self._ticket_assign_sessions_lock:
+            session = self._ticket_assign_sessions_by_chat.get(int(admin_chat_id))
+            return dict(session) if session is not None else None
+
+    async def _warn_ticket_assign_session_locked(
+        self,
+        *,
+        chat_id: int,
+        reply_to_message_id: int | None = None,
+    ) -> None:
+        text = self.bot.get_text("ticket_assign_status_locked")
+        await self.bot.application.bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_to_message_id=reply_to_message_id,
+        )
+
+    async def _edit_ticket_assign_prompt_after_close(self, session: dict[str, Any]) -> None:
+        chat_id = self._coerce_chat_id(session.get("admin_chat_id"))
+        message_id = session.get("prompt_message_id")
+        ticket_id = session.get("ticket_id")
+        if chat_id is None or message_id is None or ticket_id is None:
+            return
+        try:
+            await self.bot.application.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=int(message_id),
+                text=self.bot.get_text("ticket_assign_cancelled", [str(ticket_id)]),
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            return
+
+    async def _remove_ticket_assign_prompt_keyboard(self, session: dict[str, Any]) -> None:
+        chat_id = self._coerce_chat_id(session.get("admin_chat_id"))
+        message_id = session.get("prompt_message_id")
+        if chat_id is None or message_id is None:
+            return
+        try:
+            await self.bot.application.bot.edit_message_reply_markup(
+                chat_id=chat_id,
+                message_id=int(message_id),
+                reply_markup=None,
+            )
+        except Exception:
+            return
 
     @staticmethod
     def _service_ticket_status_label(status: Any) -> str:
@@ -890,8 +1014,10 @@ class NotificationService(BaseService):
             # Get user info from the database (через сервис)
             user = await self.bot.services.user.get_user_by_id(ticket.user_id)
             user_name = self.bot.get_text("unknown_user")
+            legal_entity = self.bot.get_text("description_not_specified")
             if user:
                 user_name = f"{user.last_name or ''} {user.first_name or ''} {user.middle_name or ''}".strip()
+                legal_entity = user.legal_entity or self.bot.get_text("description_not_specified")
 
             object_name = self.bot.get_text("location_not_specified")
             object_id = getattr(ticket, "object_id", None) or (user.object_id if user else None)
@@ -918,6 +1044,7 @@ class NotificationService(BaseService):
                 ticket.description or self.bot.get_text("description_not_specified"),
                 ticket.location or self.bot.get_text("location_not_specified"),
                 user_name,
+                legal_entity,
                 phone_number
             ])
 
@@ -1040,8 +1167,10 @@ class NotificationService(BaseService):
 
             user = await self.bot.services.user.get_user_by_id(ticket.user_id)
             user_name = self.bot.get_text("unknown_user")
+            legal_entity = self.bot.get_text("description_not_specified")
             if user:
                 user_name = f"{user.last_name or ''} {user.first_name or ''} {user.middle_name or ''}".strip()
+                legal_entity = user.legal_entity or self.bot.get_text("description_not_specified")
 
             object_name = self.bot.get_text("location_not_specified")
             object_id = getattr(ticket, "object_id", None) or (user.object_id if user else None)
@@ -1076,6 +1205,7 @@ class NotificationService(BaseService):
                 ticket.description or self.bot.get_text("description_not_specified"),
                 ticket.location or self.bot.get_text("location_not_specified"),
                 user_name,
+                legal_entity,
                 phone_number,
             ]
             await self.bot.managers.message.edit_message(
@@ -1203,6 +1333,14 @@ class NotificationService(BaseService):
             if not message_text:
                 return False
 
+            active_assign_session = await self._get_ticket_assign_session_by_chat(update.effective_chat.id)
+            if active_assign_session is not None:
+                await self._warn_ticket_assign_session_locked(
+                    chat_id=update.effective_chat.id,
+                    reply_to_message_id=getattr(update.message, "message_id", None),
+                )
+                return True
+
             if re.search(r'принят[оа]', message_text.lower()):
                 await self._process_ticket_accepted(update, context, ticket, user_id)
                 return True
@@ -1316,6 +1454,33 @@ class NotificationService(BaseService):
         except ValueError:
             return False
 
+        if action == "assign_cancel":
+            chat_id = query.message.chat_id if query.message else None
+            if not chat_id or not await self.is_admin_chat(chat_id):
+                await query.message.reply_text(
+                    self.bot.get_text("ticket_admin_only_action"),
+                    parse_mode=ParseMode.HTML,
+                )
+                return True
+            session = await self._get_ticket_assign_session_by_chat(int(chat_id))
+            if session is None or int(session.get("ticket_id") or 0) != ticket_id:
+                await query.message.reply_text(
+                    self.bot.get_text("ticket_assign_no_active_session"),
+                    parse_mode=ParseMode.HTML,
+                )
+                return True
+            cleared = await self._clear_ticket_assign_session(admin_chat_id=int(chat_id))
+            if cleared is not None:
+                owner_user_id = cleared.get("owner_user_id")
+                if owner_user_id is not None:
+                    self.bot.managers.event.remove_input_handler(int(owner_user_id))
+                await self._edit_ticket_assign_prompt_after_close(cleared)
+            await query.message.reply_text(
+                self.bot.get_text("ticket_assign_cancelled", [str(ticket_id)]),
+                parse_mode=ParseMode.HTML,
+            )
+            return True
+
         ticket = await self.bot.services.service_ticket.get_service_ticket_by_id(ticket_id)
         if ticket is None:
             await query.message.reply_text(
@@ -1377,12 +1542,28 @@ class NotificationService(BaseService):
         if actor_id is None:
             return True
 
+        if action in {"accept", "complete"}:
+            active_session = await self._get_ticket_assign_session_by_chat(int(chat_id))
+            if active_session is not None:
+                await self._warn_ticket_assign_session_locked(
+                    chat_id=int(chat_id),
+                    reply_to_message_id=query.message.message_id if query.message else None,
+                )
+                return True
+
         status = str(getattr(ticket, "status", ServiceTicketStatus.NEW)).upper()
         if status in (ServiceTicketStatus.COMPLETED, ServiceTicketStatus.CANCELLED):
             await query.message.reply_text(
                 self.bot.get_text("ticket_already_completed", [str(ticket_id)]),
                 parse_mode=ParseMode.HTML,
             )
+            return True
+        if action == "assign" and status == ServiceTicketStatus.NEW:
+            await query.message.reply_text(
+                self.bot.get_text("ticket_assign_requires_accept", [str(ticket_id)]),
+                parse_mode=ParseMode.HTML,
+            )
+            await self.edit_ticket_message(ticket_id=ticket_id, notify_admin_update=False)
             return True
 
         if action == "accept":
@@ -1432,15 +1613,37 @@ class NotificationService(BaseService):
             return True
 
         if action == "assign":
-            await query.message.reply_text(
-                self.bot.get_text("ticket_assign_prompt", [str(ticket_id)]),
-                parse_mode=ParseMode.HTML,
+            reserved, reason, active_session = await self._reserve_ticket_assign_session(
+                admin_chat_id=int(chat_id),
+                owner_user_id=int(actor_id),
+                ticket_id=ticket_id,
+            )
+            if not reserved:
+                text_key = "ticket_assign_chat_already_active" if reason == "chat_active" else "ticket_assign_user_already_active"
+                await query.message.reply_text(
+                    self.bot.get_text(text_key, [str(active_session.get("ticket_id"))] if active_session else [str(ticket_id)]),
+                    parse_mode=ParseMode.HTML,
+                )
+                return True
+            try:
+                prompt_message = await query.message.reply_text(
+                    self.bot.get_text("ticket_assign_prompt", [str(ticket_id)]),
+                    reply_markup=self._service_ticket_assign_cancel_keyboard(ticket_id),
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception:
+                await self._clear_ticket_assign_session(admin_chat_id=int(chat_id))
+                raise
+            await self._set_ticket_assign_prompt_message(
+                admin_chat_id=int(chat_id),
+                owner_user_id=int(actor_id),
+                prompt_message_id=getattr(prompt_message, "message_id", None),
             )
             self._register_ticket_assign_input_handler(
                 actor_id,
                 ticket_id=ticket_id,
                 admin_chat_id=int(chat_id),
-                prompt_message_id=query.message.message_id,
+                prompt_message_id=getattr(prompt_message, "message_id", query.message.message_id),
             )
             return True
 
@@ -1489,6 +1692,7 @@ class NotificationService(BaseService):
 
             ticket = await self.bot.services.service_ticket.get_service_ticket_by_id(ticket_id)
             if ticket is None:
+                await self._clear_ticket_assign_session(admin_chat_id=admin_chat_id, owner_user_id=user_id)
                 await self.bot.application.bot.send_message(
                     chat_id=admin_chat_id,
                     text=self.bot.get_text("ticket_not_found"),
@@ -1507,12 +1711,16 @@ class NotificationService(BaseService):
                 assignee=assignee,
             )
             if updated is None:
+                await self._clear_ticket_assign_session(admin_chat_id=admin_chat_id, owner_user_id=user_id)
                 await self.bot.application.bot.send_message(
                     chat_id=admin_chat_id,
                     text=self.bot.get_text("error_processing_request"),
                     parse_mode=ParseMode.HTML,
                 )
                 return
+            cleared = await self._clear_ticket_assign_session(admin_chat_id=admin_chat_id, owner_user_id=user_id)
+            if cleared is not None:
+                await self._remove_ticket_assign_prompt_keyboard(cleared)
             await self.bot.application.bot.send_message(
                 chat_id=admin_chat_id,
                 text=self.bot.get_text("ticket_assigned", [str(ticket_id), assignee]),
@@ -1547,6 +1755,9 @@ class NotificationService(BaseService):
 
     def _build_ticket_assign_timeout_handler(self, *, ticket_id: int, admin_chat_id: int):
         async def on_timeout() -> None:
+            session = await self._clear_ticket_assign_session(admin_chat_id=admin_chat_id)
+            if session is not None:
+                await self._remove_ticket_assign_prompt_keyboard(session)
             await self.bot.application.bot.send_message(
                 chat_id=admin_chat_id,
                 text=self.bot.get_text("ticket_assign_timeout", [str(ticket_id)]),
@@ -2512,17 +2723,66 @@ class NotificationService(BaseService):
 
     async def _send_guest_parking_reminder(self, req_id: int, data: dict) -> None:
         """Отправляет напоминание о гостевой парковке администраторам. Учёт отправленных — в кэше database_service."""
-        target_chat_id = await self._resolve_guest_parking_chat_id(req_id=req_id)
+        response = await self.bot.managers.database.guest_parking.get_by_id(
+            entity_id=req_id,
+            model_class=GuestParkingSchema,
+        )
+        if not response.get("success") or response.get("data") is None:
+            return
+        request = response["data"]
+        status_value = str(self._get_entity_value(request, "status", GuestParkingStatus.NEW)).upper()
+        if status_value != GuestParkingStatus.APPROVED:
+            return
+
+        target_chat_id = await self._resolve_guest_parking_chat_id(request=request, req_id=req_id)
         if target_chat_id is None:
             return
+
+        user_id = self._get_entity_value(request, "user_id")
+        user = await self.bot.services.user.get_user_by_id(user_id) if user_id else None
+        user_name = self.bot.get_text("unknown_user")
+        legal_entity = ""
+        if user:
+            user_name = f"{user.last_name or ''} {user.first_name or ''} {user.middle_name or ''}".strip()
+            legal_entity = user.legal_entity or ""
+
+        tenant_phone = self._get_entity_value(request, "tenant_phone", "") or ""
+        tenant_contact = tenant_phone
+        if user_name or legal_entity:
+            tenant_contact = f"{tenant_contact} ({user_name}, {legal_entity})".strip()
+
+        date_str, time_str = self._format_guest_parking_interval(request)
+        license_plate = self._get_entity_value(request, "license_plate", "") or data.get("license_plate", "")
         text = self.bot.get_text("guest_parking_reminder", [
-            data.get("license_plate", ""),
+            str(req_id),
+            date_str,
+            time_str,
+            license_plate,
+            tenant_contact,
         ])
         await self.bot.application.bot.send_message(
             chat_id=target_chat_id,
             text=text,
             parse_mode=ParseMode.HTML,
         )
+
+    async def _get_guest_parking_route_images(self) -> list[str]:
+        try:
+            from shared.schemas import GuestParkingSettingsSchema
+
+            response = await self.bot.managers.database.guest_parking_settings.get_settings(
+                model_class=GuestParkingSettingsSchema,
+            )
+            if not response.get("success") or response.get("data") is None:
+                return []
+            settings = response["data"]
+            if isinstance(settings, dict):
+                route_images = settings.get("route_images") or []
+            else:
+                route_images = getattr(settings, "route_images", []) or []
+            return [str(item).strip() for item in route_images if str(item).strip()][:2]
+        except Exception:
+            return []
 
     async def notify_new_guest_parking(self, req_id: int, _audit_context: Optional[dict] = None) -> Dict[str, Any]:
         """
@@ -2850,11 +3110,22 @@ class NotificationService(BaseService):
                 if status_value == GuestParkingStatus.REJECTED:
                     payload.append(rejection_reason)
                 try:
-                    await self.bot.application.bot.send_message(
-                        chat_id=user_chat_id,
-                        text=self.bot.get_text(text_key, payload),
-                        parse_mode=ParseMode.HTML,
-                    )
+                    user_text = self.bot.get_text(text_key, payload)
+                    route_images = await self._get_guest_parking_route_images() if status_value == GuestParkingStatus.APPROVED else []
+                    if route_images:
+                        image_refs = await self._prepare_broadcast_attachment_refs(route_images)
+                        await self._send_broadcast_to_user(
+                            user_id=user_chat_id,
+                            text=user_text,
+                            image_refs=image_refs,
+                            document_refs=[],
+                        )
+                    else:
+                        await self.bot.application.bot.send_message(
+                            chat_id=user_chat_id,
+                            text=user_text,
+                            parse_mode=ParseMode.HTML,
+                        )
                     await self._append_delivery_audit_event(
                         entity_type="GuestParkingRequest",
                         entity_id=int(req_id),
