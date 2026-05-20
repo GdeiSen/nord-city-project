@@ -109,10 +109,14 @@ async def guest_parking_callback(
         return active_seq.items_ids.index(item_id) if active_seq and item_id in active_seq.items_ids else 0
 
     if state == 1:
+        summary_data = None
         if data:
-            await _finalize_and_show_summary(bot, update, context, dialog, data)
+            summary_data = await _finalize_and_show_summary(bot, update, context, dialog, data)
         bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, None)
-        return await bot.managers.navigator.execute(Dialogs.MENU, update, context)
+        menu_result = await bot.managers.navigator.execute(Dialogs.MENU, update, context)
+        if summary_data is not None:
+            await _send_final_summary(bot, update, context, summary_data)
+        return menu_result
 
     # --- Ввод даты ---
     if item_id == 100:
@@ -234,11 +238,11 @@ async def _finalize_and_show_summary(
     context: "ContextTypes.DEFAULT_TYPE",
     dialog: "Dialog",
     data: dict,
-) -> None:
+) -> dict | None:
     """Создаёт заявку, уведомляет админов, планирует напоминание, формирует финальный текст."""
     user_id = bot.get_user_id(update)
     if not user_id:
-        return
+        return None
     user = await bot.services.user.get_user_by_id(user_id)
 
     arrival_date = data.get("arrival_date")
@@ -277,7 +281,7 @@ async def _finalize_and_show_summary(
         await bot.send_message(
             update, context, "guest_parking_save_error", dynamic=False
         )
-        return
+        return None
 
     saved = result.get("data")
     req_id = saved.id if saved else None
@@ -294,20 +298,38 @@ async def _finalize_and_show_summary(
         data=data,
     )
 
-    if req_id:
-        date_str = arrival_start_at.strftime("%d.%m.%Y") if arrival_date else ""
-        time_str = data.get("arrival_time", "")
-        license_plate = data.get("license_plate", "")
-        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-        await bot.send_message(
-            update, context,
-            "guest_parking_final_summary",
-            payload=[date_str, time_str, license_plate],
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton(
-                    bot.get_text("guest_parking_action_cancel"),
-                    callback_data=f"guest_parking:user_cancel:{req_id}",
-                )
-            ]]),
-            dynamic=False,
-        )
+    if not req_id:
+        return None
+    return {
+        "req_id": req_id,
+        "date_str": arrival_start_at.strftime("%d.%m.%Y") if arrival_date else "",
+        "time_str": data.get("arrival_time", ""),
+        "license_plate": data.get("license_plate", ""),
+    }
+
+
+async def _send_final_summary(
+    bot: "Bot",
+    update: "Update",
+    context: "ContextTypes.DEFAULT_TYPE",
+    summary_data: dict,
+) -> None:
+    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+
+    req_id = summary_data["req_id"]
+    await bot.send_message(
+        update, context,
+        "guest_parking_final_summary",
+        payload=[
+            summary_data.get("date_str", ""),
+            summary_data.get("time_str", ""),
+            summary_data.get("license_plate", ""),
+        ],
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton(
+                bot.get_text("guest_parking_action_cancel"),
+                callback_data=f"guest_parking:user_cancel:{req_id}",
+            )
+        ]]),
+        dynamic=False,
+    )

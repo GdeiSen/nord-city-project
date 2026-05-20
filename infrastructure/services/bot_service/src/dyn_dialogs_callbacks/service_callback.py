@@ -73,6 +73,7 @@ async def service_callback(
     # Завершение диалога: создаём тикет и оповещаем (в т.ч. при SKIP_AND_COMPLETE)
     if state == 1:
         service_ticket = bot.managers.storage.get(context, Variables.USER_SERVICE_TICKET)
+        saved_ticket = None
         if service_ticket:
             user_id = bot.get_user_id(update)
             audit_context = bot.services.service_ticket.build_telegram_actor_audit_context(
@@ -89,22 +90,23 @@ async def service_callback(
                     saved_ticket,
                     _audit_context=audit_context,
                 )
-            ticket_id = getattr(saved_ticket, "id", None) if saved_ticket else None
-            if ticket_id:
-                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-                await bot.send_message(
-                    update, context, "service_ticket_completed",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton(
-                            bot.get_text("service_ticket_action_cancel"),
-                            callback_data=f"service_ticket:user_cancel:{ticket_id}",
-                        )
-                    ]]),
-                    dynamic=False,
-                )
-            else:
-                await bot.send_message(update, context, "service_ticket_completed", dynamic=False)
-        return await bot.managers.navigator.execute(Dialogs.MENU, update, context)
+        menu_result = await bot.managers.navigator.execute(Dialogs.MENU, update, context)
+        ticket_id = getattr(saved_ticket, "id", None) if saved_ticket else None
+        if ticket_id:
+            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+            await bot.send_message(
+                update, context, "service_ticket_completed",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton(
+                        bot.get_text("service_ticket_action_cancel"),
+                        callback_data=f"service_ticket:user_cancel:{ticket_id}",
+                    )
+                ]]),
+                dynamic=False,
+            )
+        elif service_ticket:
+            await bot.send_message(update, context, "service_ticket_completed", dynamic=False)
+        return menu_result
 
     service_ticket = bot.managers.storage.get(context, Variables.USER_SERVICE_TICKET)
     if (item_id not in [97, 98, 99]):
