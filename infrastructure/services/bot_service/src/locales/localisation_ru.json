@@ -34,6 +34,7 @@
     "feedback_completed": "✅ Отзыв отправлен!\nВаше мнение очень важно для нас!",
     "service_ticket_completed": "✅ Ваш тикет отправлен!\nМы учтем вашу проблему и займемся ее решением!\nВ случае возникновения вопросов, наш администратор свяжется с вами!",
     "service_ticket_action_cancel": "🚫 Отменить заявку",
+    "service_ticket_to_menu": "В главное меню",
     "service_ticket_cancelled_user": "🚫 <b>Ваша заявка №{?} отменена.</b>",
     "service_ticket_cancelled_admin": "🚫 Пользователь отменил заявку №{?}",
     "service_ticket_cancel_forbidden": "⛔ Вы можете отменить только свою заявку.",

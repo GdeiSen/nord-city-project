@@ -109,14 +109,12 @@ async def guest_parking_callback(
         return active_seq.items_ids.index(item_id) if active_seq and item_id in active_seq.items_ids else 0
 
     if state == 1:
-        summary_data = None
         if data:
             summary_data = await _finalize_and_show_summary(bot, update, context, dialog, data)
+            if summary_data is not None:
+                await _send_final_summary(bot, update, context, summary_data)
         bot.managers.storage.set(context, Variables.GUEST_PARKING_DATA, None)
-        menu_result = await bot.managers.navigator.execute(Dialogs.MENU, update, context)
-        if summary_data is not None:
-            await _send_final_summary(bot, update, context, summary_data)
-        return menu_result
+        return Dialogs.MENU
 
     # --- Ввод даты ---
     if item_id == 100:
@@ -329,6 +327,11 @@ async def _send_final_summary(
             InlineKeyboardButton(
                 bot.get_text("guest_parking_action_cancel"),
                 callback_data=f"guest_parking:user_cancel:{req_id}",
+            )
+        ], [
+            InlineKeyboardButton(
+                bot.get_text("guest_parking_to_menu"),
+                callback_data=f"guest_parking:menu:{req_id}",
             )
         ]]),
         dynamic=False,

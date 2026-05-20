@@ -109,6 +109,16 @@ class NotificationService(BaseService):
             ]
         ])
 
+    def _service_ticket_user_cancel_keyboard(self, ticket_id: int) -> InlineKeyboardMarkup:
+        return InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    self.bot.get_text("service_ticket_action_cancel"),
+                    callback_data=f"service_ticket:user_cancel:{ticket_id}",
+                )
+            ]
+        ])
+
     async def _reserve_ticket_assign_session(
         self,
         *,
@@ -1539,6 +1549,14 @@ class NotificationService(BaseService):
             return True
 
         if action == "to_menu":
+            await query.answer()
+            if query.message is not None:
+                try:
+                    await query.edit_message_reply_markup(
+                        reply_markup=self._service_ticket_user_cancel_keyboard(ticket_id),
+                    )
+                except Exception:
+                    logger.debug("Failed to remove service ticket menu button ticket_id=%s", ticket_id, exc_info=True)
             await self.bot.managers.navigator.execute(Dialogs.MENU, update, context)
             return True
 
@@ -1902,6 +1920,29 @@ class NotificationService(BaseService):
 
         if action == "menu":
             await query.answer()
+            if query.message is not None:
+                user_cancel_callback = f"guest_parking:user_cancel:{request_id}"
+                has_user_cancel = any(
+                    button.callback_data == user_cancel_callback
+                    for row in (query.message.reply_markup.inline_keyboard if query.message.reply_markup else [])
+                    for button in row
+                )
+                if has_user_cancel:
+                    try:
+                        await query.edit_message_reply_markup(
+                            reply_markup=InlineKeyboardMarkup([[
+                                InlineKeyboardButton(
+                                    self.bot.get_text("guest_parking_action_cancel"),
+                                    callback_data=user_cancel_callback,
+                                )
+                            ]]),
+                        )
+                    except Exception:
+                        logger.debug(
+                            "Failed to remove guest parking menu button request_id=%s",
+                            request_id,
+                            exc_info=True,
+                        )
             await self.bot.managers.navigator.execute(Dialogs.MENU, update, context)
             return True
 

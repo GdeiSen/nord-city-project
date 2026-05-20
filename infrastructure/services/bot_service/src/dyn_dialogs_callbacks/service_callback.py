@@ -90,23 +90,30 @@ async def service_callback(
                     saved_ticket,
                     _audit_context=audit_context,
                 )
-        menu_result = await bot.managers.navigator.execute(Dialogs.MENU, update, context)
         ticket_id = getattr(saved_ticket, "id", None) if saved_ticket else None
         if ticket_id:
             from telegram import InlineKeyboardMarkup, InlineKeyboardButton
             await bot.send_message(
                 update, context, "service_ticket_completed",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton(
-                        bot.get_text("service_ticket_action_cancel"),
-                        callback_data=f"service_ticket:user_cancel:{ticket_id}",
-                    )
-                ]]),
+                reply_markup=InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton(
+                            bot.get_text("service_ticket_action_cancel"),
+                            callback_data=f"service_ticket:user_cancel:{ticket_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            bot.get_text("service_ticket_to_menu"),
+                            callback_data=f"service_ticket:to_menu:{ticket_id}",
+                        )
+                    ],
+                ]),
                 dynamic=False,
             )
         elif service_ticket:
             await bot.send_message(update, context, "service_ticket_completed", dynamic=False)
-        return menu_result
+        return Dialogs.MENU
 
     service_ticket = bot.managers.storage.get(context, Variables.USER_SERVICE_TICKET)
     if (item_id not in [97, 98, 99]):
