@@ -85,7 +85,8 @@ class MessageManager(BaseManager):
         non_retryable_markers = (
             "wrong type of the web page content",
             "failed to get http url content",
-            "message can't be deleted for everyone",
+            "message can't be deleted",
+            "message can't be edited",
             "query is too old",
             "query id is invalid",
         )
@@ -663,7 +664,95 @@ class MessageManager(BaseManager):
     ) -> bool:
         result = await self.delete_message_detailed(chat_id=chat_id, message_id=message_id)
         return result.success
-    
+
+    async def delete_or_neutralize_message(
+        self,
+        chat_id: int | str,
+        message_id: int,
+        fallback_text: str | None = None,
+    ) -> MessageOperationResult:
+        """
+        Пытается удалить сообщение. Если Telegram отказывает в удалении
+        (например, сообщению больше 48 часов, а бот не админ с правом
+        удаления сообщений в чате), сообщение "нейтрализуется" на месте:
+        убираются кнопки и, по возможности, подменяется текст/подпись,
+        чтобы администраторы не путались из-за "зависших" тикетов.
+
+        Порядок попыток: delete -> edit text -> edit caption -> strip reply_markup.
+
+        Args:
+            chat_id: ID чата
+            message_id: ID сообщения
+            fallback_text: Текст, которым нужно заменить содержимое сообщения,
+                если удалить его не удалось (без применения локализации/payload -
+                текст должен быть уже готовым к отправке).
+
+        Returns:
+            MessageOperationResult с reason одним из:
+            "deleted", "not_found", "neutralized_text", "neutralized_caption",
+            "neutralized_markup_only", "error".
+        """
+        delete_result = await self.delete_message_detailed(chat_id=chat_id, message_id=message_id)
+        if delete_result.success:
+            return delete_result
+
+        log_context = self._build_log_context(chat_id=chat_id, message_id=message_id)
+        logger.info(
+            "Message could not be deleted, falling back to in-place edit [%s]: %s",
+            log_context,
+            delete_result.error,
+        )
+
+        if fallback_text:
+            try:
+                await self.bot.application.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=fallback_text,
+                    reply_markup=None,
+                    parse_mode=ParseMode.HTML,
+                )
+                return MessageOperationResult(success=True, reason="neutralized_text")
+            except Exception as exc:  # noqa: BLE001
+                if self._is_message_not_found(exc):
+                    return MessageOperationResult(success=True, reason="not_found")
+                if self._is_message_not_modified(exc):
+                    return MessageOperationResult(success=True, reason="neutralized_text")
+
+            try:
+                await self.bot.application.bot.edit_message_caption(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    caption=fallback_text,
+                    reply_markup=None,
+                    parse_mode=ParseMode.HTML,
+                )
+                return MessageOperationResult(success=True, reason="neutralized_caption")
+            except Exception as exc:  # noqa: BLE001
+                if self._is_message_not_found(exc):
+                    return MessageOperationResult(success=True, reason="not_found")
+                if self._is_message_not_modified(exc):
+                    return MessageOperationResult(success=True, reason="neutralized_caption")
+
+        # Последний рубеж: если текст/подпись поменять не вышло, хотя бы убрать кнопки
+        try:
+            await self.bot.application.bot.edit_message_reply_markup(
+                chat_id=chat_id,
+                message_id=message_id,
+                reply_markup=None,
+            )
+            return MessageOperationResult(success=True, reason="neutralized_markup_only")
+        except Exception as exc:  # noqa: BLE001
+            if self._is_message_not_found(exc):
+                return MessageOperationResult(success=True, reason="not_found")
+            if self._is_message_not_modified(exc):
+                return MessageOperationResult(success=True, reason="neutralized_markup_only")
+            await self.bot.handle_error(
+                1007,
+                f"Failed to neutralize undeletable message [{log_context}] {type(exc).__name__}: {exc}",
+            )
+            return MessageOperationResult(success=False, reason="error", error=str(exc))
+
     async def _cleanup_old_messages(self, context: "ContextTypes.DEFAULT_TYPE", chat_id: int, skip_message_id: int = None) -> None:
         """
         Очищает предыдущие сообщения из чата.
