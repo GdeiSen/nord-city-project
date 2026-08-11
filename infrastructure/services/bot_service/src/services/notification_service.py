@@ -2250,26 +2250,47 @@ class NotificationService(BaseService):
             if primary_chat_id is None:
                 primary_chat_id = await self._resolve_ticket_chat_id(ticket)
             if primary_chat_id is not None and primary_message_id:
+                admin_text = self.bot.get_text("ticket_completed_admin", [ticket_id])
                 try:
-                    await self.bot.managers.message.delete_message(
+                    neutralize_result = await self.bot.managers.message.delete_or_neutralize_message(
                         chat_id=primary_chat_id,
                         message_id=primary_message_id,
+                        fallback_text=admin_text,
                     )
                 except Exception as e:
+                    neutralize_result = None
                     logger.warning(
-                        "Failed to delete primary ticket message ticket_id=%s chat_id=%s message_id=%s: %s",
+                        "Failed to delete/neutralize primary ticket message ticket_id=%s chat_id=%s message_id=%s: %s",
                         ticket.id,
                         primary_chat_id,
                         primary_message_id,
                         e,
                     )
-                await self._delete_message_refs(entity_type="ServiceTicket", entity_id=ticket.id)
-                admin_text = self.bot.get_text("ticket_completed_admin", [ticket_id])
-                await self.bot.application.bot.send_message(
-                    chat_id=primary_chat_id,
-                    text=admin_text,
-                    parse_mode=ParseMode.HTML,
-                )
+
+                # Telegram may permanently refuse to delete or edit this message (e.g. it is
+                # older than 48h and the bot has no delete rights in the chat). In that case we
+                # keep the message ref so a later pass could still reach it, instead of orphaning
+                # a stale card with live buttons in the admin chat.
+                if neutralize_result is None or not neutralize_result.success:
+                    logger.warning(
+                        "Ticket message could not be deleted or neutralized ticket_id=%s chat_id=%s message_id=%s: %s",
+                        ticket.id,
+                        primary_chat_id,
+                        primary_message_id,
+                        getattr(neutralize_result, "error", None),
+                    )
+                else:
+                    await self._delete_message_refs(entity_type="ServiceTicket", entity_id=ticket.id)
+                    # If the card content wasn't already replaced in place (either it was
+                    # actually deleted, or only the buttons could be stripped), send a plain
+                    # completion notice so admins aren't left with stale/blank ticket text.
+                    reason = getattr(neutralize_result, "reason", None)
+                    if reason in ("deleted", "not_found", "neutralized_markup_only"):
+                        await self.bot.application.bot.send_message(
+                            chat_id=primary_chat_id,
+                            text=admin_text,
+                            parse_mode=ParseMode.HTML,
+                        )
             return {"success": True, "error": None}
         except Exception as e:
             await self._append_delivery_audit_event(
